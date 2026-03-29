@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VirtualLib — Plugin Emby</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Tokens ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #07080d;
+      --bg2:       #0d0f1a;
+      --bg3:       #12152a;
+      --border:    rgba(99,120,255,0.18);
+      --cyan:      #3cf0e0;
+      --blue:      #4f7aff;
+      --amber:     #ffb347;
+      --red:       #ff5a6a;
+      --text:      #d8dff5;
+      --muted:     #687099;
+      --font-head: 'Syne', sans-serif;
+      --font-mono: 'Space Mono', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 15px;
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* ── Scrollbar ──────────────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--blue); border-radius: 2px; }
+
+    /* ── Noise overlay ──────────────────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+      opacity: 0.025;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ── Grid bg ────────────────────────────────────────────────────── */
+    .grid-bg {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 100%);
+      pointer-events: none;
+    }
+
+    /* ── NAV ────────────────────────────────────────────────────────── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 clamp(1.5rem, 5vw, 4rem);
+      height: 64px;
+      background: rgba(7, 8, 13, 0.8);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      font-family: var(--font-head);
+      font-weight: 800;
+      font-size: 1.25rem;
+      letter-spacing: -0.02em;
+      color: #fff;
+      text-decoration: none;
+    }
+    .nav-logo span { color: var(--cyan); }
+
+    .nav-links {
+      display: flex; gap: 2rem; align-items: center;
+      list-style: none;
+    }
+    .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--cyan); }
+
+    .nav-cta {
+      padding: 0.4rem 1rem;
+      border: 1px solid var(--blue);
+      border-radius: 4px;
+      color: var(--blue) !important;
+      transition: background 0.2s, color 0.2s !important;
+    }
+    .nav-cta:hover { background: var(--blue); color: #fff !important; }
+
+    /* ── HERO ───────────────────────────────────────────────────────── */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center;
+      padding: 8rem clamp(1.5rem, 5vw, 4rem) 6rem;
+      overflow: hidden;
+    }
+
+    .hero-glow {
+      position: absolute;
+      width: 700px; height: 700px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(79,122,255,0.12) 0%, transparent 70%);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    .hero-glow-2 {
+      position: absolute;
+      width: 400px; height: 300px;
+      background: radial-gradient(ellipse, rgba(60,240,224,0.07) 0%, transparent 70%);
+      top: 30%; left: 60%;
+      pointer-events: none;
+    }
+
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.3rem 0.9rem;
+      border: 1px solid rgba(60,240,224,0.3);
+      border-radius: 100px;
+      font-size: 0.72rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 2rem;
+      opacity: 0;
+      animation: fadeUp 0.6s ease forwards 0.2s;
+    }
+    .hero-badge::before {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 6px var(--cyan);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    h1 {
+      font-family: var(--font-head);
+      font-weight: 800;
+      font-size: clamp(3rem, 8vw, 6.5rem);
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+      color: #fff;
+      margin-bottom: 1.5rem;
+      opacity: 0;
+      animation: fadeUp 0.7s ease forwards 0.4s;
+    }
+    h1 .accent { color: var(--cyan); }
+    h1 .dim { color: var(--muted); font-weight: 400; }
+
+    .hero-sub {
+      max-width: 580px;
+      font-size: 1rem;
+      color: var(--muted);
+      line-height: 1.8;
+      margin-bottom: 2.5rem;
+      opacity: 0;
+      animation: fadeUp 0.7s ease forwards 0.6s;
+    }
+
+    .hero-actions {
+      display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;
+      opacity: 0;
+      animation: fadeUp 0.7s ease forwards 0.8s;
+    }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.75rem 1.75rem;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: var(--blue);
+      color: #fff;
+      border: 1px solid var(--blue);
+    }
+    .btn-primary:hover {
+      background: #6b90ff;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(79,122,255,0.35);
+    }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover {
+      border-color: var(--cyan);
+      color: var(--cyan);
+      transform: translateY(-2px);
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(24px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── STATS ──────────────────────────────────────────────────────── */
+    .stats {
+      display: flex; justify-content: center; gap: 3rem; flex-wrap: wrap;
+      padding: 3rem clamp(1.5rem, 5vw, 4rem);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .stat { text-align: center; }
+    .stat-val {
+      font-family: var(--font-head);
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.03em;
+    }
+    .stat-val span { color: var(--cyan); }
+    .stat-label { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 0.2rem; }
+
+    /* ── SECTIONS ───────────────────────────────────────────────────── */
+    section { padding: 6rem clamp(1.5rem, 5vw, 4rem); }
+
+    .section-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 1rem;
+    }
+    .section-title {
+      font-family: var(--font-head);
+      font-weight: 800;
+      font-size: clamp(1.8rem, 4vw, 3rem);
+      letter-spacing: -0.03em;
+      color: #fff;
+      margin-bottom: 1rem;
+      line-height: 1.1;
+    }
+    .section-desc {
+      color: var(--muted);
+      max-width: 560px;
+      margin-bottom: 3.5rem;
+      font-size: 0.9rem;
+    }
+
+    /* ── FEATURES ───────────────────────────────────────────────────── */
+    #features { background: var(--bg2); position: relative; }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.5px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .feature-card {
+      background: var(--bg2);
+      padding: 2rem;
+      transition: background 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 2px; height: 0;
+      background: var(--cyan);
+      transition: height 0.3s;
+    }
+    .feature-card:hover { background: var(--bg3); }
+    .feature-card:hover::before { height: 100%; }
+
+    .feature-icon {
+      width: 40px; height: 40px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 1.25rem;
+      font-size: 1.2rem;
+    }
+    .fi-cyan { background: rgba(60,240,224,0.1); color: var(--cyan); }
+    .fi-blue { background: rgba(79,122,255,0.1); color: var(--blue); }
+    .fi-amber { background: rgba(255,179,71,0.1); color: var(--amber); }
+    .fi-red   { background: rgba(255,90,106,0.1); color: var(--red); }
+
+    .feature-title {
+      font-family: var(--font-head);
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.5rem;
+    }
+    .feature-desc { font-size: 0.82rem; color: var(--muted); line-height: 1.7; }
+
+    /* ── ARCHITECTURE ───────────────────────────────────────────────── */
+    #architecture { background: var(--bg); }
+
+    .arch-diagram {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    .arch-svg-wrap {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2.5rem 2rem;
+      overflow-x: auto;
+    }
+
+    /* SVG flow diagram */
+    .arch-svg { width: 100%; min-width: 560px; }
+
+    /* Node boxes */
+    .node-rect {
+      rx: 8; ry: 8;
+      stroke-width: 1.5;
+    }
+    .node-client   { fill: rgba(79,122,255,0.12); stroke: rgba(79,122,255,0.5); }
+    .node-host     { fill: rgba(60,240,224,0.08); stroke: rgba(60,240,224,0.5); }
+    .node-source   { fill: rgba(255,179,71,0.08); stroke: rgba(255,179,71,0.4); }
+    .node-proxy    { fill: rgba(255,90,106,0.08); stroke: rgba(255,90,106,0.4); }
+
+    .node-label { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; }
+    .node-sub   { font-family: 'Space Mono', monospace; font-size: 10px; fill: #687099; }
+
+    /* Animated flow paths */
+    .flow-path {
+      fill: none; stroke-width: 1.5;
+    }
+    .flow-blue  { stroke: rgba(79,122,255,0.6); }
+    .flow-cyan  { stroke: rgba(60,240,224,0.6); }
+    .flow-amber { stroke: rgba(255,179,71,0.5); }
+
+    .flow-dot {
+      r: 4;
+    }
+    .dot-blue  { fill: var(--blue); }
+    .dot-cyan  { fill: var(--cyan); }
+    .dot-amber { fill: var(--amber); }
+
+    @keyframes moveDot1 {
+      0%   { offset-distance: 0%; opacity: 1; }
+      90%  { opacity: 1; }
+      100% { offset-distance: 100%; opacity: 0; }
+    }
+    @keyframes moveDot2 {
+      0%   { offset-distance: 0%; opacity: 1; }
+      90%  { opacity: 1; }
+      100% { offset-distance: 100%; opacity: 0; }
+    }
+    @keyframes moveDot3 {
+      0%   { offset-distance: 0%; opacity: 1; }
+      90%  { opacity: 1; }
+      100% { offset-distance: 100%; opacity: 0; }
+    }
+
+    .arch-legend {
+      display: flex; gap: 2rem; flex-wrap: wrap;
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border);
+    }
+    .legend-item {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.75rem; color: var(--muted);
+    }
+    .legend-line {
+      width: 24px; height: 2px; border-radius: 1px;
+    }
+
+    /* ── PHASES / ROADMAP ───────────────────────────────────────────── */
+    #roadmap { background: var(--bg2); }
+
+    .phases {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.5rem;
+      max-width: 1100px;
+    }
+
+    .phase-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .phase-card:hover { transform: translateY(-4px); }
+    .phase-card.active { border-color: var(--cyan); }
+    .phase-card.active::after {
+      content: 'EN COURS';
+      position: absolute; top: 1.5rem; right: 1.5rem;
+      font-size: 0.6rem; letter-spacing: 0.14em;
+      color: var(--cyan); font-weight: 700;
+    }
+
+    .phase-num {
+      font-family: var(--font-head);
+      font-size: 4rem;
+      font-weight: 800;
+      line-height: 1;
+      color: rgba(255,255,255,0.04);
+      position: absolute;
+      top: 1rem; right: 1.5rem;
+      letter-spacing: -0.04em;
+    }
+
+    .phase-tag {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+    }
+    .tag-active { background: rgba(60,240,224,0.1); color: var(--cyan); }
+    .tag-next   { background: rgba(79,122,255,0.1); color: var(--blue); }
+    .tag-future { background: rgba(255,255,255,0.05); color: var(--muted); }
+
+    .phase-title {
+      font-family: var(--font-head);
+      font-size: 1.2rem; font-weight: 700;
+      color: #fff;
+      margin-bottom: 1rem;
+    }
+
+    .phase-items { list-style: none; }
+    .phase-items li {
+      font-size: 0.8rem;
+      color: var(--muted);
+      padding: 0.35rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      display: flex; align-items: center; gap: 0.6rem;
+    }
+    .phase-items li:last-child { border-bottom: none; }
+    .phase-items li::before {
+      content: '▸';
+      color: var(--blue);
+      font-size: 0.65rem;
+      flex-shrink: 0;
+    }
+    .phase-card.active .phase-items li::before { color: var(--cyan); }
+
+    /* ── INSTALL ────────────────────────────────────────────────────── */
+    #install { background: var(--bg); }
+
+    .install-steps {
+      display: flex; flex-direction: column; gap: 0;
+      max-width: 640px;
+      counter-reset: step;
+    }
+
+    .step {
+      display: flex; gap: 1.5rem;
+      padding: 1.5rem 0;
+      border-bottom: 1px solid var(--border);
+      counter-increment: step;
+    }
+    .step:last-child { border-bottom: none; }
+
+    .step-num {
+      font-family: var(--font-head);
+      font-size: 0.7rem; font-weight: 700;
+      color: var(--blue);
+      min-width: 28px; height: 28px;
+      border: 1px solid rgba(79,122,255,0.3);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      margin-top: 0.1rem;
+      letter-spacing: 0.04em;
+    }
+
+    .step-content h4 {
+      font-family: var(--font-head);
+      font-size: 0.95rem; font-weight: 700;
+      color: #fff;
+      margin-bottom: 0.4rem;
+    }
+    .step-content p { font-size: 0.82rem; color: var(--muted); }
+
+    .code-block {
+      margin-top: 0.75rem;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 0.78rem;
+      color: var(--cyan);
+      letter-spacing: 0.02em;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    /* ── FOOTER ─────────────────────────────────────────────────────── */
+    footer {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      padding: 3rem clamp(1.5rem, 5vw, 4rem);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 1.5rem;
+    }
+
+    .footer-brand {
+      font-family: var(--font-head);
+      font-size: 1.1rem; font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.02em;
+    }
+    .footer-brand span { color: var(--cyan); }
+
+    .footer-links {
+      display: flex; gap: 1.5rem; list-style: none;
+    }
+    .footer-links a {
+      font-size: 0.78rem; color: var(--muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: var(--cyan); }
+
+    .footer-copy { font-size: 0.72rem; color: var(--muted); }
+
+    /* ── Responsive ─────────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+      .stats { gap: 2rem; }
+      footer { flex-direction: column; }
+    }
+
+    /* ── Scroll reveal ──────────────────────────────────────────────── */
+    .reveal {
+      opacity: 0; transform: translateY(32px);
+      transition: opacity 0.7s ease, transform 0.7s ease;
+    }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+<!-- ── NAV ──────────────────────────────────────────────────────────── -->
+<nav>
+  <a href="#" class="nav-logo">Virtual<span>Lib</span></a>
+  <ul class="nav-links">
+    <li><a href="#features">Fonctionnalités</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#install">Installation</a></li>
+    <li><a href="https://github.com/CCoupel/Emby_VirtualLib" class="nav-cta">GitHub</a></li>
+  </ul>
+</nav>
+
+<!-- ── HERO ─────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="grid-bg"></div>
+  <div class="hero-glow"></div>
+  <div class="hero-glow-2"></div>
+
+  <div class="hero-badge">Plugin Emby · Open Source</div>
+
+  <h1>
+    Virtual<span class="accent">Lib</span><br />
+    <span class="dim">pour Emby</span>
+  </h1>
+
+  <p class="hero-sub">
+    Agrégez les bibliothèques de vos serveurs médias distants — Emby, Jellyfin, Plex —
+    comme bibliothèques natives sur votre serveur hôte. Zéro copie. Proxy transparent.
+    Transcodage à la volée.
+  </p>
+
+  <div class="hero-actions">
+    <a href="https://github.com/CCoupel/Emby_VirtualLib" class="btn btn-primary" target="_blank">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.268 2.75 1.026A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.026 2.747-1.026.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+      Voir sur GitHub
+    </a>
+    <a href="#architecture" class="btn btn-ghost">Explorer l'architecture →</a>
+  </div>
+</section>
+
+<!-- ── STATS ─────────────────────────────────────────────────────────── -->
+<div class="stats reveal">
+  <div class="stat">
+    <div class="stat-val">3<span>+</span></div>
+    <div class="stat-label">Sources supportées</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val"><span>0</span></div>
+    <div class="stat-label">Duplication de fichiers</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val">∞</div>
+    <div class="stat-label">Serveurs configurables</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val">206</div>
+    <div class="stat-label">Range / Seek natif</div>
+  </div>
+</div>
+
+<!-- ── FEATURES ──────────────────────────────────────────────────────── -->
+<section id="features">
+  <div class="section-label">Fonctionnalités</div>
+  <h2 class="section-title reveal">Tout ce dont vous<br />avez besoin</h2>
+  <p class="section-desc reveal">Un plugin léger qui centralise vos serveurs médias sans compromis sur la performance ni la sécurité.</p>
+
+  <div class="features-grid reveal">
+    <div class="feature-card">
+      <div class="feature-icon fi-cyan">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+      </div>
+      <div class="feature-title">Bibliothèques virtuelles natives</div>
+      <div class="feature-desc">Les médias distants apparaissent comme des bibliothèques locales dans Emby. Navigation et lecture identiques à une source locale.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon fi-blue">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+      </div>
+      <div class="feature-title">Proxy transparent</div>
+      <div class="feature-desc">Le stream transite par le serveur hôte via ProxyController. Emby A peut transcoder à la volée. Support Range headers pour le seek natif.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon fi-amber">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
+      </div>
+      <div class="feature-title">Multi-sources</div>
+      <div class="feature-desc">Emby, Jellyfin et Plex supportés via une interface commune IMediaServerConnector. Ajoutez N serveurs simultanément.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon fi-cyan">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      </div>
+      <div class="feature-title">Sync automatique</div>
+      <div class="feature-desc">Détection delta des ajouts et suppressions. Intervalle configurable (défaut 6h). Déclenchable manuellement ou via API REST.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon fi-red">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+      </div>
+      <div class="feature-title">Sécurité intégrée</div>
+      <div class="feature-desc">Les API keys des serveurs sources ne sont jamais exposées aux clients. Le proxy ne forwarde que les items indexés — pas de proxy ouvert.</div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon fi-blue">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      </div>
+      <div class="feature-title">Zéro duplication</div>
+      <div class="feature-desc">Seuls des fichiers .strm (pointeurs URL) et .nfo (métadonnées XML) sont générés localement. Aucun fichier média copié.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── ARCHITECTURE ───────────────────────────────────────────────────── -->
+<section id="architecture">
+  <div class="section-label">Architecture</div>
+  <h2 class="section-title reveal">Flux de données</h2>
+  <p class="section-desc reveal">Lors de la navigation, Emby A sert les métadonnées locales. Lors de la lecture, le ProxyController pipe le stream depuis le serveur source.</p>
+
+  <div class="arch-diagram reveal">
+    <div class="arch-svg-wrap">
+      <svg class="arch-svg" viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="rgba(79,122,255,0.8)"/>
+          </marker>
+          <marker id="arrow-cyan" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="rgba(60,240,224,0.8)"/>
+          </marker>
+          <marker id="arrow-amber" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="rgba(255,179,71,0.8)"/>
+          </marker>
+
+          <path id="path1" d="M 168 100 L 280 100" />
+          <path id="path2" d="M 520 100 L 632 100" />
+          <path id="path3" d="M 400 156 L 400 220 L 632 220 L 632 156" />
+          <path id="path-return" d="M 168 140 L 110 140 L 110 260 L 632 260 L 632 140 L 520 140" />
+        </defs>
+
+        <!-- Client -->
+        <rect class="node-rect node-client" x="20" y="60" width="148" height="120" />
+        <text class="node-label" fill="#8aa0ff" x="94" y="110" text-anchor="middle">CLIENT</text>
+        <text class="node-sub" x="94" y="128" text-anchor="middle">Application Emby</text>
+        <text class="node-sub" x="94" y="146" text-anchor="middle">TV / Mobile / Web</text>
+
+        <!-- Arrow 1: Client → Host -->
+        <path class="flow-path flow-blue" d="M 168 100 L 276 100" marker-end="url(#arrow-blue)"/>
+        <text font-family="Space Mono,monospace" font-size="9" fill="#4f7aff" x="222" y="93" text-anchor="middle">browse</text>
+
+        <!-- Emby Host -->
+        <rect class="node-rect node-host" x="280" y="40" width="240" height="200" />
+        <text class="node-label" fill="#3cf0e0" x="400" y="80" text-anchor="middle">EMBY A — HÔTE</text>
+        <rect fill="rgba(60,240,224,0.06)" stroke="rgba(60,240,224,0.2)" stroke-width="1" rx="4" x="300" y="92" width="200" height="30"/>
+        <text font-family="Space Mono,monospace" font-size="10" fill="#687099" x="400" y="111" text-anchor="middle">ILibraryManager</text>
+        <rect fill="rgba(255,90,106,0.08)" stroke="rgba(255,90,106,0.25)" stroke-width="1" rx="4" x="300" y="134" width="200" height="30"/>
+        <text font-family="Space Mono,monospace" font-size="10" fill="#ff8a96" x="400" y="153" text-anchor="middle">ProxyController</text>
+        <rect fill="rgba(79,122,255,0.06)" stroke="rgba(79,122,255,0.2)" stroke-width="1" rx="4" x="300" y="176" width="200" height="30"/>
+        <text font-family="Space Mono,monospace" font-size="10" fill="#687099" x="400" y="195" text-anchor="middle">LibrarySyncJob</text>
+
+        <!-- Arrow: Host → Source (sync) -->
+        <path class="flow-path flow-amber" d="M 520 200 L 636 200" stroke-dasharray="5 3" marker-end="url(#arrow-amber)"/>
+        <text font-family="Space Mono,monospace" font-size="9" fill="#ffb347" x="578" y="193" text-anchor="middle">sync</text>
+
+        <!-- Arrow: Proxy → Source (stream) -->
+        <path class="flow-path flow-cyan" d="M 520 150 L 636 150" marker-end="url(#arrow-cyan)"/>
+        <text font-family="Space Mono,monospace" font-size="9" fill="#3cf0e0" x="578" y="143" text-anchor="middle">stream</text>
+
+        <!-- Arrow: Client → Proxy (play) -->
+        <path class="flow-path flow-blue" d="M 168 140 L 110 140 L 110 265 L 636 265 L 636 155" stroke-dasharray="4 2" marker-end="url(#arrow-blue)"/>
+        <text font-family="Space Mono,monospace" font-size="9" fill="#8aa0ff" x="400" y="278" text-anchor="middle">play → /virtuallib/proxy/{id}</text>
+
+        <!-- Server B Source -->
+        <rect class="node-rect node-source" x="640" y="40" width="148" height="240" />
+        <text class="node-label" fill="#ffb347" x="714" y="80" text-anchor="middle">SERVEUR B</text>
+        <text class="node-sub" x="714" y="100" text-anchor="middle">source</text>
+        <rect fill="rgba(255,179,71,0.06)" stroke="rgba(255,179,71,0.2)" stroke-width="1" rx="4" x="658" y="115" width="112" height="24"/>
+        <text font-family="Space Mono,monospace" font-size="9" fill="#687099" x="714" y="131" text-anchor="middle">Emby / Jellyfin</text>
+        <rect fill="rgba(255,179,71,0.06)" stroke="rgba(255,179,71,0.2)" stroke-width="1" rx="4" x="658" y="150" width="112" height="24"/>
+        <text font-family="Space Mono,monospace" font-size="9" fill="#687099" x="714" y="166" text-anchor="middle">Plex (phase 3)</text>
+
+        <!-- Animated dots -->
+        <circle r="4" fill="#4f7aff" opacity="0.9">
+          <animateMotion dur="1.8s" repeatCount="indefinite" begin="0s">
+            <mpath href="#path1"/>
+          </animateMotion>
+        </circle>
+        <circle r="4" fill="#3cf0e0" opacity="0.9">
+          <animateMotion dur="2.2s" repeatCount="indefinite" begin="0.5s">
+            <mpath href="#path2"/>
+          </animateMotion>
+        </circle>
+        <circle r="3.5" fill="#ffb347" opacity="0.8">
+          <animateMotion dur="3s" repeatCount="indefinite" begin="1s">
+            <mpath href="#path3"/>
+          </animateMotion>
+        </circle>
+      </svg>
+
+      <div class="arch-legend">
+        <div class="legend-item">
+          <div class="legend-line" style="background:rgba(79,122,255,0.7)"></div>
+          Navigation / Browse
+        </div>
+        <div class="legend-item">
+          <div class="legend-line" style="background:rgba(60,240,224,0.7)"></div>
+          Stream vidéo (proxy)
+        </div>
+        <div class="legend-item">
+          <div class="legend-line" style="background:rgba(255,179,71,0.7); border-top: 2px dashed rgba(255,179,71,0.7); height: 0;"></div>
+          Synchronisation
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── ROADMAP ────────────────────────────────────────────────────────── -->
+<section id="roadmap">
+  <div class="section-label">Roadmap</div>
+  <h2 class="section-title reveal">Trois phases<br />de développement</h2>
+  <p class="section-desc reveal">Un plan progressif du MVP fonctionnel jusqu'au support multi-sources complet.</p>
+
+  <div class="phases">
+    <div class="phase-card active reveal">
+      <div class="phase-num">01</div>
+      <div class="phase-tag tag-active">En cours</div>
+      <div class="phase-title">MVP</div>
+      <ul class="phase-items">
+        <li>Scaffolding projet C# plugin Emby</li>
+        <li>Interface IMediaServerConnector</li>
+        <li>EmbyConnector — auth + list + items</li>
+        <li>StrmGenerator + NfoGenerator</li>
+        <li>PluginConfiguration UI</li>
+        <li>Sync manuelle (bouton UI)</li>
+        <li>Tests unitaires</li>
+      </ul>
+    </div>
+
+    <div class="phase-card reveal">
+      <div class="phase-num">02</div>
+      <div class="phase-tag tag-next">Prochainement</div>
+      <div class="phase-title">Proxy & Automation</div>
+      <ul class="phase-items">
+        <li>ProxyController endpoint HTTP</li>
+        <li>Pipe stream + Range headers</li>
+        <li>LibrarySyncJob planifié</li>
+        <li>Détection delta (ajouts / suppressions)</li>
+        <li>Téléchargement artwork</li>
+        <li>Tests intégration ProxyController</li>
+      </ul>
+    </div>
+
+    <div class="phase-card reveal">
+      <div class="phase-num">03</div>
+      <div class="phase-tag tag-future">Futur</div>
+      <div class="phase-title">Multi-connecteurs</div>
+      <ul class="phase-items">
+        <li>JellyfinConnector</li>
+        <li>PlexConnector (API XML)</li>
+        <li>Support N serveurs simultanés</li>
+        <li>UI multi-serveurs</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ── INSTALL ────────────────────────────────────────────────────────── -->
+<section id="install">
+  <div class="section-label">Installation</div>
+  <h2 class="section-title reveal">Démarrer en<br />quelques minutes</h2>
+
+  <div class="install-steps reveal">
+    <div class="step">
+      <div class="step-num">01</div>
+      <div class="step-content">
+        <h4>Télécharger le plugin</h4>
+        <p>Récupérer <code>VirtualLib.dll</code> depuis la page des releases GitHub.</p>
+        <div class="code-block">github.com/CCoupel/Emby_VirtualLib/releases</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">02</div>
+      <div class="step-content">
+        <h4>Copier dans le répertoire plugins</h4>
+        <p>Placer le fichier dans le dossier plugins d'Emby, puis redémarrer le serveur.</p>
+        <div class="code-block">{EmbyData}/plugins/VirtualLib/VirtualLib.dll</div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">03</div>
+      <div class="step-content">
+        <h4>Configurer un serveur source</h4>
+        <p>Dashboard → Plugins → VirtualLib → Paramètres. Ajouter l'URL + API key du serveur source.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">04</div>
+      <div class="step-content">
+        <h4>Sélectionner les bibliothèques</h4>
+        <p>Après test de connexion, cocher les bibliothèques distantes à synchroniser.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">05</div>
+      <div class="step-content">
+        <h4>Lancer la sync &amp; ajouter la bibliothèque</h4>
+        <p>Cliquer "Synchroniser maintenant", puis ajouter le dossier généré comme bibliothèque dans Emby.</p>
+        <div class="code-block">/media/virtual-libraries/ServeurB_Films/</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FOOTER ─────────────────────────────────────────────────────────── -->
+<footer>
+  <div class="footer-brand">Virtual<span>Lib</span></div>
+  <ul class="footer-links">
+    <li><a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank">GitHub</a></li>
+    <li><a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/ARCHITECTURE.md" target="_blank">Architecture</a></li>
+    <li><a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/CONFIGURATION.md" target="_blank">Configuration</a></li>
+    <li><a href="https://github.com/CCoupel/Emby_VirtualLib/issues" target="_blank">Issues</a></li>
+  </ul>
+  <div class="footer-copy">Plugin Emby open source · MIT License</div>
+</footer>
+
+<script>
+  // Scroll reveal
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        // stagger children
+        e.target.querySelectorAll('.feature-card, .phase-card, .step').forEach((el, i) => {
+          el.style.transitionDelay = `${i * 80}ms`;
+          el.style.opacity = '1';
+          el.style.transform = 'none';
+        });
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.reveal').forEach(el => {
+    observer.observe(el);
+    // pre-hide children
+    el.querySelectorAll('.feature-card, .phase-card, .step').forEach(child => {
+      child.style.opacity = '0';
+      child.style.transform = 'translateY(20px)';
+      child.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+    });
+  });
+</script>
+</body>
+</html>
