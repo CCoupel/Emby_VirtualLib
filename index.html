@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" class="lang-fr">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -33,6 +33,10 @@
 
     body::after{content:'';position:fixed;inset:0;background:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");opacity:.025;pointer-events:none;z-index:9999}
 
+    /* LANG VISIBILITY */
+    .lang-fr .en-only { display: none !important; }
+    .lang-en .fr-only { display: none !important; }
+
     /* NAV */
     .nav{position:fixed;top:0;left:0;right:0;z-index:200;height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(1.5rem,5vw,4rem);background:rgba(8,11,24,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
     .nav-logo{font-family:var(--fh);font-weight:800;font-size:1.4rem;color:#fff;letter-spacing:-.03em}
@@ -40,6 +44,11 @@
     .nav-links{display:flex;gap:2rem;list-style:none}
     .nav-links a{font-size:.82rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);transition:color .2s}
     .nav-links a:hover{color:var(--gold)}
+    .nav-right{display:flex;align-items:center;gap:1rem}
+    .lang-switcher{display:flex;gap:.2rem;background:rgba(255,255,255,.06);border-radius:6px;padding:.2rem}
+    .lang-btn{background:none;border:none;color:var(--muted);font-family:var(--fb);font-size:.72rem;font-weight:800;letter-spacing:.08em;cursor:pointer;padding:.28rem .65rem;border-radius:4px;transition:all .15s}
+    .lang-btn.active{background:var(--gold);color:#0a0c14}
+    .lang-btn:hover:not(.active){color:var(--text)}
     .nav-cta{padding:.45rem 1.2rem;background:var(--gold);color:#0a0c14;border-radius:6px;font-weight:800;font-size:.82rem;letter-spacing:.04em;transition:all .2s}
     .nav-cta:hover{background:#ffd47a;transform:translateY(-1px)}
     @media(max-width:700px){.nav-links{display:none}}
@@ -176,7 +185,7 @@
 
     /* ROADMAP */
     .roadmap-section{background:var(--bg2)}
-    .roadmap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;max-width:1100px}
+    .roadmap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.5rem;max-width:1100px}
     @media(max-width:768px){.roadmap-grid{grid-template-columns:1fr}}
     .phase-card{background:var(--bg);border:1.5px solid var(--border);border-radius:16px;padding:2rem;position:relative;overflow:hidden;transition:transform .2s}
     .phase-card:hover{transform:translateY(-5px)}
@@ -194,6 +203,15 @@
     .phase-list li:last-child{border-bottom:none}
     .phase-list li::before{content:'▸';font-size:.6rem;color:var(--muted);flex-shrink:0}
     .phase-card.active .phase-list li::before{color:var(--gold)}
+    .phase-list a{color:inherit;text-decoration:none;transition:color .15s}
+    .phase-list a:hover{color:var(--gold);text-decoration:underline}
+    .issue-num{margin-left:auto;font-size:.65rem;color:var(--muted);flex-shrink:0;font-family:monospace}
+    .roadmap-loading{grid-column:1/-1;text-align:center;padding:3rem 2rem;color:var(--muted);font-size:.9rem}
+    .roadmap-loading::before{content:'';display:block;width:32px;height:32px;border:2px solid rgba(255,194,75,.2);border-top-color:var(--gold);border-radius:50%;margin:0 auto 1rem;animation:spin-loader .8s linear infinite}
+    @keyframes spin-loader{to{transform:rotate(360deg)}}
+    .roadmap-error{grid-column:1/-1;text-align:center;padding:2rem}
+    .roadmap-error p{color:var(--muted);margin-bottom:1rem}
+    .roadmap-empty{font-size:.8rem;color:var(--muted);margin-top:.5rem;font-style:italic}
 
     /* INSTALL */
     .install-section{background:var(--bg);position:relative;overflow:hidden}
@@ -232,12 +250,18 @@
 <nav class="nav">
   <a href="#" class="nav-logo">Virtual<span>Lib</span></a>
   <ul class="nav-links">
-    <li><a href="#problems">Le problème</a></li>
-    <li><a href="#how">Comment ça marche</a></li>
-    <li><a href="#features">Fonctionnalités</a></li>
+    <li><a href="#problems"><span class="fr-only">Le problème</span><span class="en-only">The problem</span></a></li>
+    <li><a href="#how"><span class="fr-only">Comment ça marche</span><span class="en-only">How it works</span></a></li>
+    <li><a href="#features"><span class="fr-only">Fonctionnalités</span><span class="en-only">Features</span></a></li>
     <li><a href="#roadmap">Roadmap</a></li>
   </ul>
-  <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" class="nav-cta">GitHub ↗</a>
+  <div class="nav-right">
+    <div class="lang-switcher" aria-label="Langue / Language">
+      <button class="lang-btn active" data-lang="fr" aria-label="Français">FR</button>
+      <button class="lang-btn" data-lang="en" aria-label="English">EN</button>
+    </div>
+    <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" rel="noopener" class="nav-cta">GitHub ↗</a>
+  </div>
 </nav>
 
 <section class="hero">
@@ -246,22 +270,28 @@
   <div class="hero-bg-glow2"></div>
 
   <div class="hero-content">
-    <div class="hero-badge">✦ Plugin Emby · Gratuit · Open Source</div>
+    <div class="hero-badge">
+      <span class="fr-only">✦ Plugin Emby · Gratuit · Open Source</span>
+      <span class="en-only">✦ Emby Plugin · Free · Open Source</span>
+    </div>
     <h1>
-      Vos serveurs médias,<br/>
-      <em>enfin réunis.</em><br/>
-      <span class="dim">Dans un seul Emby.</span>
+      <span class="fr-only">Vos serveurs médias,<br/><em>enfin réunis.</em><br/><span class="dim">Dans un seul Emby.</span></span>
+      <span class="en-only">Your media servers,<br/><em>finally unified.</em><br/><span class="dim">In a single Emby.</span></span>
     </h1>
     <p class="hero-sub">
-      VirtualLib agrège <strong>toutes vos bibliothèques distantes</strong> — Emby, Jellyfin, Plex — comme si elles étaient locales.<br/>
-      Pas de copie. Proxy transparent. Sync automatique.
+      <span class="fr-only">VirtualLib agrège <strong>toutes vos bibliothèques distantes</strong> — Emby, Jellyfin, Plex — comme si elles étaient locales.<br/>Pas de copie. Proxy transparent. Sync automatique.</span>
+      <span class="en-only">VirtualLib aggregates <strong>all your remote libraries</strong> — Emby, Jellyfin, Plex — as if they were local.<br/>No file copying. Transparent proxy. Automatic sync.</span>
     </p>
     <div class="hero-btns">
-      <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" class="btn-gold">
-        <span>Obtenir VirtualLib gratuitement</span>
+      <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" rel="noopener" class="btn-gold">
+        <span class="fr-only">Obtenir VirtualLib gratuitement</span>
+        <span class="en-only">Get VirtualLib for free</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       </a>
-      <a href="#how" class="btn-outline">Comment ça marche →</a>
+      <a href="#how" class="btn-outline">
+        <span class="fr-only">Comment ça marche →</span>
+        <span class="en-only">How it works →</span>
+      </a>
     </div>
   </div>
 
@@ -278,70 +308,112 @@
       <div class="srv-center">
         <span style="font-size:1.6rem">🏠</span>
         <span class="srv-center-label">Emby A</span>
-        <span class="srv-center-sub">votre hôte</span>
+        <span class="srv-center-sub"><span class="fr-only">votre hôte</span><span class="en-only">your host</span></span>
       </div>
     </div>
   </div>
 </section>
 
 <div class="stats-bar reveal">
-  <div class="stat-item"><span class="stat-val">0<span>ko</span></span><span class="stat-lbl">Fichier média copié</span></div>
-  <div class="stat-item"><span class="stat-val">3<span>+</span></span><span class="stat-lbl">Plateformes supportées</span></div>
-  <div class="stat-item"><span class="stat-val">∞</span><span class="stat-lbl">Serveurs configurables</span></div>
-  <div class="stat-item"><span class="stat-val">100<span>%</span></span><span class="stat-lbl">Gratuit &amp; open source</span></div>
+  <div class="stat-item"><span class="stat-val">0<span>ko</span></span><span class="stat-lbl"><span class="fr-only">Fichier média copié</span><span class="en-only">Media files copied</span></span></div>
+  <div class="stat-item"><span class="stat-val">3<span>+</span></span><span class="stat-lbl"><span class="fr-only">Plateformes supportées</span><span class="en-only">Supported platforms</span></span></div>
+  <div class="stat-item"><span class="stat-val">∞</span><span class="stat-lbl"><span class="fr-only">Serveurs configurables</span><span class="en-only">Configurable servers</span></span></div>
+  <div class="stat-item"><span class="stat-val">100<span>%</span></span><span class="stat-lbl"><span class="fr-only">Gratuit &amp; open source</span><span class="en-only">Free &amp; open source</span></span></div>
 </div>
 
 <section class="section problems-section" id="problems">
   <div class="container">
-    <div class="sec-label">Le problème</div>
-    <h2 class="sec-title reveal">Ça vous parle ?</h2>
-    <p class="sec-desc reveal">Si vous avez plusieurs serveurs à la maison, vous connaissez la galère.</p>
+    <div class="sec-label"><span class="fr-only">Le problème</span><span class="en-only">The problem</span></div>
+    <h2 class="sec-title reveal">
+      <span class="fr-only">Ça vous parle ?</span>
+      <span class="en-only">Sound familiar?</span>
+    </h2>
+    <p class="sec-desc reveal">
+      <span class="fr-only">Si vous avez plusieurs serveurs à la maison, vous connaissez la galère.</span>
+      <span class="en-only">If you have multiple servers at home, you know the struggle.</span>
+    </p>
     <div class="prob-grid reveal">
       <div class="prob-card">
         <span class="prob-emoji">😤</span>
-        <div class="prob-title">Jongler entre plusieurs interfaces</div>
-        <p class="prob-desc">Film sur le serveur du bureau, série sur le Raspberry du salon, documentaires chez les parents. <strong>Aucun endroit pour tout voir d'un coup.</strong></p>
+        <div class="prob-title">
+          <span class="fr-only">Jongler entre plusieurs interfaces</span>
+          <span class="en-only">Juggling multiple interfaces</span>
+        </div>
+        <p class="prob-desc">
+          <span class="fr-only">Film sur le serveur du bureau, série sur le Raspberry du salon, documentaires chez les parents. <strong>Aucun endroit pour tout voir d'un coup.</strong></span>
+          <span class="en-only">Movie on the office server, series on the living room Pi, documentaries at your parents' place. <strong>Nowhere to see everything at once.</strong></span>
+        </p>
       </div>
       <div class="prob-card">
         <span class="prob-emoji">💾</span>
-        <div class="prob-title">Copier les fichiers = impensable</div>
-        <p class="prob-desc">Dupliquer 2 To de films juste pour centraliser ? <strong>Aucun sens.</strong> Espace gâché, synchronisation impossible, double bande passante.</p>
+        <div class="prob-title">
+          <span class="fr-only">Copier les fichiers = impensable</span>
+          <span class="en-only">Copying files = unthinkable</span>
+        </div>
+        <p class="prob-desc">
+          <span class="fr-only">Dupliquer 2 To de films juste pour centraliser ? <strong>Aucun sens.</strong> Espace gâché, synchronisation impossible, double bande passante.</span>
+          <span class="en-only">Duplicate 2TB of movies just to centralize? <strong>Makes no sense.</strong> Wasted space, impossible sync, double bandwidth.</span>
+        </p>
       </div>
       <div class="prob-card">
         <span class="prob-emoji">🤯</span>
-        <div class="prob-title">La famille ne comprend pas</div>
-        <p class="prob-desc"><strong>« C'est sur quel Emby ce soir ? »</strong> Expliquer l'infra à votre famille, c'est perdu d'avance. Il faut que ça soit transparent.</p>
+        <div class="prob-title">
+          <span class="fr-only">La famille ne comprend pas</span>
+          <span class="en-only">The family doesn't get it</span>
+        </div>
+        <p class="prob-desc">
+          <span class="fr-only"><strong>« C'est sur quel Emby ce soir ? »</strong> Expliquer l'infra à votre famille, c'est perdu d'avance. Il faut que ça soit transparent.</span>
+          <span class="en-only"><strong>"Which Emby is it on tonight?"</strong> Explaining your infrastructure to your family is a lost cause. It has to be transparent.</span>
+        </p>
       </div>
     </div>
     <div class="solution-bridge reveal">
       <span class="bridge-arrow">↓</span>
-      <div class="bridge-text">VirtualLib résout tout ça en un plugin.</div>
-      <p class="bridge-sub">Une seule interface Emby. Tout votre contenu. Partout. Automatiquement.</p>
+      <div class="bridge-text">
+        <span class="fr-only">VirtualLib résout tout ça en un plugin.</span>
+        <span class="en-only">VirtualLib solves all of this in one plugin.</span>
+      </div>
+      <p class="bridge-sub">
+        <span class="fr-only">Une seule interface Emby. Tout votre contenu. Partout. Automatiquement.</span>
+        <span class="en-only">One Emby interface. All your content. Everywhere. Automatically.</span>
+      </p>
     </div>
   </div>
 </section>
 
 <section class="section how-section" id="how">
   <div class="container">
-    <div class="sec-label">Comment ça marche</div>
-    <h2 class="sec-title reveal">Simple comme <em>bonjour</em></h2>
-    <p class="sec-desc reveal">Six étapes, une fois. Ensuite c'est automatique pour toujours.</p>
+    <div class="sec-label"><span class="fr-only">Comment ça marche</span><span class="en-only">How it works</span></div>
+    <h2 class="sec-title reveal">
+      <span class="fr-only">Simple comme <em>bonjour</em></span>
+      <span class="en-only">Simple as <em>that</em></span>
+    </h2>
+    <p class="sec-desc reveal">
+      <span class="fr-only">Six étapes, une fois. Ensuite c'est automatique pour toujours.</span>
+      <span class="en-only">Six steps, once. Then automatic forever.</span>
+    </p>
     <div class="steps-grid reveal">
       <div class="step-card">
         <div class="step-num">01</div>
         <div class="step-body">
           <span class="step-icon">🔌</span>
-          <div class="step-title">Installez le plugin</div>
-          <p class="step-desc">Copiez <strong>VirtualLib.dll</strong> dans le dossier plugins d'Emby A. Redémarrez. C'est tout.</p>
-          <span class="step-tag tag-green">5 minutes</span>
+          <div class="step-title"><span class="fr-only">Installez le plugin</span><span class="en-only">Install the plugin</span></div>
+          <p class="step-desc">
+            <span class="fr-only">Copiez <strong>VirtualLib.dll</strong> dans le dossier plugins d'Emby A. Redémarrez. C'est tout.</span>
+            <span class="en-only">Copy <strong>VirtualLib.dll</strong> into Emby A's plugins folder. Restart. That's it.</span>
+          </p>
+          <span class="step-tag tag-green">5 <span class="fr-only">minutes</span><span class="en-only">minutes</span></span>
         </div>
       </div>
       <div class="step-card">
         <div class="step-num">02</div>
         <div class="step-body">
           <span class="step-icon">🔗</span>
-          <div class="step-title">Ajoutez vos serveurs</div>
-          <p class="step-desc">Dashboard → VirtualLib → Paramètres. URL + clé API de chaque source. <strong>Test de connexion</strong> en un clic.</p>
+          <div class="step-title"><span class="fr-only">Ajoutez vos serveurs</span><span class="en-only">Add your servers</span></div>
+          <p class="step-desc">
+            <span class="fr-only">Dashboard → VirtualLib → Paramètres. URL + clé API de chaque source. <strong>Test de connexion</strong> en un clic.</span>
+            <span class="en-only">Dashboard → VirtualLib → Settings. URL + API key per source. <strong>Connection test</strong> in one click.</span>
+          </p>
           <span class="step-tag tag-gold">Emby / Jellyfin / Plex</span>
         </div>
       </div>
@@ -349,35 +421,47 @@
         <div class="step-num">03</div>
         <div class="step-body">
           <span class="step-icon">📚</span>
-          <div class="step-title">Choisissez vos bibliothèques</div>
-          <p class="step-desc">La liste des bibliothèques disponibles s'affiche. <strong>Cochez celles à importer.</strong> Films ? Séries ? Les deux ? Votre choix.</p>
-          <span class="step-tag tag-blue">Granularité par bibliothèque</span>
+          <div class="step-title"><span class="fr-only">Choisissez vos bibliothèques</span><span class="en-only">Choose your libraries</span></div>
+          <p class="step-desc">
+            <span class="fr-only">La liste des bibliothèques disponibles s'affiche. <strong>Cochez celles à importer.</strong> Films ? Séries ? Les deux ? Votre choix.</span>
+            <span class="en-only">The list of available libraries appears. <strong>Check the ones to import.</strong> Movies? Series? Both? Your call.</span>
+          </p>
+          <span class="step-tag tag-blue"><span class="fr-only">Granularité par bibliothèque</span><span class="en-only">Per-library granularity</span></span>
         </div>
       </div>
       <div class="step-card">
         <div class="step-num">04</div>
         <div class="step-body">
           <span class="step-icon">⚡</span>
-          <div class="step-title">VirtualLib synchronise</div>
-          <p class="step-desc">Génère des fichiers <strong>.strm</strong> (~100 octets chacun) et <strong>.nfo</strong> localement. <strong>Aucun média n'est copié.</strong></p>
-          <span class="step-tag tag-green">Zéro duplication</span>
+          <div class="step-title"><span class="fr-only">VirtualLib synchronise</span><span class="en-only">VirtualLib syncs</span></div>
+          <p class="step-desc">
+            <span class="fr-only">Génère des fichiers <strong>.strm</strong> (~100 octets chacun) et <strong>.nfo</strong> localement. <strong>Aucun média n'est copié.</strong></span>
+            <span class="en-only">Generates <strong>.strm</strong> files (~100 bytes each) and <strong>.nfo</strong> files locally. <strong>No media is copied.</strong></span>
+          </p>
+          <span class="step-tag tag-green"><span class="fr-only">Zéro duplication</span><span class="en-only">Zero duplication</span></span>
         </div>
       </div>
       <div class="step-card">
         <div class="step-num">05</div>
         <div class="step-body">
           <span class="step-icon">🏠</span>
-          <div class="step-title">Ajoutez dans Emby</div>
-          <p class="step-desc">Pointez une bibliothèque Emby vers le dossier généré. <strong>Emby indexe tout</strong> comme si c'était local.</p>
-          <span class="step-tag tag-gold">Natif dans Emby</span>
+          <div class="step-title"><span class="fr-only">Ajoutez dans Emby</span><span class="en-only">Add to Emby</span></div>
+          <p class="step-desc">
+            <span class="fr-only">Pointez une bibliothèque Emby vers le dossier généré. <strong>Emby indexe tout</strong> comme si c'était local.</span>
+            <span class="en-only">Point an Emby library at the generated folder. <strong>Emby indexes everything</strong> as if it were local.</span>
+          </p>
+          <span class="step-tag tag-gold"><span class="fr-only">Natif dans Emby</span><span class="en-only">Native in Emby</span></span>
         </div>
       </div>
       <div class="step-card">
         <div class="step-num">06</div>
         <div class="step-body">
           <span class="step-icon">▶️</span>
-          <div class="step-title">Appuyez sur Play</div>
-          <p class="step-desc">Le <strong>ProxyController</strong> pipe le stream. Seek natif, transcodage à la volée, clés API jamais exposées. <strong>100% transparent.</strong></p>
+          <div class="step-title"><span class="fr-only">Appuyez sur Play</span><span class="en-only">Press Play</span></div>
+          <p class="step-desc">
+            <span class="fr-only">Le <strong>ProxyController</strong> pipe le stream. Seek natif, transcodage à la volée, clés API jamais exposées. <strong>100% transparent.</strong></span>
+            <span class="en-only">The <strong>ProxyController</strong> pipes the stream. Native seek, on-the-fly transcoding, API keys never exposed. <strong>100% transparent.</strong></span>
+          </p>
           <span class="step-tag tag-blue">Proxy Range-aware</span>
         </div>
       </div>
@@ -387,45 +471,69 @@
 
 <section class="section features-section" id="features">
   <div class="container">
-    <div class="sec-label">Fonctionnalités</div>
-    <h2 class="sec-title reveal">Tout y est.<br/><em>Sans compromis.</em></h2>
-    <p class="sec-desc reveal">VirtualLib ne fait pas de concessions sur ce qui compte vraiment.</p>
+    <div class="sec-label"><span class="fr-only">Fonctionnalités</span><span class="en-only">Features</span></div>
+    <h2 class="sec-title reveal">
+      <span class="fr-only">Tout y est.<br/><em>Sans compromis.</em></span>
+      <span class="en-only">Everything's there.<br/><em>No compromises.</em></span>
+    </h2>
+    <p class="sec-desc reveal">
+      <span class="fr-only">VirtualLib ne fait pas de concessions sur ce qui compte vraiment.</span>
+      <span class="en-only">VirtualLib makes no concessions on what truly matters.</span>
+    </p>
     <div class="feat-grid reveal">
       <div class="feat-card">
         <span class="feat-emoji">🎭</span>
-        <div class="feat-title">Bibliothèques virtuelles natives</div>
-        <p class="feat-desc">Vos médias distants apparaissent comme des bibliothèques locales. Navigation, filtres, recherche — exactement comme si les fichiers étaient chez vous.</p>
-        <span class="feat-pill pill-gold">Expérience identique</span>
+        <div class="feat-title"><span class="fr-only">Bibliothèques virtuelles natives</span><span class="en-only">Native virtual libraries</span></div>
+        <p class="feat-desc">
+          <span class="fr-only">Vos médias distants apparaissent comme des bibliothèques locales. Navigation, filtres, recherche — exactement comme si les fichiers étaient chez vous.</span>
+          <span class="en-only">Your remote media appears as local libraries. Browsing, filters, search — exactly as if the files were on your server.</span>
+        </p>
+        <span class="feat-pill pill-gold"><span class="fr-only">Expérience identique</span><span class="en-only">Identical experience</span></span>
       </div>
       <div class="feat-card">
         <span class="feat-emoji">🔄</span>
-        <div class="feat-title">Proxy transparent + Seek natif</div>
-        <p class="feat-desc">Le ProxyController forwarde les Range headers HTTP. Seek au milieu d'un film = instantané. Emby A peut transcoder avant d'envoyer au client.</p>
+        <div class="feat-title"><span class="fr-only">Proxy transparent + Seek natif</span><span class="en-only">Transparent proxy + Native seek</span></div>
+        <p class="feat-desc">
+          <span class="fr-only">Le ProxyController forwarde les Range headers HTTP. Seek au milieu d'un film = instantané. Emby A peut transcoder avant d'envoyer au client.</span>
+          <span class="en-only">The ProxyController forwards HTTP Range headers. Seeking mid-movie = instant. Emby A can transcode before sending to the client.</span>
+        </p>
         <span class="feat-pill pill-teal">206 Partial Content</span>
       </div>
       <div class="feat-card">
         <span class="feat-emoji">🔒</span>
-        <div class="feat-title">Vos clés API restent secrètes</div>
-        <p class="feat-desc">Les tokens d'accès aux serveurs sources ne sont jamais dans les .strm, jamais exposés au client. Le proxy valide chaque requête contre l'index local.</p>
-        <span class="feat-pill pill-blue">Aucun proxy ouvert</span>
+        <div class="feat-title"><span class="fr-only">Vos clés API restent secrètes</span><span class="en-only">Your API keys stay secret</span></div>
+        <p class="feat-desc">
+          <span class="fr-only">Les tokens d'accès aux serveurs sources ne sont jamais dans les .strm, jamais exposés au client. Le proxy valide chaque requête contre l'index local.</span>
+          <span class="en-only">Source server access tokens are never in .strm files, never exposed to clients. The proxy validates each request against the local index.</span>
+        </p>
+        <span class="feat-pill pill-blue"><span class="fr-only">Aucun proxy ouvert</span><span class="en-only">No open proxy</span></span>
       </div>
       <div class="feat-card">
         <span class="feat-emoji">📡</span>
-        <div class="feat-title">Sync automatique &amp; delta</div>
-        <p class="feat-desc">Nouveau film ajouté sur le Serveur B ? Dans l'intervalle configuré (défaut 6h), il apparaît automatiquement dans Emby A. Sans rien faire.</p>
-        <span class="feat-pill pill-gold">Détection ajouts/suppressions</span>
+        <div class="feat-title"><span class="fr-only">Sync automatique &amp; delta</span><span class="en-only">Automatic &amp; delta sync</span></div>
+        <p class="feat-desc">
+          <span class="fr-only">Nouveau film ajouté sur le Serveur B ? Dans l'intervalle configuré (défaut 6h), il apparaît automatiquement dans Emby A. Sans rien faire.</span>
+          <span class="en-only">New movie added on Server B? Within the configured interval (default 6h), it automatically appears in Emby A. No action needed.</span>
+        </p>
+        <span class="feat-pill pill-gold"><span class="fr-only">Détection ajouts/suppressions</span><span class="en-only">Addition/removal detection</span></span>
       </div>
       <div class="feat-card">
         <span class="feat-emoji">🗂️</span>
-        <div class="feat-title">Métadonnées sans re-scraping</div>
-        <p class="feat-desc">Les .nfo embarquent titre, synopsis, rating, genres, IDs IMDb/TMDb. Emby indexe directement sans appeler de scrapers externes.</p>
-        <span class="feat-pill pill-teal">Format NFO Kodi/Emby</span>
+        <div class="feat-title"><span class="fr-only">Métadonnées sans re-scraping</span><span class="en-only">Metadata without re-scraping</span></div>
+        <p class="feat-desc">
+          <span class="fr-only">Les .nfo embarquent titre, synopsis, rating, genres, IDs IMDb/TMDb. Emby indexe directement sans appeler de scrapers externes.</span>
+          <span class="en-only">The .nfo files embed title, synopsis, rating, genres, IMDb/TMDb IDs. Emby indexes directly without calling external scrapers.</span>
+        </p>
+        <span class="feat-pill pill-teal">NFO Kodi/Emby</span>
       </div>
       <div class="feat-card">
         <span class="feat-emoji">🌐</span>
-        <div class="feat-title">Multi-serveurs illimité</div>
-        <p class="feat-desc">Ajoutez autant de serveurs que vous voulez. Chaque connecteur est indépendant avec son intervalle de sync et sa sélection de bibliothèques.</p>
-        <span class="feat-pill pill-blue">N serveurs simultanés</span>
+        <div class="feat-title"><span class="fr-only">Multi-serveurs illimité</span><span class="en-only">Unlimited multi-server</span></div>
+        <p class="feat-desc">
+          <span class="fr-only">Ajoutez autant de serveurs que vous voulez. Chaque connecteur est indépendant avec son intervalle de sync et sa sélection de bibliothèques.</span>
+          <span class="en-only">Add as many servers as you want. Each connector is independent with its own sync interval and library selection.</span>
+        </p>
+        <span class="feat-pill pill-blue"><span class="fr-only">N serveurs simultanés</span><span class="en-only">N concurrent servers</span></span>
       </div>
     </div>
   </div>
@@ -433,27 +541,42 @@
 
 <section class="section compat-section" id="compat">
   <div class="container">
-    <div class="sec-label">Compatibilité</div>
-    <h2 class="sec-title reveal">Fonctionne avec<br/>les <em>trois grands</em></h2>
-    <p class="sec-desc reveal">Une interface commune, trois connecteurs. Même expérience quelle que soit la source.</p>
+    <div class="sec-label"><span class="fr-only">Compatibilité</span><span class="en-only">Compatibility</span></div>
+    <h2 class="sec-title reveal">
+      <span class="fr-only">Fonctionne avec<br/>les <em>trois grands</em></span>
+      <span class="en-only">Works with<br/>the <em>big three</em></span>
+    </h2>
+    <p class="sec-desc reveal">
+      <span class="fr-only">Une interface commune, trois connecteurs. Même expérience quelle que soit la source.</span>
+      <span class="en-only">One common interface, three connectors. Same experience regardless of source.</span>
+    </p>
     <div class="compat-grid reveal">
       <div class="compat-card supported">
         <span class="compat-logo">🖥️</span>
         <div class="compat-name">Emby</div>
-        <span class="compat-status status-ok">✓ Supporté — Phase 1</span>
-        <p class="compat-desc">API REST native, pagination gérée, artwork, stream vidéo. Authentification par clé API ou token MediaBrowser.</p>
+        <span class="compat-status status-ok">✓ <span class="fr-only">Supporté — Phase 1</span><span class="en-only">Supported — Phase 1</span></span>
+        <p class="compat-desc">
+          <span class="fr-only">API REST native, pagination gérée, artwork, stream vidéo. Authentification par clé API ou token MediaBrowser.</span>
+          <span class="en-only">Native REST API, pagination handled, artwork, video stream. Authentication via API key or MediaBrowser token.</span>
+        </p>
       </div>
       <div class="compat-card planned">
         <span class="compat-logo">🐟</span>
         <div class="compat-name">Jellyfin</div>
         <span class="compat-status status-soon">⏳ Phase 3</span>
-        <p class="compat-desc">API compatible avec Emby. Le JellyfinConnector sera un dérivé direct d'EmbyConnector avec ajustements mineurs.</p>
+        <p class="compat-desc">
+          <span class="fr-only">API compatible avec Emby. Le JellyfinConnector sera un dérivé direct d'EmbyConnector avec ajustements mineurs.</span>
+          <span class="en-only">Emby-compatible API. JellyfinConnector will be a direct derivative of EmbyConnector with minor adjustments.</span>
+        </p>
       </div>
       <div class="compat-card planned">
         <span class="compat-logo">🟠</span>
         <div class="compat-name">Plex</div>
         <span class="compat-status status-soon">⏳ Phase 3</span>
-        <p class="compat-desc">API XML différente. PlexConnector traduira les réponses XML vers les modèles normalisés VirtualLib.</p>
+        <p class="compat-desc">
+          <span class="fr-only">API XML différente. PlexConnector traduira les réponses XML vers les modèles normalisés VirtualLib.</span>
+          <span class="en-only">Different XML API. PlexConnector will translate XML responses into VirtualLib's normalized models.</span>
+        </p>
       </div>
     </div>
   </div>
@@ -462,48 +585,16 @@
 <section class="section roadmap-section" id="roadmap">
   <div class="container">
     <div class="sec-label">Roadmap</div>
-    <h2 class="sec-title reveal">Le plan en <em>3 actes</em></h2>
-    <p class="sec-desc reveal">Un chemin progressif, du MVP fonctionnel au hub média universel.</p>
-    <div class="roadmap-grid reveal">
-      <div class="phase-card active">
-        <div class="phase-ghost">01</div>
-        <span class="phase-now">En cours</span>
-        <div class="phase-tag ptag-active">Phase 1 — MVP</div>
-        <div class="phase-title">Les fondations solides</div>
-        <ul class="phase-list">
-          <li>Scaffolding projet C# plugin Emby</li>
-          <li>Interface IMediaServerConnector</li>
-          <li>EmbyConnector complet</li>
-          <li>StrmGenerator + NfoGenerator</li>
-          <li>UI de configuration dans Emby</li>
-          <li>Sync manuelle (bouton)</li>
-          <li>Tests unitaires</li>
-        </ul>
-      </div>
-      <div class="phase-card">
-        <div class="phase-ghost">02</div>
-        <div class="phase-tag ptag-next">Phase 2 — Proxy &amp; Auto</div>
-        <div class="phase-title">La machine tourne seule</div>
-        <ul class="phase-list">
-          <li>ProxyController HTTP complet</li>
-          <li>Support Range headers (seek)</li>
-          <li>LibrarySyncJob planifié</li>
-          <li>Détection delta fine</li>
-          <li>Téléchargement artwork</li>
-          <li>Tests intégration proxy</li>
-        </ul>
-      </div>
-      <div class="phase-card">
-        <div class="phase-ghost">03</div>
-        <div class="phase-tag ptag-future">Phase 3 — Multi-sources</div>
-        <div class="phase-title">L'empire multiverse</div>
-        <ul class="phase-list">
-          <li>JellyfinConnector</li>
-          <li>PlexConnector (API XML)</li>
-          <li>Support N serveurs simultanés</li>
-          <li>UI multi-serveurs avancée</li>
-        </ul>
-      </div>
+    <h2 class="sec-title reveal">
+      <span class="fr-only">Le plan en <em>3 actes</em></span>
+      <span class="en-only">The <em>3-act</em> plan</span>
+    </h2>
+    <p class="sec-desc reveal">
+      <span class="fr-only">Un chemin progressif, du MVP fonctionnel au hub média universel. Issues suivies en direct depuis GitHub.</span>
+      <span class="en-only">A progressive path, from functional MVP to universal media hub. Issues tracked live from GitHub.</span>
+    </p>
+    <div id="roadmap-container" class="roadmap-grid">
+      <!-- Dynamically populated by JS -->
     </div>
   </div>
 </section>
@@ -512,48 +603,56 @@
   <div class="install-glow"></div>
   <div class="container" style="display:flex;justify-content:center">
     <div class="install-inner">
-      <div class="sec-label" style="text-align:center">Démarrer</div>
-      <h2 class="install-title reveal">Prêt en <em>5 minutes</em>.<br/>Gratuit pour toujours.</h2>
-      <p class="install-sub reveal">Pas d'inscription. Pas de serveur cloud. Vos données restent chez vous.</p>
+      <div class="sec-label" style="text-align:center"><span class="fr-only">Démarrer</span><span class="en-only">Get started</span></div>
+      <h2 class="install-title reveal">
+        <span class="fr-only">Prêt en <em>5 minutes</em>.<br/>Gratuit pour toujours.</span>
+        <span class="en-only">Ready in <em>5 minutes</em>.<br/>Free forever.</span>
+      </h2>
+      <p class="install-sub reveal">
+        <span class="fr-only">Pas d'inscription. Pas de serveur cloud. Vos données restent chez vous.</span>
+        <span class="en-only">No sign-up. No cloud server. Your data stays with you.</span>
+      </p>
       <div class="install-steps reveal">
         <div class="inst-step">
           <div class="inst-n">01</div>
           <div class="inst-body">
-            <h4>Télécharger VirtualLib.dll</h4>
-            <p>Depuis la page Releases du dépôt GitHub.</p>
+            <h4><span class="fr-only">Télécharger VirtualLib.dll</span><span class="en-only">Download VirtualLib.dll</span></h4>
+            <p><span class="fr-only">Depuis la page Releases du dépôt GitHub.</span><span class="en-only">From the Releases page of the GitHub repository.</span></p>
             <div class="inst-code">github.com/CCoupel/Emby_VirtualLib/releases</div>
           </div>
         </div>
         <div class="inst-step">
           <div class="inst-n">02</div>
           <div class="inst-body">
-            <h4>Copier dans le dossier plugins Emby</h4>
-            <p>Puis redémarrez votre serveur Emby.</p>
+            <h4><span class="fr-only">Copier dans le dossier plugins Emby</span><span class="en-only">Copy to the Emby plugins folder</span></h4>
+            <p><span class="fr-only">Puis redémarrez votre serveur Emby.</span><span class="en-only">Then restart your Emby server.</span></p>
             <div class="inst-code">{EmbyData}/plugins/VirtualLib/VirtualLib.dll</div>
           </div>
         </div>
         <div class="inst-step">
           <div class="inst-n">03</div>
           <div class="inst-body">
-            <h4>Configurer depuis le Dashboard Emby</h4>
-            <p>Dashboard → Plugins → VirtualLib → Paramètres → Ajouter un serveur.</p>
+            <h4><span class="fr-only">Configurer depuis le Dashboard Emby</span><span class="en-only">Configure from the Emby Dashboard</span></h4>
+            <p><span class="fr-only">Dashboard → Plugins → VirtualLib → Paramètres → Ajouter un serveur.</span><span class="en-only">Dashboard → Plugins → VirtualLib → Settings → Add a server.</span></p>
           </div>
         </div>
         <div class="inst-step">
           <div class="inst-n">04</div>
           <div class="inst-body">
-            <h4>Synchroniser &amp; profiter</h4>
-            <p>Cliquez "Synchroniser maintenant" → Ajoutez le dossier généré comme bibliothèque dans Emby.</p>
+            <h4><span class="fr-only">Synchroniser &amp; profiter</span><span class="en-only">Sync &amp; enjoy</span></h4>
+            <p><span class="fr-only">Cliquez "Synchroniser maintenant" → Ajoutez le dossier généré comme bibliothèque dans Emby.</span><span class="en-only">Click "Sync now" → Add the generated folder as a library in Emby.</span></p>
             <div class="inst-code">/media/virtual-libraries/ServeurB_Films/</div>
           </div>
         </div>
       </div>
       <div class="install-cta-row reveal">
-        <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" class="btn-gold">
+        <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" rel="noopener" class="btn-gold">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.268 2.75 1.026A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.026 2.747-1.026.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
-          Voir sur GitHub
+          <span class="fr-only">Voir sur GitHub</span><span class="en-only">View on GitHub</span>
         </a>
-        <a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/CONFIGURATION.md" target="_blank" class="btn-outline">Documentation complète →</a>
+        <a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/CONFIGURATION.md" target="_blank" rel="noopener" class="btn-outline">
+          <span class="fr-only">Documentation complète →</span><span class="en-only">Full documentation →</span>
+        </a>
       </div>
     </div>
   </div>
@@ -562,69 +661,52 @@
 <footer>
   <div class="foot-brand">Virtual<span>Lib</span></div>
   <ul class="foot-links">
-    <li><a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank">GitHub</a></li>
-    <li><a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/ARCHITECTURE.md" target="_blank">Architecture</a></li>
-    <li><a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/CONFIGURATION.md" target="_blank">Configuration</a></li>
-    <li><a href="https://github.com/CCoupel/Emby_VirtualLib/issues" target="_blank">Issues</a></li>
+    <li><a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" rel="noopener">GitHub</a></li>
+    <li><a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture</a></li>
+    <li><a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/CONFIGURATION.md" target="_blank" rel="noopener"><span class="fr-only">Configuration</span><span class="en-only">Configuration</span></a></li>
+    <li><a href="https://github.com/CCoupel/Emby_VirtualLib/issues" target="_blank" rel="noopener">Issues</a></li>
   </ul>
-  <div class="foot-copy">Plugin Emby open source · MIT License · Cyril Coupel</div>
+  <div class="foot-copy">
+    <span class="fr-only">Plugin Emby open source · MIT License · Cyril Coupel</span>
+    <span class="en-only">Open source Emby plugin · MIT License · Cyril Coupel</span>
+  </div>
 </footer>
 
 <script>
 (function(){
+  /* ── Canvas floating icons ── */
   var canvas = document.getElementById('hero-canvas');
-  if(!canvas) return;
-  var ctx = canvas.getContext('2d');
-  var W, H, particles = [];
-  var ICONS = ['🎬','🎥','📽️','🎞️','📺','🎭','🍿','🎮','🎵','📡','🖥️','💿'];
-
-  function resize(){ W = canvas.width = canvas.offsetWidth; H = canvas.height = canvas.offsetHeight; }
-
-  function makeP(){
-    return {
-      x: Math.random()*W, y: Math.random()*H + H,
-      icon: ICONS[Math.floor(Math.random()*ICONS.length)],
-      size: 14 + Math.random()*18,
-      vy: -(0.3 + Math.random()*0.6),
-      vx: (Math.random()-.5)*0.3,
-      alpha: 0,
-      targetAlpha: 0.12 + Math.random()*0.2,
-      t: 0,
-      swing: (Math.random()-.5)*0.8,
-      swingSpeed: 0.008 + Math.random()*0.012
-    };
-  }
-
-  function init(){
-    particles = [];
-    var n = Math.min(40, Math.floor(W/30));
-    for(var i=0;i<n;i++){ var p = makeP(); p.y = Math.random()*H; p.alpha = Math.random()*p.targetAlpha; particles.push(p); }
-  }
-
-  function draw(){
-    ctx.clearRect(0,0,W,H);
-    for(var i=0;i<particles.length;i++){
-      var p = particles[i];
-      p.t++; p.x += p.vx + Math.sin(p.t*p.swingSpeed)*p.swing*0.3; p.y += p.vy;
-      if(p.alpha < p.targetAlpha) p.alpha = Math.min(p.targetAlpha, p.alpha+0.003);
-      if(p.y < -50){ particles[i] = makeP(); continue; }
-      ctx.save(); ctx.globalAlpha = p.alpha;
-      ctx.font = p.size+'px serif'; ctx.textAlign = 'center';
-      ctx.fillText(p.icon, p.x, p.y); ctx.restore();
+  if(canvas){
+    var ctx = canvas.getContext('2d');
+    var W, H, particles = [];
+    var ICONS = ['🎬','🎥','📽️','🎞️','📺','🎭','🍿','🎮','🎵','📡','🖥️','💿'];
+    function resize(){ W = canvas.width = canvas.offsetWidth; H = canvas.height = canvas.offsetHeight; }
+    function makeP(){
+      return { x:Math.random()*W, y:Math.random()*H+H, icon:ICONS[Math.floor(Math.random()*ICONS.length)], size:14+Math.random()*18, vy:-(0.3+Math.random()*0.6), vx:(Math.random()-.5)*0.3, alpha:0, targetAlpha:0.12+Math.random()*0.2, t:0, swing:(Math.random()-.5)*0.8, swingSpeed:0.008+Math.random()*0.012 };
     }
-    requestAnimationFrame(draw);
+    function init(){ particles=[]; var n=Math.min(40,Math.floor(W/30)); for(var i=0;i<n;i++){ var p=makeP(); p.y=Math.random()*H; p.alpha=Math.random()*p.targetAlpha; particles.push(p); } }
+    function draw(){
+      ctx.clearRect(0,0,W,H);
+      for(var i=0;i<particles.length;i++){
+        var p=particles[i];
+        p.t++; p.x+=p.vx+Math.sin(p.t*p.swingSpeed)*p.swing*0.3; p.y+=p.vy;
+        if(p.alpha<p.targetAlpha) p.alpha=Math.min(p.targetAlpha,p.alpha+0.003);
+        if(p.y<-50){ particles[i]=makeP(); continue; }
+        ctx.save(); ctx.globalAlpha=p.alpha; ctx.font=p.size+'px serif'; ctx.textAlign='center';
+        ctx.fillText(p.icon,p.x,p.y); ctx.restore();
+      }
+      requestAnimationFrame(draw);
+    }
+    window.addEventListener('resize',function(){ resize(); init(); });
+    resize(); init(); draw();
   }
 
-  window.addEventListener('resize', function(){ resize(); init(); });
-  resize(); init(); draw();
-})();
-
-(function(){
+  /* ── Scroll reveal ── */
   var obs = new IntersectionObserver(function(entries){
     entries.forEach(function(e){
       if(!e.isIntersecting) return;
       e.target.classList.add('visible');
-      var children = e.target.querySelectorAll('.prob-card,.step-card,.feat-card,.compat-card,.phase-card,.inst-step,.stat-item');
+      var children = e.target.querySelectorAll('.prob-card,.step-card,.feat-card,.compat-card,.inst-step,.stat-item');
       children.forEach(function(c,i){
         c.style.opacity='0'; c.style.transform='translateY(18px)';
         c.style.transition='opacity .5s ease, transform .5s ease';
@@ -632,8 +714,168 @@
         requestAnimationFrame(function(){ requestAnimationFrame(function(){ c.style.opacity='1'; c.style.transform='none'; }); });
       });
     });
-  }, { threshold: 0.1 });
+  }, { threshold:0.1 });
   document.querySelectorAll('.reveal').forEach(function(el){ obs.observe(el); });
+
+  /* ── Language switcher ── */
+  var currentLang = localStorage.getItem('vl-lang') || 'fr';
+
+  function setLang(lang) {
+    currentLang = lang;
+    var html = document.documentElement;
+    html.lang = lang;
+    html.className = 'lang-' + lang;
+    document.querySelectorAll('.lang-btn').forEach(function(b){
+      b.classList.toggle('active', b.getAttribute('data-lang') === lang);
+    });
+    localStorage.setItem('vl-lang', lang);
+    document.title = lang === 'fr'
+      ? 'VirtualLib \u2014 Unifiez vos serveurs m\u00e9dias dans Emby'
+      : 'VirtualLib \u2014 Unify your media servers in Emby';
+    renderRoadmap(cachedIssues);
+  }
+
+  document.querySelectorAll('.lang-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){ setLang(this.getAttribute('data-lang')); });
+  });
+
+  /* ── Dynamic Roadmap from GitHub API ── */
+  var cachedIssues = [];
+
+  var PHASES = [
+    { key:'phase-1', labelFr:'Phase 1 \u2014 MVP', labelEn:'Phase 1 \u2014 MVP', titleFr:'Les fondations solides', titleEn:'Solid foundations', status:'active', nowFr:'En cours', nowEn:'In progress', ghostNum:'01', tagClass:'ptag-active' },
+    { key:'phase-2', labelFr:'Phase 2 \u2014 Proxy & Auto', labelEn:'Phase 2 \u2014 Proxy & Auto', titleFr:'La machine tourne seule', titleEn:'The machine runs itself', status:'next', ghostNum:'02', tagClass:'ptag-next' },
+    { key:'phase-3', labelFr:'Phase 3 \u2014 Multi-sources', labelEn:'Phase 3 \u2014 Multi-sources', titleFr:"L'empire multiverse", titleEn:'The multiverse empire', status:'future', ghostNum:'03', tagClass:'ptag-future' },
+    { key:'other', labelFr:'Autres', labelEn:'Others', titleFr:'Hors phases', titleEn:'Out of phases', status:'future', ghostNum:'?', tagClass:'ptag-future' }
+  ];
+
+  function el(tag, cls) {
+    var e = document.createElement(tag);
+    if(cls) e.className = cls;
+    return e;
+  }
+
+  function renderRoadmap(issues) {
+    var container = document.getElementById('roadmap-container');
+    if(!container) return;
+    while(container.firstChild) container.removeChild(container.firstChild);
+
+    var lang = currentLang;
+    var groups = {};
+    PHASES.forEach(function(p){ groups[p.key] = []; });
+
+    issues.forEach(function(issue){
+      var labels = issue.labels ? issue.labels.map(function(l){ return l.name; }) : [];
+      var assigned = false;
+      PHASES.forEach(function(p){
+        if(p.key !== 'other' && labels.indexOf(p.key) !== -1){ groups[p.key].push(issue); assigned = true; }
+      });
+      if(!assigned) groups['other'].push(issue);
+    });
+
+    PHASES.forEach(function(phase){
+      var phaseIssues = groups[phase.key];
+      if(phase.key === 'other' && phaseIssues.length === 0) return;
+
+      var card = el('div', 'phase-card' + (phase.status === 'active' ? ' active' : ''));
+
+      var ghost = el('div', 'phase-ghost');
+      ghost.textContent = phase.ghostNum;
+      card.appendChild(ghost);
+
+      if(phase.status === 'active') {
+        var nowBadge = el('span', 'phase-now');
+        nowBadge.textContent = lang === 'fr' ? phase.nowFr : phase.nowEn;
+        card.appendChild(nowBadge);
+      }
+
+      var tag = el('div', 'phase-tag ' + phase.tagClass);
+      tag.textContent = lang === 'fr' ? phase.labelFr : phase.labelEn;
+      card.appendChild(tag);
+
+      var title = el('div', 'phase-title');
+      title.textContent = lang === 'fr' ? phase.titleFr : phase.titleEn;
+      card.appendChild(title);
+
+      if(phaseIssues.length > 0) {
+        var list = el('ul', 'phase-list');
+        phaseIssues.forEach(function(issue){
+          var li = el('li');
+          var a = el('a');
+          a.href = issue.html_url;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.textContent = issue.title;
+          li.appendChild(a);
+          var num = el('span', 'issue-num');
+          num.textContent = '#' + issue.number;
+          li.appendChild(num);
+          list.appendChild(li);
+        });
+        card.appendChild(list);
+      } else {
+        var empty = el('p', 'roadmap-empty');
+        empty.textContent = lang === 'fr' ? 'Aucune issue ouverte' : 'No open issues';
+        card.appendChild(empty);
+      }
+
+      container.appendChild(card);
+    });
+
+    /* stagger reveal for newly added phase cards */
+    container.querySelectorAll('.phase-card').forEach(function(c, i){
+      c.style.opacity = '0';
+      c.style.transform = 'translateY(16px)';
+      c.style.transition = 'opacity .45s ease, transform .45s ease';
+      c.style.transitionDelay = (i * 100) + 'ms';
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){
+          c.style.opacity = '1';
+          c.style.transform = 'none';
+        });
+      });
+    });
+  }
+
+  function loadIssues() {
+    var container = document.getElementById('roadmap-container');
+    if(container) {
+      while(container.firstChild) container.removeChild(container.firstChild);
+      var loadingDiv = el('div', 'roadmap-loading');
+      var loadingText = el('span');
+      loadingText.textContent = currentLang === 'fr' ? 'Chargement des issues GitHub...' : 'Loading GitHub issues...';
+      loadingDiv.appendChild(loadingText);
+      container.appendChild(loadingDiv);
+    }
+    fetch('https://api.github.com/repos/CCoupel/Emby_VirtualLib/issues?state=open&per_page=100')
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        cachedIssues = Array.isArray(data) ? data : [];
+        renderRoadmap(cachedIssues);
+      })
+      .catch(function(){
+        if(!container) return;
+        while(container.firstChild) container.removeChild(container.firstChild);
+        var errDiv = el('div', 'roadmap-error');
+        var errP = el('p');
+        errP.textContent = currentLang === 'fr'
+          ? 'Impossible de charger les issues GitHub.'
+          : 'Could not load GitHub issues.';
+        errDiv.appendChild(errP);
+        var errLink = el('a');
+        errLink.href = 'https://github.com/CCoupel/Emby_VirtualLib/issues';
+        errLink.target = '_blank';
+        errLink.rel = 'noopener';
+        errLink.style.color = 'var(--gold)';
+        errLink.textContent = currentLang === 'fr' ? 'Voir sur GitHub \u2192' : 'View on GitHub \u2192';
+        errDiv.appendChild(errLink);
+        container.appendChild(errDiv);
+      });
+  }
+
+  /* Init */
+  setLang(currentLang);
+  loadIssues();
 })();
 </script>
 </body>
