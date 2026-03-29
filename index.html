@@ -1,587 +1,640 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>VirtualLib — Plugin Emby</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>VirtualLib — Unifiez vos serveurs médias dans Emby</title>
+  <meta name="description" content="Plugin Emby gratuit qui agrège toutes vos bibliothèques distantes (Emby, Jellyfin, Plex) comme si elles étaient locales. Zéro copie, proxy transparent, sync automatique."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --bg:        #07080d;
-      --bg2:       #0d0f1a;
-      --bg3:       #12152a;
-      --border:    rgba(99,120,255,0.18);
-      --cyan:      #3cf0e0;
-      --blue:      #4f7aff;
-      --amber:     #ffb347;
-      --red:       #ff5a6a;
-      --text:      #d8dff5;
-      --muted:     #687099;
-      --font-head: 'Syne', sans-serif;
-      --font-mono: 'Space Mono', monospace;
+      --bg:     #080b18;
+      --bg2:    #0d1228;
+      --bg3:    #131933;
+      --gold:   #ffc24b;
+      --teal:   #00e0cc;
+      --coral:  #ff6b6b;
+      --blue:   #4f8aff;
+      --purple: #a855f7;
+      --text:   #e2e8f8;
+      --muted:  #6b789a;
+      --border: rgba(255,255,255,0.08);
+      --fh:     'Bricolage Grotesque', sans-serif;
+      --fb:     'Nunito', sans-serif;
     }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{background:var(--bg);color:var(--text);font-family:var(--fb);font-size:16px;line-height:1.7;overflow-x:hidden}
+    ::-webkit-scrollbar{width:4px}
+    ::-webkit-scrollbar-thumb{background:var(--gold);border-radius:2px}
+    a{text-decoration:none;color:inherit}
 
-    html { scroll-behavior: smooth; }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font-mono);
-      font-size: 15px;
-      line-height: 1.7;
-      overflow-x: hidden;
-    }
-
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-track { background: var(--bg); }
-    ::-webkit-scrollbar-thumb { background: var(--blue); border-radius: 2px; }
-
-    body::before {
-      content: '';
-      position: fixed; inset: 0;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
-      opacity: 0.025;
-      pointer-events: none;
-      z-index: 9999;
-    }
-
-    .grid-bg {
-      position: absolute; inset: 0;
-      background-image:
-        linear-gradient(var(--border) 1px, transparent 1px),
-        linear-gradient(90deg, var(--border) 1px, transparent 1px);
-      background-size: 48px 48px;
-      mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 100%);
-      pointer-events: none;
-    }
+    body::after{content:'';position:fixed;inset:0;background:url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");opacity:.025;pointer-events:none;z-index:9999}
 
     /* NAV */
-    nav {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 0 clamp(1.5rem, 5vw, 4rem);
-      height: 64px;
-      background: rgba(7, 8, 13, 0.8);
-      backdrop-filter: blur(16px);
-      border-bottom: 1px solid var(--border);
-    }
-    .nav-logo {
-      font-family: var(--font-head); font-weight: 800; font-size: 1.25rem;
-      letter-spacing: -0.02em; color: #fff; text-decoration: none;
-    }
-    .nav-logo span { color: var(--cyan); }
-    .nav-links { display: flex; gap: 2rem; align-items: center; list-style: none; }
-    .nav-links a {
-      color: var(--muted); text-decoration: none; font-size: 0.8rem;
-      letter-spacing: 0.08em; text-transform: uppercase; transition: color 0.2s;
-    }
-    .nav-links a:hover { color: var(--cyan); }
-    .nav-cta {
-      padding: 0.4rem 1rem; border: 1px solid var(--blue); border-radius: 4px;
-      color: var(--blue) !important; transition: background 0.2s, color 0.2s !important;
-    }
-    .nav-cta:hover { background: var(--blue); color: #fff !important; }
+    .nav{position:fixed;top:0;left:0;right:0;z-index:200;height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(1.5rem,5vw,4rem);background:rgba(8,11,24,.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
+    .nav-logo{font-family:var(--fh);font-weight:800;font-size:1.4rem;color:#fff;letter-spacing:-.03em}
+    .nav-logo span{color:var(--gold)}
+    .nav-links{display:flex;gap:2rem;list-style:none}
+    .nav-links a{font-size:.82rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);transition:color .2s}
+    .nav-links a:hover{color:var(--gold)}
+    .nav-cta{padding:.45rem 1.2rem;background:var(--gold);color:#0a0c14;border-radius:6px;font-weight:800;font-size:.82rem;letter-spacing:.04em;transition:all .2s}
+    .nav-cta:hover{background:#ffd47a;transform:translateY(-1px)}
+    @media(max-width:700px){.nav-links{display:none}}
 
     /* HERO */
-    .hero {
-      position: relative; min-height: 100vh;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      text-align: center;
-      padding: 8rem clamp(1.5rem, 5vw, 4rem) 6rem;
-      overflow: hidden;
-    }
-    .hero-glow {
-      position: absolute; width: 700px; height: 700px; border-radius: 50%;
-      background: radial-gradient(circle, rgba(79,122,255,0.12) 0%, transparent 70%);
-      top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none;
-    }
-    .hero-glow-2 {
-      position: absolute; width: 400px; height: 300px;
-      background: radial-gradient(ellipse, rgba(60,240,224,0.07) 0%, transparent 70%);
-      top: 30%; left: 60%; pointer-events: none;
-    }
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: 0.5rem;
-      padding: 0.3rem 0.9rem; border: 1px solid rgba(60,240,224,0.3);
-      border-radius: 100px; font-size: 0.72rem; letter-spacing: 0.12em;
-      text-transform: uppercase; color: var(--cyan); margin-bottom: 2rem;
-      opacity: 0; animation: fadeUp 0.6s ease forwards 0.2s;
-    }
-    .hero-badge::before {
-      content: ''; width: 6px; height: 6px; border-radius: 50%;
-      background: var(--cyan); box-shadow: 0 0 6px var(--cyan);
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .hero{position:relative;min-height:100vh;display:flex;align-items:center;padding:7rem clamp(1.5rem,5vw,4rem) 5rem;overflow:hidden}
+    #hero-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+    .hero-bg-glow{position:absolute;width:900px;height:900px;border-radius:50%;background:radial-gradient(circle,rgba(79,138,255,.12) 0%,transparent 65%);top:50%;left:50%;transform:translate(-50%,-52%);pointer-events:none}
+    .hero-bg-glow2{position:absolute;width:500px;height:400px;background:radial-gradient(ellipse,rgba(255,194,75,.07) 0%,transparent 70%);bottom:10%;right:5%;pointer-events:none}
+    .hero-content{position:relative;z-index:1;max-width:620px}
+    .hero-badge{display:inline-flex;align-items:center;gap:.5rem;padding:.35rem 1rem;border:1.5px solid rgba(255,194,75,.35);border-radius:100px;font-size:.72rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--gold);margin-bottom:1.75rem;background:rgba(255,194,75,.06);animation:fadeUp .5s ease both .1s}
+    .hero-badge::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold);animation:blink 2s infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+    .hero h1{font-family:var(--fh);font-size:clamp(2.8rem,6vw,4.8rem);font-weight:800;line-height:1.05;letter-spacing:-.03em;color:#fff;margin-bottom:1.5rem;animation:fadeUp .6s ease both .25s}
+    .hero h1 em{font-style:normal;color:var(--gold)}
+    .hero h1 .dim{color:var(--muted)}
+    .hero-sub{font-size:1.1rem;color:var(--muted);line-height:1.85;margin-bottom:2.5rem;animation:fadeUp .6s ease both .4s;font-weight:600}
+    .hero-sub strong{color:var(--text)}
+    .hero-btns{display:flex;gap:1rem;flex-wrap:wrap;animation:fadeUp .6s ease both .55s}
+    .btn-gold{display:inline-flex;align-items:center;gap:.6rem;padding:.9rem 2rem;background:var(--gold);color:#0a0c14;border-radius:8px;font-family:var(--fb);font-weight:800;font-size:1rem;letter-spacing:.02em;box-shadow:0 8px 28px rgba(255,194,75,.35);transition:all .2s;animation:pulse-gold 3s ease infinite}
+    @keyframes pulse-gold{0%,100%{box-shadow:0 8px 28px rgba(255,194,75,.35)}50%{box-shadow:0 8px 40px rgba(255,194,75,.6)}}
+    .btn-gold:hover{background:#ffd47a;transform:translateY(-3px);box-shadow:0 14px 40px rgba(255,194,75,.5)}
+    .btn-outline{display:inline-flex;align-items:center;gap:.6rem;padding:.9rem 1.8rem;border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-weight:700;font-size:.95rem;transition:all .2s}
+    .btn-outline:hover{border-color:var(--teal);color:var(--teal);transform:translateY(-2px)}
+    .hero-visual{position:absolute;right:clamp(1rem,5vw,6rem);top:50%;transform:translateY(-50%);z-index:1;animation:fadeUp .8s ease both .6s}
+    @media(max-width:1000px){.hero-visual{display:none}}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 
-    h1 {
-      font-family: var(--font-head); font-weight: 800;
-      font-size: clamp(3rem, 8vw, 6.5rem); line-height: 0.95;
-      letter-spacing: -0.04em; color: #fff; margin-bottom: 1.5rem;
-      opacity: 0; animation: fadeUp 0.7s ease forwards 0.4s;
-    }
-    h1 .accent { color: var(--cyan); }
-    h1 .dim { color: var(--muted); font-weight: 400; }
+    /* Server constellation */
+    .server-viz{position:relative;width:380px;height:380px}
+    .srv-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:120px;height:120px;background:linear-gradient(135deg,var(--bg3),#1e2a50);border:2px solid var(--gold);border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3rem;box-shadow:0 0 40px rgba(255,194,75,.25),inset 0 0 20px rgba(255,194,75,.05);z-index:3}
+    .srv-center-label{font-family:var(--fh);font-weight:800;font-size:.85rem;color:var(--gold)}
+    .srv-center-sub{font-size:.62rem;color:var(--muted);font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+    .srv-orbit{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:300px;height:300px;border:1px dashed rgba(255,255,255,.08);border-radius:50%;animation:spin 20s linear infinite}
+    @keyframes spin{from{transform:translate(-50%,-50%) rotate(0)}to{transform:translate(-50%,-50%) rotate(360deg)}}
+    .srv-node{position:absolute;width:76px;height:76px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.25rem;border:1.5px solid;font-size:.62rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;animation:counter-spin 20s linear infinite}
+    @keyframes counter-spin{from{transform:rotate(0)}to{transform:rotate(-360deg)}}
+    .srv-a{top:-38px;left:50%;transform:translateX(-50%);background:rgba(79,138,255,.12);border-color:rgba(79,138,255,.5);color:var(--blue)}
+    .srv-b{bottom:20px;right:-20px;background:rgba(0,224,204,.1);border-color:rgba(0,224,204,.4);color:var(--teal)}
+    .srv-c{bottom:20px;left:-20px;background:rgba(168,85,247,.1);border-color:rgba(168,85,247,.4);color:var(--purple)}
+    .srv-icon{font-size:1.4rem}
+    .srv-arrow{position:absolute;top:50%;left:50%;width:80px;height:2px;background:linear-gradient(90deg,transparent,rgba(255,194,75,.6));transform-origin:left center;z-index:2}
+    .srv-arr1{transform:translate(60px,-50%) rotate(-65deg)}
+    .srv-arr2{transform:translate(60px,-50%) rotate(55deg)}
+    .srv-arr3{transform:translate(60px,-50%) rotate(180deg)}
+    .arr-dot{position:absolute;right:-4px;top:-4px;width:8px;height:8px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold);animation:dot-travel 2s ease-in-out infinite}
+    .srv-arr2 .arr-dot{animation-delay:.65s}
+    .srv-arr3 .arr-dot{animation-delay:1.3s}
+    @keyframes dot-travel{0%{transform:translateX(0);opacity:0}20%{opacity:1}100%{transform:translateX(-80px);opacity:0}}
 
-    .hero-sub {
-      max-width: 580px; font-size: 1rem; color: var(--muted); line-height: 1.8;
-      margin-bottom: 2.5rem; opacity: 0; animation: fadeUp 0.7s ease forwards 0.6s;
-    }
-    .hero-actions {
-      display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;
-      opacity: 0; animation: fadeUp 0.7s ease forwards 0.8s;
-    }
-    .btn {
-      display: inline-flex; align-items: center; gap: 0.5rem;
-      padding: 0.75rem 1.75rem; border-radius: 6px;
-      font-family: var(--font-mono); font-size: 0.82rem; font-weight: 700;
-      letter-spacing: 0.05em; text-decoration: none; transition: all 0.2s;
-    }
-    .btn-primary { background: var(--blue); color: #fff; border: 1px solid var(--blue); }
-    .btn-primary:hover { background: #6b90ff; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(79,122,255,0.35); }
-    .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
-    .btn-ghost:hover { border-color: var(--cyan); color: var(--cyan); transform: translateY(-2px); }
+    /* STATS BAR */
+    .stats-bar{display:flex;justify-content:center;flex-wrap:wrap;gap:0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--bg2)}
+    .stat-item{flex:1;min-width:160px;padding:1.75rem 2rem;text-align:center;border-right:1px solid var(--border)}
+    .stat-item:last-child{border-right:none}
+    .stat-val{font-family:var(--fh);font-size:2.2rem;font-weight:800;color:#fff;letter-spacing:-.03em;display:block}
+    .stat-val span{color:var(--gold)}
+    .stat-lbl{font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-top:.2rem}
 
-    @keyframes fadeUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+    /* SECTION BASE */
+    .section{padding:7rem clamp(1.5rem,5vw,4rem)}
+    .sec-label{font-size:.7rem;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--gold);margin-bottom:.75rem}
+    .sec-title{font-family:var(--fh);font-size:clamp(2rem,4vw,3rem);font-weight:800;letter-spacing:-.03em;color:#fff;line-height:1.1;margin-bottom:1rem}
+    .sec-title em{font-style:normal;color:var(--teal)}
+    .sec-desc{color:var(--muted);font-size:.95rem;font-weight:600;line-height:1.8;max-width:560px;margin-bottom:3.5rem}
+    .container{max-width:1200px;margin:0 auto}
 
-    /* STATS */
-    .stats {
-      display: flex; justify-content: center; gap: 3rem; flex-wrap: wrap;
-      padding: 3rem clamp(1.5rem, 5vw, 4rem);
-      border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
-    }
-    .stat { text-align: center; }
-    .stat-val { font-family: var(--font-head); font-size: 2.2rem; font-weight: 800; color: #fff; letter-spacing: -0.03em; }
-    .stat-val span { color: var(--cyan); }
-    .stat-label { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 0.2rem; }
+    /* PROBLEM */
+    .problems-section{background:var(--bg2)}
+    .prob-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.5rem;margin-bottom:3rem}
+    .prob-card{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:1.75rem;position:relative;overflow:hidden;transition:transform .2s,border-color .2s}
+    .prob-card:hover{transform:translateY(-4px);border-color:rgba(255,107,107,.3)}
+    .prob-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+    .prob-card:nth-child(1)::before{background:linear-gradient(90deg,var(--coral),#ff9b6b)}
+    .prob-card:nth-child(2)::before{background:linear-gradient(90deg,var(--purple),#e879f9)}
+    .prob-card:nth-child(3)::before{background:linear-gradient(90deg,var(--blue),#60a5fa)}
+    .prob-emoji{font-size:2rem;margin-bottom:1rem;display:block}
+    .prob-title{font-family:var(--fh);font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:.6rem}
+    .prob-desc{font-size:.88rem;color:var(--muted);line-height:1.75}
+    .prob-desc strong{color:var(--text)}
+    .solution-bridge{text-align:center;padding:2rem;background:linear-gradient(135deg,rgba(255,194,75,.08),rgba(0,224,204,.06));border:1px solid rgba(255,194,75,.2);border-radius:16px;margin-top:1rem}
+    .bridge-arrow{font-size:2rem;margin-bottom:.75rem;display:block;animation:bounce-down 1.5s ease infinite}
+    @keyframes bounce-down{0%,100%{transform:translateY(0)}50%{transform:translateY(8px)}}
+    .bridge-text{font-family:var(--fh);font-size:1.3rem;font-weight:800;color:var(--gold)}
+    .bridge-sub{font-size:.9rem;color:var(--muted);font-weight:600;margin-top:.4rem}
 
-    /* SECTIONS */
-    section { padding: 6rem clamp(1.5rem, 5vw, 4rem); }
-    .section-label { font-size: 0.7rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--blue); margin-bottom: 1rem; }
-    .section-title { font-family: var(--font-head); font-weight: 800; font-size: clamp(1.8rem, 4vw, 3rem); letter-spacing: -0.03em; color: #fff; margin-bottom: 1rem; line-height: 1.1; }
-    .section-desc { color: var(--muted); max-width: 560px; margin-bottom: 3.5rem; font-size: 0.9rem; }
+    /* HOW IT WORKS */
+    .how-section{background:var(--bg)}
+    .steps-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1.5rem}
+    .step-card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:2rem;display:flex;gap:1.25rem;transition:transform .25s,border-color .25s}
+    .step-card:hover{transform:translateY(-4px);border-color:var(--gold)}
+    .step-num{font-family:var(--fh);font-size:3rem;font-weight:800;color:rgba(255,194,75,.12);line-height:1;min-width:56px;text-align:center;flex-shrink:0;margin-top:-.3rem}
+    .step-icon{font-size:1.8rem;margin-bottom:.75rem;display:block}
+    .step-title{font-family:var(--fh);font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:.5rem}
+    .step-desc{font-size:.85rem;color:var(--muted);line-height:1.75}
+    .step-desc strong{color:var(--teal)}
+    .step-tag{display:inline-block;margin-top:.75rem;padding:.2rem .65rem;border-radius:20px;font-size:.68rem;font-weight:800;letter-spacing:.06em}
+    .tag-green{background:rgba(0,224,204,.1);color:var(--teal)}
+    .tag-gold{background:rgba(255,194,75,.12);color:var(--gold)}
+    .tag-blue{background:rgba(79,138,255,.12);color:var(--blue)}
 
     /* FEATURES */
-    #features { background: var(--bg2); position: relative; }
-    .features-grid {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 1.5px; background: var(--border); border: 1px solid var(--border);
-      border-radius: 12px; overflow: hidden;
-    }
-    .feature-card {
-      background: var(--bg2); padding: 2rem; transition: background 0.2s;
-      position: relative; overflow: hidden;
-    }
-    .feature-card::before {
-      content: ''; position: absolute; top: 0; left: 0;
-      width: 2px; height: 0; background: var(--cyan); transition: height 0.3s;
-    }
-    .feature-card:hover { background: var(--bg3); }
-    .feature-card:hover::before { height: 100%; }
-    .feature-icon {
-      width: 40px; height: 40px; border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      margin-bottom: 1.25rem; font-size: 1.2rem;
-    }
-    .fi-cyan { background: rgba(60,240,224,0.1); color: var(--cyan); }
-    .fi-blue { background: rgba(79,122,255,0.1); color: var(--blue); }
-    .fi-amber { background: rgba(255,179,71,0.1); color: var(--amber); }
-    .fi-red   { background: rgba(255,90,106,0.1); color: var(--red); }
-    .feature-title { font-family: var(--font-head); font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 0.5rem; }
-    .feature-desc { font-size: 0.82rem; color: var(--muted); line-height: 1.7; }
+    .features-section{background:var(--bg2)}
+    .feat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:1.5px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+    .feat-card{background:var(--bg2);padding:2.25rem;position:relative;overflow:hidden;transition:background .2s}
+    .feat-card:hover{background:var(--bg3)}
+    .feat-card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;transform:scaleX(0);transform-origin:left;transition:transform .3s}
+    .feat-card:nth-child(1)::after,.feat-card:nth-child(4)::after{background:var(--gold)}
+    .feat-card:nth-child(2)::after,.feat-card:nth-child(5)::after{background:var(--teal)}
+    .feat-card:nth-child(3)::after,.feat-card:nth-child(6)::after{background:var(--blue)}
+    .feat-card:hover::after{transform:scaleX(1)}
+    .feat-emoji{font-size:2.2rem;margin-bottom:1.25rem;display:block}
+    .feat-title{font-family:var(--fh);font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:.6rem}
+    .feat-desc{font-size:.85rem;color:var(--muted);line-height:1.75}
+    .feat-pill{display:inline-block;margin-top:.9rem;padding:.2rem .7rem;border-radius:20px;font-size:.68rem;font-weight:800;letter-spacing:.05em;border:1px solid}
+    .pill-gold{border-color:rgba(255,194,75,.3);color:var(--gold)}
+    .pill-teal{border-color:rgba(0,224,204,.3);color:var(--teal)}
+    .pill-blue{border-color:rgba(79,138,255,.3);color:var(--blue)}
 
-    /* ARCHITECTURE */
-    #architecture { background: var(--bg); }
-    .arch-diagram { max-width: 860px; margin: 0 auto; }
-    .arch-svg-wrap {
-      background: var(--bg2); border: 1px solid var(--border);
-      border-radius: 12px; padding: 2.5rem 2rem; overflow-x: auto;
-    }
-    .arch-svg { width: 100%; min-width: 560px; }
-    .node-rect { rx: 8; ry: 8; stroke-width: 1.5; }
-    .node-client  { fill: rgba(79,122,255,0.12); stroke: rgba(79,122,255,0.5); }
-    .node-host    { fill: rgba(60,240,224,0.08); stroke: rgba(60,240,224,0.5); }
-    .node-source  { fill: rgba(255,179,71,0.08); stroke: rgba(255,179,71,0.4); }
-    .node-label { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; }
-    .node-sub   { font-family: 'Space Mono', monospace; font-size: 10px; fill: #687099; }
-    .flow-path  { fill: none; stroke-width: 1.5; }
-    .flow-blue  { stroke: rgba(79,122,255,0.6); }
-    .flow-cyan  { stroke: rgba(60,240,224,0.6); }
-    .flow-amber { stroke: rgba(255,179,71,0.5); }
-    .arch-legend {
-      display: flex; gap: 2rem; flex-wrap: wrap;
-      margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border);
-    }
-    .legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; color: var(--muted); }
-    .legend-line { width: 24px; height: 2px; border-radius: 1px; }
+    /* COMPATIBILITY */
+    .compat-section{background:var(--bg)}
+    .compat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;max-width:820px}
+    @media(max-width:600px){.compat-grid{grid-template-columns:1fr}}
+    .compat-card{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:2rem 1.5rem;text-align:center;transition:transform .2s,border-color .2s;position:relative;overflow:hidden}
+    .compat-card:hover{transform:translateY(-4px)}
+    .compat-card.supported{border-color:rgba(0,224,204,.3)}
+    .compat-card.supported:hover{border-color:var(--teal)}
+    .compat-card.planned{opacity:.7}
+    .compat-logo{font-size:2.8rem;margin-bottom:1rem;display:block}
+    .compat-name{font-family:var(--fh);font-size:1.2rem;font-weight:800;color:#fff;margin-bottom:.4rem}
+    .compat-status{font-size:.72rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;padding:.25rem .7rem;border-radius:20px;display:inline-block;margin-bottom:.75rem}
+    .status-ok{background:rgba(0,224,204,.12);color:var(--teal)}
+    .status-soon{background:rgba(255,255,255,.07);color:var(--muted)}
+    .compat-desc{font-size:.82rem;color:var(--muted);line-height:1.65}
 
     /* ROADMAP */
-    #roadmap { background: var(--bg2); }
-    .phases { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; max-width: 1100px; }
-    .phase-card {
-      background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
-      padding: 2rem; position: relative; overflow: hidden; transition: border-color 0.2s, transform 0.2s;
-    }
-    .phase-card:hover { transform: translateY(-4px); }
-    .phase-card.active { border-color: var(--cyan); }
-    .phase-card.active::after {
-      content: 'EN COURS'; position: absolute; top: 1.5rem; right: 1.5rem;
-      font-size: 0.6rem; letter-spacing: 0.14em; color: var(--cyan); font-weight: 700;
-    }
-    .phase-num {
-      font-family: var(--font-head); font-size: 4rem; font-weight: 800; line-height: 1;
-      color: rgba(255,255,255,0.04); position: absolute; top: 1rem; right: 1.5rem;
-      letter-spacing: -0.04em;
-    }
-    .phase-tag {
-      display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px;
-      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.1em;
-      text-transform: uppercase; margin-bottom: 1rem;
-    }
-    .tag-active { background: rgba(60,240,224,0.1); color: var(--cyan); }
-    .tag-next   { background: rgba(79,122,255,0.1); color: var(--blue); }
-    .tag-future { background: rgba(255,255,255,0.05); color: var(--muted); }
-    .phase-title { font-family: var(--font-head); font-size: 1.2rem; font-weight: 700; color: #fff; margin-bottom: 1rem; }
-    .phase-items { list-style: none; }
-    .phase-items li {
-      font-size: 0.8rem; color: var(--muted); padding: 0.35rem 0;
-      border-bottom: 1px solid rgba(255,255,255,0.04);
-      display: flex; align-items: center; gap: 0.6rem;
-    }
-    .phase-items li:last-child { border-bottom: none; }
-    .phase-items li::before { content: '▸'; color: var(--blue); font-size: 0.65rem; flex-shrink: 0; }
-    .phase-card.active .phase-items li::before { color: var(--cyan); }
+    .roadmap-section{background:var(--bg2)}
+    .roadmap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;max-width:1100px}
+    @media(max-width:768px){.roadmap-grid{grid-template-columns:1fr}}
+    .phase-card{background:var(--bg);border:1.5px solid var(--border);border-radius:16px;padding:2rem;position:relative;overflow:hidden;transition:transform .2s}
+    .phase-card:hover{transform:translateY(-5px)}
+    .phase-card.active{border-color:var(--gold)}
+    .phase-card.active::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--gold),#ffdd85)}
+    .phase-ghost{font-family:var(--fh);font-size:5rem;font-weight:800;color:rgba(255,255,255,.03);position:absolute;top:.5rem;right:1rem;line-height:1;letter-spacing:-.04em;pointer-events:none}
+    .phase-tag{display:inline-block;padding:.25rem .75rem;border-radius:20px;font-size:.68rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;margin-bottom:1rem}
+    .ptag-active{background:rgba(255,194,75,.12);color:var(--gold)}
+    .ptag-next{background:rgba(79,138,255,.1);color:var(--blue)}
+    .ptag-future{background:rgba(255,255,255,.05);color:var(--muted)}
+    .phase-now{position:absolute;top:1.5rem;right:1.5rem;font-size:.62rem;font-weight:800;color:var(--gold);letter-spacing:.1em;text-transform:uppercase}
+    .phase-title{font-family:var(--fh);font-size:1.25rem;font-weight:800;color:#fff;margin-bottom:1rem}
+    .phase-list{list-style:none}
+    .phase-list li{font-size:.83rem;color:var(--muted);padding:.32rem 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:.6rem}
+    .phase-list li:last-child{border-bottom:none}
+    .phase-list li::before{content:'▸';font-size:.6rem;color:var(--muted);flex-shrink:0}
+    .phase-card.active .phase-list li::before{color:var(--gold)}
 
     /* INSTALL */
-    #install { background: var(--bg); }
-    .install-steps { display: flex; flex-direction: column; gap: 0; max-width: 640px; counter-reset: step; }
-    .step { display: flex; gap: 1.5rem; padding: 1.5rem 0; border-bottom: 1px solid var(--border); }
-    .step:last-child { border-bottom: none; }
-    .step-num {
-      font-family: var(--font-head); font-size: 0.7rem; font-weight: 700; color: var(--blue);
-      min-width: 28px; height: 28px; border: 1px solid rgba(79,122,255,0.3); border-radius: 50%;
-      display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.1rem; letter-spacing: 0.04em;
-    }
-    .step-content h4 { font-family: var(--font-head); font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; }
-    .step-content p { font-size: 0.82rem; color: var(--muted); }
-    .code-block {
-      margin-top: 0.75rem; background: var(--bg2); border: 1px solid var(--border);
-      border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.78rem; color: var(--cyan);
-      letter-spacing: 0.02em; overflow-x: auto; white-space: nowrap;
-    }
+    .install-section{background:var(--bg);position:relative;overflow:hidden}
+    .install-glow{position:absolute;width:800px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(255,194,75,.06) 0%,transparent 70%);top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none}
+    .install-inner{max-width:800px;text-align:center}
+    .install-title{font-family:var(--fh);font-size:clamp(2.2rem,5vw,4rem);font-weight:800;letter-spacing:-.03em;color:#fff;margin-bottom:1rem;line-height:1.1}
+    .install-title em{font-style:normal;color:var(--gold)}
+    .install-sub{font-size:1rem;color:var(--muted);font-weight:600;margin-bottom:3rem;max-width:500px;margin-left:auto;margin-right:auto}
+    .install-steps{display:flex;flex-direction:column;gap:0;text-align:left;background:var(--bg2);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:2.5rem}
+    .inst-step{display:flex;align-items:flex-start;gap:1.5rem;padding:1.5rem 2rem;border-bottom:1px solid var(--border)}
+    .inst-step:last-child{border-bottom:none}
+    .inst-n{font-family:var(--fh);font-size:.75rem;font-weight:800;color:var(--gold);width:28px;height:28px;border:1.5px solid rgba(255,194,75,.3);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:.1rem}
+    .inst-body h4{font-family:var(--fh);font-size:.95rem;font-weight:700;color:#fff;margin-bottom:.3rem}
+    .inst-body p{font-size:.83rem;color:var(--muted)}
+    .inst-code{margin-top:.6rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.6rem 1rem;font-family:monospace;font-size:.78rem;color:var(--teal);overflow-x:auto;white-space:nowrap}
+    .install-cta-row{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}
 
     /* FOOTER */
-    footer {
-      background: var(--bg2); border-top: 1px solid var(--border);
-      padding: 3rem clamp(1.5rem, 5vw, 4rem);
-      display: flex; align-items: center; justify-content: space-between;
-      flex-wrap: wrap; gap: 1.5rem;
-    }
-    .footer-brand { font-family: var(--font-head); font-size: 1.1rem; font-weight: 800; color: #fff; letter-spacing: -0.02em; }
-    .footer-brand span { color: var(--cyan); }
-    .footer-links { display: flex; gap: 1.5rem; list-style: none; }
-    .footer-links a { font-size: 0.78rem; color: var(--muted); text-decoration: none; transition: color 0.2s; }
-    .footer-links a:hover { color: var(--cyan); }
-    .footer-copy { font-size: 0.72rem; color: var(--muted); }
+    footer{background:var(--bg2);border-top:1px solid var(--border);padding:3rem clamp(1.5rem,5vw,4rem);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1.5rem}
+    .foot-brand{font-family:var(--fh);font-size:1.2rem;font-weight:800;color:#fff}
+    .foot-brand span{color:var(--gold)}
+    .foot-links{display:flex;gap:1.5rem;list-style:none}
+    .foot-links a{font-size:.8rem;color:var(--muted);transition:color .2s}
+    .foot-links a:hover{color:var(--gold)}
+    .foot-copy{font-size:.75rem;color:var(--muted)}
 
-    @media (max-width: 640px) {
-      .nav-links { display: none; }
-      .stats { gap: 2rem; }
-      footer { flex-direction: column; }
-    }
+    /* REVEAL */
+    .reveal{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s ease}
+    .reveal.visible{opacity:1;transform:translateY(0)}
 
-    .reveal { opacity: 0; transform: translateY(32px); transition: opacity 0.7s ease, transform 0.7s ease; }
-    .reveal.visible { opacity: 1; transform: translateY(0); }
+    @media(max-width:640px){.stats-bar{flex-direction:column}.stat-item{border-right:none;border-bottom:1px solid var(--border)}.stat-item:last-child{border-bottom:none}footer{flex-direction:column}}
   </style>
 </head>
 <body>
 
-<nav>
+<nav class="nav">
   <a href="#" class="nav-logo">Virtual<span>Lib</span></a>
   <ul class="nav-links">
+    <li><a href="#problems">Le problème</a></li>
+    <li><a href="#how">Comment ça marche</a></li>
     <li><a href="#features">Fonctionnalités</a></li>
-    <li><a href="#architecture">Architecture</a></li>
     <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#install">Installation</a></li>
-    <li><a href="https://github.com/CCoupel/Emby_VirtualLib" class="nav-cta">GitHub</a></li>
   </ul>
+  <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" class="nav-cta">GitHub ↗</a>
 </nav>
 
 <section class="hero">
-  <div class="grid-bg"></div>
-  <div class="hero-glow"></div>
-  <div class="hero-glow-2"></div>
-  <div class="hero-badge">Plugin Emby · Open Source</div>
-  <h1>Virtual<span class="accent">Lib</span><br /><span class="dim">pour Emby</span></h1>
-  <p class="hero-sub">
-    Agrégez les bibliothèques de vos serveurs médias distants — Emby, Jellyfin, Plex —
-    comme bibliothèques natives sur votre serveur hôte. Zéro copie. Proxy transparent.
-    Transcodage à la volée.
-  </p>
-  <div class="hero-actions">
-    <a href="https://github.com/CCoupel/Emby_VirtualLib" class="btn btn-primary" target="_blank">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.268 2.75 1.026A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.026 2.747-1.026.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
-      Voir sur GitHub
-    </a>
-    <a href="#architecture" class="btn btn-ghost">Explorer l'architecture →</a>
+  <canvas id="hero-canvas" aria-hidden="true"></canvas>
+  <div class="hero-bg-glow"></div>
+  <div class="hero-bg-glow2"></div>
+
+  <div class="hero-content">
+    <div class="hero-badge">✦ Plugin Emby · Gratuit · Open Source</div>
+    <h1>
+      Vos serveurs médias,<br/>
+      <em>enfin réunis.</em><br/>
+      <span class="dim">Dans un seul Emby.</span>
+    </h1>
+    <p class="hero-sub">
+      VirtualLib agrège <strong>toutes vos bibliothèques distantes</strong> — Emby, Jellyfin, Plex — comme si elles étaient locales.<br/>
+      Pas de copie. Proxy transparent. Sync automatique.
+    </p>
+    <div class="hero-btns">
+      <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" class="btn-gold">
+        <span>Obtenir VirtualLib gratuitement</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </a>
+      <a href="#how" class="btn-outline">Comment ça marche →</a>
+    </div>
+  </div>
+
+  <div class="hero-visual" aria-hidden="true">
+    <div class="server-viz">
+      <div class="srv-orbit">
+        <div class="srv-node srv-a"><span class="srv-icon">🖥️</span><span>Emby B</span></div>
+        <div class="srv-node srv-b"><span class="srv-icon">🐟</span><span>Jellyfin</span></div>
+        <div class="srv-node srv-c"><span class="srv-icon">🟠</span><span>Plex</span></div>
+      </div>
+      <div class="srv-arrow srv-arr1"><div class="arr-dot"></div></div>
+      <div class="srv-arrow srv-arr2"><div class="arr-dot"></div></div>
+      <div class="srv-arrow srv-arr3"><div class="arr-dot"></div></div>
+      <div class="srv-center">
+        <span style="font-size:1.6rem">🏠</span>
+        <span class="srv-center-label">Emby A</span>
+        <span class="srv-center-sub">votre hôte</span>
+      </div>
+    </div>
   </div>
 </section>
 
-<div class="stats reveal">
-  <div class="stat"><div class="stat-val">3<span>+</span></div><div class="stat-label">Sources supportées</div></div>
-  <div class="stat"><div class="stat-val"><span>0</span></div><div class="stat-label">Duplication de fichiers</div></div>
-  <div class="stat"><div class="stat-val">∞</div><div class="stat-label">Serveurs configurables</div></div>
-  <div class="stat"><div class="stat-val">206</div><div class="stat-label">Range / Seek natif</div></div>
+<div class="stats-bar reveal">
+  <div class="stat-item"><span class="stat-val">0<span>ko</span></span><span class="stat-lbl">Fichier média copié</span></div>
+  <div class="stat-item"><span class="stat-val">3<span>+</span></span><span class="stat-lbl">Plateformes supportées</span></div>
+  <div class="stat-item"><span class="stat-val">∞</span><span class="stat-lbl">Serveurs configurables</span></div>
+  <div class="stat-item"><span class="stat-val">100<span>%</span></span><span class="stat-lbl">Gratuit &amp; open source</span></div>
 </div>
 
-<section id="features">
-  <div class="section-label">Fonctionnalités</div>
-  <h2 class="section-title reveal">Tout ce dont vous<br />avez besoin</h2>
-  <p class="section-desc reveal">Un plugin léger qui centralise vos serveurs médias sans compromis sur la performance ni la sécurité.</p>
-  <div class="features-grid reveal">
-    <div class="feature-card">
-      <div class="feature-icon fi-cyan">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+<section class="section problems-section" id="problems">
+  <div class="container">
+    <div class="sec-label">Le problème</div>
+    <h2 class="sec-title reveal">Ça vous parle ?</h2>
+    <p class="sec-desc reveal">Si vous avez plusieurs serveurs à la maison, vous connaissez la galère.</p>
+    <div class="prob-grid reveal">
+      <div class="prob-card">
+        <span class="prob-emoji">😤</span>
+        <div class="prob-title">Jongler entre plusieurs interfaces</div>
+        <p class="prob-desc">Film sur le serveur du bureau, série sur le Raspberry du salon, documentaires chez les parents. <strong>Aucun endroit pour tout voir d'un coup.</strong></p>
       </div>
-      <div class="feature-title">Bibliothèques virtuelles natives</div>
-      <div class="feature-desc">Les médias distants apparaissent comme des bibliothèques locales dans Emby. Navigation et lecture identiques à une source locale.</div>
+      <div class="prob-card">
+        <span class="prob-emoji">💾</span>
+        <div class="prob-title">Copier les fichiers = impensable</div>
+        <p class="prob-desc">Dupliquer 2 To de films juste pour centraliser ? <strong>Aucun sens.</strong> Espace gâché, synchronisation impossible, double bande passante.</p>
+      </div>
+      <div class="prob-card">
+        <span class="prob-emoji">🤯</span>
+        <div class="prob-title">La famille ne comprend pas</div>
+        <p class="prob-desc"><strong>« C'est sur quel Emby ce soir ? »</strong> Expliquer l'infra à votre famille, c'est perdu d'avance. Il faut que ça soit transparent.</p>
+      </div>
     </div>
-    <div class="feature-card">
-      <div class="feature-icon fi-blue">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
-      </div>
-      <div class="feature-title">Proxy transparent</div>
-      <div class="feature-desc">Le stream transite par le serveur hôte via ProxyController. Emby A peut transcoder à la volée. Support Range headers pour le seek natif.</div>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon fi-amber">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
-      </div>
-      <div class="feature-title">Multi-sources</div>
-      <div class="feature-desc">Emby, Jellyfin et Plex supportés via une interface commune IMediaServerConnector. Ajoutez N serveurs simultanément.</div>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon fi-cyan">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-      </div>
-      <div class="feature-title">Sync automatique</div>
-      <div class="feature-desc">Détection delta des ajouts et suppressions. Intervalle configurable (défaut 6h). Déclenchable manuellement ou via API REST.</div>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon fi-red">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-      </div>
-      <div class="feature-title">Sécurité intégrée</div>
-      <div class="feature-desc">Les API keys des serveurs sources ne sont jamais exposées aux clients. Le proxy ne forwarde que les items indexés — pas de proxy ouvert.</div>
-    </div>
-    <div class="feature-card">
-      <div class="feature-icon fi-blue">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      </div>
-      <div class="feature-title">Zéro duplication</div>
-      <div class="feature-desc">Seuls des fichiers .strm (pointeurs URL) et .nfo (métadonnées XML) sont générés localement. Aucun fichier média copié.</div>
+    <div class="solution-bridge reveal">
+      <span class="bridge-arrow">↓</span>
+      <div class="bridge-text">VirtualLib résout tout ça en un plugin.</div>
+      <p class="bridge-sub">Une seule interface Emby. Tout votre contenu. Partout. Automatiquement.</p>
     </div>
   </div>
 </section>
 
-<section id="architecture">
-  <div class="section-label">Architecture</div>
-  <h2 class="section-title reveal">Flux de données</h2>
-  <p class="section-desc reveal">Lors de la navigation, Emby A sert les métadonnées locales. Lors de la lecture, le ProxyController pipe le stream depuis le serveur source.</p>
-  <div class="arch-diagram reveal">
-    <div class="arch-svg-wrap">
-      <svg class="arch-svg" viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <marker id="arrow-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="rgba(79,122,255,0.8)"/></marker>
-          <marker id="arrow-cyan" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="rgba(60,240,224,0.8)"/></marker>
-          <marker id="arrow-amber" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="rgba(255,179,71,0.8)"/></marker>
-          <path id="path1" d="M 168 100 L 280 100" />
-          <path id="path2" d="M 520 150 L 632 150" />
-          <path id="path3" d="M 520 200 L 632 200" />
-        </defs>
-        <!-- Client -->
-        <rect class="node-rect node-client" x="20" y="60" width="148" height="120" />
-        <text class="node-label" fill="#8aa0ff" x="94" y="110" text-anchor="middle">CLIENT</text>
-        <text class="node-sub" x="94" y="128" text-anchor="middle">Application Emby</text>
-        <text class="node-sub" x="94" y="146" text-anchor="middle">TV / Mobile / Web</text>
-        <!-- Arrow: Client → Host browse -->
-        <path class="flow-path flow-blue" d="M 168 100 L 276 100" marker-end="url(#arrow-blue)"/>
-        <text font-family="Space Mono,monospace" font-size="9" fill="#4f7aff" x="222" y="93" text-anchor="middle">browse</text>
-        <!-- Arrow: Client → Proxy play -->
-        <path class="flow-path flow-blue" d="M 168 140 L 110 140 L 110 265 L 636 265 L 636 155" stroke-dasharray="4 2" marker-end="url(#arrow-blue)"/>
-        <text font-family="Space Mono,monospace" font-size="9" fill="#8aa0ff" x="400" y="278" text-anchor="middle">play → /virtuallib/proxy/{id}</text>
-        <!-- Emby Host -->
-        <rect class="node-rect node-host" x="280" y="40" width="240" height="200" />
-        <text class="node-label" fill="#3cf0e0" x="400" y="80" text-anchor="middle">EMBY A — HÔTE</text>
-        <rect fill="rgba(60,240,224,0.06)" stroke="rgba(60,240,224,0.2)" stroke-width="1" rx="4" x="300" y="92" width="200" height="30"/>
-        <text font-family="Space Mono,monospace" font-size="10" fill="#687099" x="400" y="111" text-anchor="middle">ILibraryManager (.nfo locaux)</text>
-        <rect fill="rgba(255,90,106,0.08)" stroke="rgba(255,90,106,0.25)" stroke-width="1" rx="4" x="300" y="134" width="200" height="30"/>
-        <text font-family="Space Mono,monospace" font-size="10" fill="#ff8a96" x="400" y="153" text-anchor="middle">ProxyController</text>
-        <rect fill="rgba(79,122,255,0.06)" stroke="rgba(79,122,255,0.2)" stroke-width="1" rx="4" x="300" y="176" width="200" height="30"/>
-        <text font-family="Space Mono,monospace" font-size="10" fill="#687099" x="400" y="195" text-anchor="middle">LibrarySyncJob</text>
-        <!-- Arrow: Proxy → Source stream -->
-        <path class="flow-path flow-cyan" d="M 520 150 L 636 150" marker-end="url(#arrow-cyan)"/>
-        <text font-family="Space Mono,monospace" font-size="9" fill="#3cf0e0" x="578" y="143" text-anchor="middle">stream</text>
-        <!-- Arrow: Sync → Source -->
-        <path class="flow-path flow-amber" d="M 520 200 L 636 200" stroke-dasharray="5 3" marker-end="url(#arrow-amber)"/>
-        <text font-family="Space Mono,monospace" font-size="9" fill="#ffb347" x="578" y="193" text-anchor="middle">sync</text>
-        <!-- Server B -->
-        <rect class="node-rect node-source" x="640" y="40" width="148" height="240" />
-        <text class="node-label" fill="#ffb347" x="714" y="80" text-anchor="middle">SERVEUR B</text>
-        <text class="node-sub" x="714" y="100" text-anchor="middle">source</text>
-        <rect fill="rgba(255,179,71,0.06)" stroke="rgba(255,179,71,0.2)" stroke-width="1" rx="4" x="658" y="115" width="112" height="24"/>
-        <text font-family="Space Mono,monospace" font-size="9" fill="#687099" x="714" y="131" text-anchor="middle">Emby / Jellyfin</text>
-        <rect fill="rgba(255,179,71,0.06)" stroke="rgba(255,179,71,0.2)" stroke-width="1" rx="4" x="658" y="150" width="112" height="24"/>
-        <text font-family="Space Mono,monospace" font-size="9" fill="#687099" x="714" y="166" text-anchor="middle">Plex (phase 3)</text>
-        <!-- Animated dots -->
-        <circle r="4" fill="#4f7aff" opacity="0.9">
-          <animateMotion dur="1.8s" repeatCount="indefinite" begin="0s"><mpath href="#path1"/></animateMotion>
-        </circle>
-        <circle r="4" fill="#3cf0e0" opacity="0.9">
-          <animateMotion dur="2.2s" repeatCount="indefinite" begin="0.5s"><mpath href="#path2"/></animateMotion>
-        </circle>
-        <circle r="3.5" fill="#ffb347" opacity="0.8">
-          <animateMotion dur="3s" repeatCount="indefinite" begin="1s"><mpath href="#path3"/></animateMotion>
-        </circle>
-      </svg>
-      <div class="arch-legend">
-        <div class="legend-item"><div class="legend-line" style="background:rgba(79,122,255,0.7)"></div>Navigation / Browse</div>
-        <div class="legend-item"><div class="legend-line" style="background:rgba(60,240,224,0.7)"></div>Stream vidéo (proxy)</div>
-        <div class="legend-item"><div class="legend-line" style="background:rgba(255,179,71,0.7)"></div>Synchronisation</div>
+<section class="section how-section" id="how">
+  <div class="container">
+    <div class="sec-label">Comment ça marche</div>
+    <h2 class="sec-title reveal">Simple comme <em>bonjour</em></h2>
+    <p class="sec-desc reveal">Six étapes, une fois. Ensuite c'est automatique pour toujours.</p>
+    <div class="steps-grid reveal">
+      <div class="step-card">
+        <div class="step-num">01</div>
+        <div class="step-body">
+          <span class="step-icon">🔌</span>
+          <div class="step-title">Installez le plugin</div>
+          <p class="step-desc">Copiez <strong>VirtualLib.dll</strong> dans le dossier plugins d'Emby A. Redémarrez. C'est tout.</p>
+          <span class="step-tag tag-green">5 minutes</span>
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">02</div>
+        <div class="step-body">
+          <span class="step-icon">🔗</span>
+          <div class="step-title">Ajoutez vos serveurs</div>
+          <p class="step-desc">Dashboard → VirtualLib → Paramètres. URL + clé API de chaque source. <strong>Test de connexion</strong> en un clic.</p>
+          <span class="step-tag tag-gold">Emby / Jellyfin / Plex</span>
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">03</div>
+        <div class="step-body">
+          <span class="step-icon">📚</span>
+          <div class="step-title">Choisissez vos bibliothèques</div>
+          <p class="step-desc">La liste des bibliothèques disponibles s'affiche. <strong>Cochez celles à importer.</strong> Films ? Séries ? Les deux ? Votre choix.</p>
+          <span class="step-tag tag-blue">Granularité par bibliothèque</span>
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">04</div>
+        <div class="step-body">
+          <span class="step-icon">⚡</span>
+          <div class="step-title">VirtualLib synchronise</div>
+          <p class="step-desc">Génère des fichiers <strong>.strm</strong> (~100 octets chacun) et <strong>.nfo</strong> localement. <strong>Aucun média n'est copié.</strong></p>
+          <span class="step-tag tag-green">Zéro duplication</span>
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">05</div>
+        <div class="step-body">
+          <span class="step-icon">🏠</span>
+          <div class="step-title">Ajoutez dans Emby</div>
+          <p class="step-desc">Pointez une bibliothèque Emby vers le dossier généré. <strong>Emby indexe tout</strong> comme si c'était local.</p>
+          <span class="step-tag tag-gold">Natif dans Emby</span>
+        </div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">06</div>
+        <div class="step-body">
+          <span class="step-icon">▶️</span>
+          <div class="step-title">Appuyez sur Play</div>
+          <p class="step-desc">Le <strong>ProxyController</strong> pipe le stream. Seek natif, transcodage à la volée, clés API jamais exposées. <strong>100% transparent.</strong></p>
+          <span class="step-tag tag-blue">Proxy Range-aware</span>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
-<section id="roadmap">
-  <div class="section-label">Roadmap</div>
-  <h2 class="section-title reveal">Trois phases<br />de développement</h2>
-  <p class="section-desc reveal">Un plan progressif du MVP fonctionnel jusqu'au support multi-sources complet.</p>
-  <div class="phases">
-    <div class="phase-card active reveal">
-      <div class="phase-num">01</div>
-      <div class="phase-tag tag-active">En cours</div>
-      <div class="phase-title">MVP</div>
-      <ul class="phase-items">
-        <li>Scaffolding projet C# plugin Emby</li>
-        <li>Interface IMediaServerConnector</li>
-        <li>EmbyConnector — auth + list + items</li>
-        <li>StrmGenerator + NfoGenerator</li>
-        <li>PluginConfiguration UI</li>
-        <li>Sync manuelle (bouton UI)</li>
-        <li>Tests unitaires</li>
-      </ul>
-    </div>
-    <div class="phase-card reveal">
-      <div class="phase-num">02</div>
-      <div class="phase-tag tag-next">Prochainement</div>
-      <div class="phase-title">Proxy &amp; Automation</div>
-      <ul class="phase-items">
-        <li>ProxyController endpoint HTTP</li>
-        <li>Pipe stream + Range headers</li>
-        <li>LibrarySyncJob planifié</li>
-        <li>Détection delta (ajouts / suppressions)</li>
-        <li>Téléchargement artwork</li>
-        <li>Tests intégration ProxyController</li>
-      </ul>
-    </div>
-    <div class="phase-card reveal">
-      <div class="phase-num">03</div>
-      <div class="phase-tag tag-future">Futur</div>
-      <div class="phase-title">Multi-connecteurs</div>
-      <ul class="phase-items">
-        <li>JellyfinConnector</li>
-        <li>PlexConnector (API XML)</li>
-        <li>Support N serveurs simultanés</li>
-        <li>UI multi-serveurs</li>
-      </ul>
+<section class="section features-section" id="features">
+  <div class="container">
+    <div class="sec-label">Fonctionnalités</div>
+    <h2 class="sec-title reveal">Tout y est.<br/><em>Sans compromis.</em></h2>
+    <p class="sec-desc reveal">VirtualLib ne fait pas de concessions sur ce qui compte vraiment.</p>
+    <div class="feat-grid reveal">
+      <div class="feat-card">
+        <span class="feat-emoji">🎭</span>
+        <div class="feat-title">Bibliothèques virtuelles natives</div>
+        <p class="feat-desc">Vos médias distants apparaissent comme des bibliothèques locales. Navigation, filtres, recherche — exactement comme si les fichiers étaient chez vous.</p>
+        <span class="feat-pill pill-gold">Expérience identique</span>
+      </div>
+      <div class="feat-card">
+        <span class="feat-emoji">🔄</span>
+        <div class="feat-title">Proxy transparent + Seek natif</div>
+        <p class="feat-desc">Le ProxyController forwarde les Range headers HTTP. Seek au milieu d'un film = instantané. Emby A peut transcoder avant d'envoyer au client.</p>
+        <span class="feat-pill pill-teal">206 Partial Content</span>
+      </div>
+      <div class="feat-card">
+        <span class="feat-emoji">🔒</span>
+        <div class="feat-title">Vos clés API restent secrètes</div>
+        <p class="feat-desc">Les tokens d'accès aux serveurs sources ne sont jamais dans les .strm, jamais exposés au client. Le proxy valide chaque requête contre l'index local.</p>
+        <span class="feat-pill pill-blue">Aucun proxy ouvert</span>
+      </div>
+      <div class="feat-card">
+        <span class="feat-emoji">📡</span>
+        <div class="feat-title">Sync automatique &amp; delta</div>
+        <p class="feat-desc">Nouveau film ajouté sur le Serveur B ? Dans l'intervalle configuré (défaut 6h), il apparaît automatiquement dans Emby A. Sans rien faire.</p>
+        <span class="feat-pill pill-gold">Détection ajouts/suppressions</span>
+      </div>
+      <div class="feat-card">
+        <span class="feat-emoji">🗂️</span>
+        <div class="feat-title">Métadonnées sans re-scraping</div>
+        <p class="feat-desc">Les .nfo embarquent titre, synopsis, rating, genres, IDs IMDb/TMDb. Emby indexe directement sans appeler de scrapers externes.</p>
+        <span class="feat-pill pill-teal">Format NFO Kodi/Emby</span>
+      </div>
+      <div class="feat-card">
+        <span class="feat-emoji">🌐</span>
+        <div class="feat-title">Multi-serveurs illimité</div>
+        <p class="feat-desc">Ajoutez autant de serveurs que vous voulez. Chaque connecteur est indépendant avec son intervalle de sync et sa sélection de bibliothèques.</p>
+        <span class="feat-pill pill-blue">N serveurs simultanés</span>
+      </div>
     </div>
   </div>
 </section>
 
-<section id="install">
-  <div class="section-label">Installation</div>
-  <h2 class="section-title reveal">Démarrer en<br />quelques minutes</h2>
-  <div class="install-steps reveal">
-    <div class="step">
-      <div class="step-num">01</div>
-      <div class="step-content">
-        <h4>Télécharger le plugin</h4>
-        <p>Récupérer <code>VirtualLib.dll</code> depuis la page des releases GitHub.</p>
-        <div class="code-block">github.com/CCoupel/Emby_VirtualLib/releases</div>
+<section class="section compat-section" id="compat">
+  <div class="container">
+    <div class="sec-label">Compatibilité</div>
+    <h2 class="sec-title reveal">Fonctionne avec<br/>les <em>trois grands</em></h2>
+    <p class="sec-desc reveal">Une interface commune, trois connecteurs. Même expérience quelle que soit la source.</p>
+    <div class="compat-grid reveal">
+      <div class="compat-card supported">
+        <span class="compat-logo">🖥️</span>
+        <div class="compat-name">Emby</div>
+        <span class="compat-status status-ok">✓ Supporté — Phase 1</span>
+        <p class="compat-desc">API REST native, pagination gérée, artwork, stream vidéo. Authentification par clé API ou token MediaBrowser.</p>
+      </div>
+      <div class="compat-card planned">
+        <span class="compat-logo">🐟</span>
+        <div class="compat-name">Jellyfin</div>
+        <span class="compat-status status-soon">⏳ Phase 3</span>
+        <p class="compat-desc">API compatible avec Emby. Le JellyfinConnector sera un dérivé direct d'EmbyConnector avec ajustements mineurs.</p>
+      </div>
+      <div class="compat-card planned">
+        <span class="compat-logo">🟠</span>
+        <div class="compat-name">Plex</div>
+        <span class="compat-status status-soon">⏳ Phase 3</span>
+        <p class="compat-desc">API XML différente. PlexConnector traduira les réponses XML vers les modèles normalisés VirtualLib.</p>
       </div>
     </div>
-    <div class="step">
-      <div class="step-num">02</div>
-      <div class="step-content">
-        <h4>Copier dans le répertoire plugins</h4>
-        <p>Placer le fichier dans le dossier plugins d'Emby, puis redémarrer le serveur.</p>
-        <div class="code-block">{EmbyData}/plugins/VirtualLib/VirtualLib.dll</div>
+  </div>
+</section>
+
+<section class="section roadmap-section" id="roadmap">
+  <div class="container">
+    <div class="sec-label">Roadmap</div>
+    <h2 class="sec-title reveal">Le plan en <em>3 actes</em></h2>
+    <p class="sec-desc reveal">Un chemin progressif, du MVP fonctionnel au hub média universel.</p>
+    <div class="roadmap-grid reveal">
+      <div class="phase-card active">
+        <div class="phase-ghost">01</div>
+        <span class="phase-now">En cours</span>
+        <div class="phase-tag ptag-active">Phase 1 — MVP</div>
+        <div class="phase-title">Les fondations solides</div>
+        <ul class="phase-list">
+          <li>Scaffolding projet C# plugin Emby</li>
+          <li>Interface IMediaServerConnector</li>
+          <li>EmbyConnector complet</li>
+          <li>StrmGenerator + NfoGenerator</li>
+          <li>UI de configuration dans Emby</li>
+          <li>Sync manuelle (bouton)</li>
+          <li>Tests unitaires</li>
+        </ul>
+      </div>
+      <div class="phase-card">
+        <div class="phase-ghost">02</div>
+        <div class="phase-tag ptag-next">Phase 2 — Proxy &amp; Auto</div>
+        <div class="phase-title">La machine tourne seule</div>
+        <ul class="phase-list">
+          <li>ProxyController HTTP complet</li>
+          <li>Support Range headers (seek)</li>
+          <li>LibrarySyncJob planifié</li>
+          <li>Détection delta fine</li>
+          <li>Téléchargement artwork</li>
+          <li>Tests intégration proxy</li>
+        </ul>
+      </div>
+      <div class="phase-card">
+        <div class="phase-ghost">03</div>
+        <div class="phase-tag ptag-future">Phase 3 — Multi-sources</div>
+        <div class="phase-title">L'empire multiverse</div>
+        <ul class="phase-list">
+          <li>JellyfinConnector</li>
+          <li>PlexConnector (API XML)</li>
+          <li>Support N serveurs simultanés</li>
+          <li>UI multi-serveurs avancée</li>
+        </ul>
       </div>
     </div>
-    <div class="step">
-      <div class="step-num">03</div>
-      <div class="step-content">
-        <h4>Configurer un serveur source</h4>
-        <p>Dashboard → Plugins → VirtualLib → Paramètres. Ajouter l'URL + API key du serveur source.</p>
+  </div>
+</section>
+
+<section class="section install-section" id="install">
+  <div class="install-glow"></div>
+  <div class="container" style="display:flex;justify-content:center">
+    <div class="install-inner">
+      <div class="sec-label" style="text-align:center">Démarrer</div>
+      <h2 class="install-title reveal">Prêt en <em>5 minutes</em>.<br/>Gratuit pour toujours.</h2>
+      <p class="install-sub reveal">Pas d'inscription. Pas de serveur cloud. Vos données restent chez vous.</p>
+      <div class="install-steps reveal">
+        <div class="inst-step">
+          <div class="inst-n">01</div>
+          <div class="inst-body">
+            <h4>Télécharger VirtualLib.dll</h4>
+            <p>Depuis la page Releases du dépôt GitHub.</p>
+            <div class="inst-code">github.com/CCoupel/Emby_VirtualLib/releases</div>
+          </div>
+        </div>
+        <div class="inst-step">
+          <div class="inst-n">02</div>
+          <div class="inst-body">
+            <h4>Copier dans le dossier plugins Emby</h4>
+            <p>Puis redémarrez votre serveur Emby.</p>
+            <div class="inst-code">{EmbyData}/plugins/VirtualLib/VirtualLib.dll</div>
+          </div>
+        </div>
+        <div class="inst-step">
+          <div class="inst-n">03</div>
+          <div class="inst-body">
+            <h4>Configurer depuis le Dashboard Emby</h4>
+            <p>Dashboard → Plugins → VirtualLib → Paramètres → Ajouter un serveur.</p>
+          </div>
+        </div>
+        <div class="inst-step">
+          <div class="inst-n">04</div>
+          <div class="inst-body">
+            <h4>Synchroniser &amp; profiter</h4>
+            <p>Cliquez "Synchroniser maintenant" → Ajoutez le dossier généré comme bibliothèque dans Emby.</p>
+            <div class="inst-code">/media/virtual-libraries/ServeurB_Films/</div>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="step">
-      <div class="step-num">04</div>
-      <div class="step-content">
-        <h4>Sélectionner les bibliothèques</h4>
-        <p>Après test de connexion, cocher les bibliothèques distantes à synchroniser.</p>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-num">05</div>
-      <div class="step-content">
-        <h4>Lancer la sync &amp; ajouter la bibliothèque</h4>
-        <p>Cliquer "Synchroniser maintenant", puis ajouter le dossier généré comme bibliothèque dans Emby.</p>
-        <div class="code-block">/media/virtual-libraries/ServeurB_Films/</div>
+      <div class="install-cta-row reveal">
+        <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" class="btn-gold">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.268 2.75 1.026A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.026 2.747-1.026.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+          Voir sur GitHub
+        </a>
+        <a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/CONFIGURATION.md" target="_blank" class="btn-outline">Documentation complète →</a>
       </div>
     </div>
   </div>
 </section>
 
 <footer>
-  <div class="footer-brand">Virtual<span>Lib</span></div>
-  <ul class="footer-links">
+  <div class="foot-brand">Virtual<span>Lib</span></div>
+  <ul class="foot-links">
     <li><a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank">GitHub</a></li>
     <li><a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/ARCHITECTURE.md" target="_blank">Architecture</a></li>
     <li><a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/CONFIGURATION.md" target="_blank">Configuration</a></li>
     <li><a href="https://github.com/CCoupel/Emby_VirtualLib/issues" target="_blank">Issues</a></li>
   </ul>
-  <div class="footer-copy">Plugin Emby open source · MIT License</div>
+  <div class="foot-copy">Plugin Emby open source · MIT License · Cyril Coupel</div>
 </footer>
 
 <script>
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => {
-      if (e.isIntersecting) {
-        e.target.classList.add('visible');
-        e.target.querySelectorAll('.feature-card, .phase-card, .step').forEach((el, i) => {
-          el.style.transitionDelay = `${i * 80}ms`;
-          el.style.opacity = '1';
-          el.style.transform = 'none';
-        });
-      }
+(function(){
+  var canvas = document.getElementById('hero-canvas');
+  if(!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var W, H, particles = [];
+  var ICONS = ['🎬','🎥','📽️','🎞️','📺','🎭','🍿','🎮','🎵','📡','🖥️','💿'];
+
+  function resize(){ W = canvas.width = canvas.offsetWidth; H = canvas.height = canvas.offsetHeight; }
+
+  function makeP(){
+    return {
+      x: Math.random()*W, y: Math.random()*H + H,
+      icon: ICONS[Math.floor(Math.random()*ICONS.length)],
+      size: 14 + Math.random()*18,
+      vy: -(0.3 + Math.random()*0.6),
+      vx: (Math.random()-.5)*0.3,
+      alpha: 0,
+      targetAlpha: 0.12 + Math.random()*0.2,
+      t: 0,
+      swing: (Math.random()-.5)*0.8,
+      swingSpeed: 0.008 + Math.random()*0.012
+    };
+  }
+
+  function init(){
+    particles = [];
+    var n = Math.min(40, Math.floor(W/30));
+    for(var i=0;i<n;i++){ var p = makeP(); p.y = Math.random()*H; p.alpha = Math.random()*p.targetAlpha; particles.push(p); }
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    for(var i=0;i<particles.length;i++){
+      var p = particles[i];
+      p.t++; p.x += p.vx + Math.sin(p.t*p.swingSpeed)*p.swing*0.3; p.y += p.vy;
+      if(p.alpha < p.targetAlpha) p.alpha = Math.min(p.targetAlpha, p.alpha+0.003);
+      if(p.y < -50){ particles[i] = makeP(); continue; }
+      ctx.save(); ctx.globalAlpha = p.alpha;
+      ctx.font = p.size+'px serif'; ctx.textAlign = 'center';
+      ctx.fillText(p.icon, p.x, p.y); ctx.restore();
+    }
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener('resize', function(){ resize(); init(); });
+  resize(); init(); draw();
+})();
+
+(function(){
+  var obs = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(!e.isIntersecting) return;
+      e.target.classList.add('visible');
+      var children = e.target.querySelectorAll('.prob-card,.step-card,.feat-card,.compat-card,.phase-card,.inst-step,.stat-item');
+      children.forEach(function(c,i){
+        c.style.opacity='0'; c.style.transform='translateY(18px)';
+        c.style.transition='opacity .5s ease, transform .5s ease';
+        c.style.transitionDelay=(i*90)+'ms';
+        requestAnimationFrame(function(){ requestAnimationFrame(function(){ c.style.opacity='1'; c.style.transform='none'; }); });
+      });
     });
   }, { threshold: 0.1 });
-
-  document.querySelectorAll('.reveal').forEach(el => {
-    observer.observe(el);
-    el.querySelectorAll('.feature-card, .phase-card, .step').forEach(child => {
-      child.style.opacity = '0';
-      child.style.transform = 'translateY(20px)';
-      child.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-    });
-  });
+  document.querySelectorAll('.reveal').forEach(function(el){ obs.observe(el); });
+})();
 </script>
 </body>
 </html>
