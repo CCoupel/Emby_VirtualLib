@@ -28,4 +28,9 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Web_Pages\config.html" />
+    <EmbeddedResource Include="Images\thumb.png" />
+  </ItemGroup>
 </Project>

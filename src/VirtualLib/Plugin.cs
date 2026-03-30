@@ -22,12 +22,21 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public override string Description =>
         "Aggregate remote media server libraries as native virtual libraries on this Emby host.";
 
+    /// <summary>
+    /// Returns the embedded PNG icon for this plugin.
+    /// </summary>
+    public Stream? GetThumbImage()
+    {
+        var type = GetType();
+        return type.Assembly.GetManifestResourceStream(type.Namespace + ".Images.thumb.png");
+    }
+
     public IEnumerable<PluginPageInfo> GetPages() =>
         new[]
         {
             new PluginPageInfo
             {
-                Name = "VirtualLib",
+                Name = "VirtualLibConfig",
                 EmbeddedResourcePath = $"{GetType().Namespace}.Web_Pages.config.html"
             }
         };

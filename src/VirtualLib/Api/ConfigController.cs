@@ -1,0 +1,256 @@
+using MediaBrowser.Common.Extensions;
+using MediaBrowser.Controller.Api;
+using MediaBrowser.Controller.Net;
+using MediaBrowser.Model.Services;
+using VirtualLib.Core;
+using VirtualLib.Core.Models;
+
+namespace VirtualLib.Api;
+
+// ---------------------------------------------------------------------------
+// Request DTOs — each is decorated with [Route] and [Authenticated]
+// ---------------------------------------------------------------------------
+
+[Route("/virtuallib/connectors", "GET", Summary = "List all configured connectors")]
+[Authenticated]
+public sealed class GetConnectors : IReturn<List<ConnectorConfig>> { }
+
+[Route("/virtuallib/connectors", "POST", Summary = "Add a new connector")]
+[Authenticated]
+public sealed class CreateConnector : IReturn<ConnectorConfig>
+{
+    public string DisplayName { get; set; } = string.Empty;
+    public string ServerType { get; set; } = ServerTypes.Emby;
+    public string ServerUrl { get; set; } = string.Empty;
+    public string ApiKey { get; set; } = string.Empty;
+    public List<string> LibraryIds { get; set; } = new();
+    public bool Enabled { get; set; } = true;
+}
+
+[Route("/virtuallib/connectors/{Id}", "PUT", Summary = "Update an existing connector")]
+[Authenticated]
+public sealed class UpdateConnector : IReturn<ConnectorConfig>
+{
+    public string Id { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string ServerType { get; set; } = ServerTypes.Emby;
+    public string ServerUrl { get; set; } = string.Empty;
+    public string ApiKey { get; set; } = string.Empty;
+    public List<string> LibraryIds { get; set; } = new();
+    public bool Enabled { get; set; } = true;
+}
+
+[Route("/virtuallib/connectors/{Id}", "DELETE", Summary = "Remove a connector")]
+[Authenticated]
+public sealed class DeleteConnector : IReturnVoid
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+[Route("/virtuallib/connectors/{Id}/test", "POST", Summary = "Test connector connectivity")]
+[Authenticated]
+public sealed class TestConnector : IReturn<ConnectorTestResult>
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+[Route("/virtuallib/connectors/{Id}/libraries", "GET", Summary = "List remote libraries available on a connector")]
+[Authenticated]
+public sealed class GetConnectorLibraries : IReturn<List<RemoteLibrary>>
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+[Route("/virtuallib/sync", "POST", Summary = "Sync all enabled connectors")]
+[Authenticated]
+public sealed class SyncAll : IReturn<List<SyncResult>> { }
+
+[Route("/virtuallib/connectors/{Id}/sync", "POST", Summary = "Sync a single connector")]
+[Authenticated]
+public sealed class SyncConnector : IReturn<SyncResult>
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+// ---------------------------------------------------------------------------
+// Service implementation
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Handles all /virtuallib/* API endpoints for managing connectors and
+/// triggering synchronisation.
+/// </summary>
+public sealed class ConfigController : BaseApiService
+{
+    private static readonly Dictionary<string, string>? NoHeaders = null;
+
+    // Services instanciés une seule fois par classe (singleton léger via lazy)
+    private static readonly Lazy<IConnectorFactory> _connectorFactory =
+        new(() => new ConnectorFactory(new DefaultHttpClientFactory(), Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance));
+
+    private static readonly Lazy<SyncService> _syncService =
+        new(() => new SyncService(
+            _connectorFactory.Value,
+            new StrmGenerator(),
+            new NfoGenerator(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SyncService>.Instance));
+
+    // -----------------------------------------------------------------------
+    // GET /virtuallib/connectors
+    // -----------------------------------------------------------------------
+    public object Get(GetConnectors request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        return ResultFactory.GetResult(Request, config.Connectors, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // POST /virtuallib/connectors
+    // -----------------------------------------------------------------------
+    public object Post(CreateConnector request)
+    {
+        var config = Plugin.Instance!.Configuration;
+
+        var connector = new ConnectorConfig
+        {
+            Id = Guid.NewGuid().ToString(),
+            DisplayName = request.DisplayName,
+            ServerType = request.ServerType,
+            ServerUrl = request.ServerUrl,
+            ApiKey = request.ApiKey,
+            LibraryIds = request.LibraryIds,
+            Enabled = request.Enabled
+        };
+
+        config.Connectors.Add(connector);
+        Plugin.Instance.SaveConfiguration();
+
+        return ResultFactory.GetResult(Request, connector, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // PUT /virtuallib/connectors/{Id}
+    // -----------------------------------------------------------------------
+    public object Put(UpdateConnector request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        var existing = config.Connectors.FirstOrDefault(c => c.Id == request.Id);
+
+        if (existing is null)
+            throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
+
+        config.Connectors.Remove(existing);
+
+        var updated = new ConnectorConfig
+        {
+            Id = existing.Id,
+            DisplayName = request.DisplayName,
+            ServerType = request.ServerType,
+            ServerUrl = request.ServerUrl,
+            ApiKey = request.ApiKey,
+            LibraryIds = request.LibraryIds,
+            Enabled = request.Enabled
+        };
+
+        config.Connectors.Add(updated);
+        Plugin.Instance.SaveConfiguration();
+
+        return ResultFactory.GetResult(Request, updated, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // DELETE /virtuallib/connectors/{Id}
+    // -----------------------------------------------------------------------
+    public void Delete(DeleteConnector request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        var existing = config.Connectors.FirstOrDefault(c => c.Id == request.Id);
+
+        if (existing is null)
+            throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
+
+        config.Connectors.Remove(existing);
+        Plugin.Instance.SaveConfiguration();
+    }
+
+    // -----------------------------------------------------------------------
+    // POST /virtuallib/connectors/{Id}/test
+    // -----------------------------------------------------------------------
+    public object Post(TestConnector request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        var connectorConfig = config.Connectors.FirstOrDefault(c => c.Id == request.Id);
+
+        if (connectorConfig is null)
+            throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
+
+        using var connector = _connectorFactory.Value.Create(connectorConfig);
+        var result = connector.TestConnectionAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+        return ResultFactory.GetResult(Request, result, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // GET /virtuallib/connectors/{Id}/libraries
+    // -----------------------------------------------------------------------
+    public object Get(GetConnectorLibraries request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        var connectorConfig = config.Connectors.FirstOrDefault(c => c.Id == request.Id);
+
+        if (connectorConfig is null)
+            throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
+
+        using var connector = _connectorFactory.Value.Create(connectorConfig);
+        var libraries = connector.ListLibrariesAsync(CancellationToken.None).GetAwaiter().GetResult();
+
+        return ResultFactory.GetResult(Request, libraries.ToList(), NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // POST /virtuallib/sync
+    // -----------------------------------------------------------------------
+    public object Post(SyncAll request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        var enabledConnectors = config.Connectors.Where(c => c.Enabled).ToList();
+        var virtualLibRoot = config.VirtualLibraryRootPath;
+
+        var results = new List<SyncResult>(enabledConnectors.Count);
+
+        foreach (var connectorConfig in enabledConnectors)
+        {
+            var result = _syncService.Value.SyncConnectorAsync(
+                connectorConfig,
+                virtualLibRoot,
+                progress: null,
+                CancellationToken.None).GetAwaiter().GetResult();
+
+            results.Add(result);
+        }
+
+        return ResultFactory.GetResult(Request, results, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // POST /virtuallib/connectors/{Id}/sync
+    // -----------------------------------------------------------------------
+    public object Post(SyncConnector request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        var connectorConfig = config.Connectors.FirstOrDefault(c => c.Id == request.Id);
+
+        if (connectorConfig is null)
+            throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
+
+        var virtualLibRoot = config.VirtualLibraryRootPath;
+
+        var result = _syncService.Value.SyncConnectorAsync(
+            connectorConfig,
+            virtualLibRoot,
+            progress: null,
+            CancellationToken.None).GetAwaiter().GetResult();
+
+        return ResultFactory.GetResult(Request, result, NoHeaders);
+    }
+}
