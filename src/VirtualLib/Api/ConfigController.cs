@@ -211,6 +211,15 @@ public sealed class ConfigController : BaseApiService
         config.Connectors.Add(updated);
         Plugin.Instance.SaveConfiguration();
 
+        // Remove virtual folders for libraries that were unchecked
+        var virtualLibRoot = config.VirtualLibraryRootPath;
+        if (!string.IsNullOrEmpty(virtualLibRoot))
+        {
+            var removedIds = existing.LibraryIds.Except(request.LibraryIds).ToList();
+            foreach (var lib in existing.KnownLibraries.Where(l => removedIds.Contains(l.Id)))
+                _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name);
+        }
+
         return ResultFactory.GetResult(Request, updated, NoHeaders);
     }
 
@@ -227,6 +236,10 @@ public sealed class ConfigController : BaseApiService
 
         config.Connectors.Remove(existing);
         Plugin.Instance.SaveConfiguration();
+
+        // Remove all virtual folders for this connector's libraries
+        foreach (var lib in existing.KnownLibraries)
+            _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name);
     }
 
     // -----------------------------------------------------------------------
