@@ -179,6 +179,8 @@
 (function () {
     'use strict';
 
+    var page = document.querySelector('#VirtualLibConfigPage');
+
     // -------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------
@@ -341,17 +343,6 @@
     }
 
     // -------------------------------------------------------------------
-    // Global settings save (placeholder)
-    // -------------------------------------------------------------------
-
-    document.getElementById('btnSaveGlobal').addEventListener('click', function () {
-        var statusEl = document.getElementById('globalSaveStatus');
-        setStatus(statusEl,
-            'Note: root path and intervals are saved in plugin XML config after restart.',
-            false);
-    });
-
-    // -------------------------------------------------------------------
     // Add / Edit form helpers
     // -------------------------------------------------------------------
 
@@ -465,79 +456,6 @@
         });
     }
 
-    document.getElementById('btnAddConnector').addEventListener('click', openAddConnector);
-
-    document.getElementById('btnCancelConnector').addEventListener('click', function () {
-        document.getElementById('connectorFormSection').style.display = 'none';
-    });
-
-    // Test connection
-    document.getElementById('btnTestConnection').addEventListener('click', function () {
-        var statusEl = document.getElementById('testResultMsg');
-        var connectorId = document.getElementById('connectorId').value;
-        setStatus(statusEl, 'Testing\u2026', false);
-
-        if (connectorId) {
-            apiPost('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/test')
-                .then(function (res) {
-                    if (res.Success) {
-                        setStatus(statusEl,
-                            'Connected \u2014 server v' + (res.ServerVersion || '?'),
-                            false);
-                        fetchAndRenderLibraries(connectorId, getSelectedLibraryIds());
-                    } else {
-                        setStatus(statusEl,
-                            'Failed: ' + (res.ErrorMessage || 'unknown error'),
-                            true);
-                    }
-                })
-                .catch(function (e) {
-                    setStatus(statusEl, 'Error: ' + e.message, true);
-                });
-        } else {
-            statusEl.textContent = 'Save the connector first to enable connection test.';
-            statusEl.style.color = 'var(--theme-warning-color, orange)';
-        }
-    });
-
-    // Save connector
-    document.getElementById('btnSaveConnector').addEventListener('click', function () {
-        var statusEl = document.getElementById('connectorSaveStatus');
-        clearStatus(statusEl);
-
-        var id = document.getElementById('connectorId').value;
-        var payload = {
-            DisplayName: document.getElementById('connectorName').value.trim(),
-            ServerType: document.getElementById('connectorType').value,
-            ServerUrl: document.getElementById('connectorUrl').value.trim(),
-            ApiKey: document.getElementById('connectorApiKey').value.trim(),
-            LibraryIds: getSelectedLibraryIds(),
-            Enabled: true
-        };
-
-        if (!payload.DisplayName || !payload.ServerUrl || !payload.ApiKey) {
-            setStatus(statusEl, 'Name, URL and API Key are required.', true);
-            return;
-        }
-
-        var p;
-        if (id) {
-            payload.Id = id;
-            p = apiPut('/virtuallib/connectors/' + encodeURIComponent(id), payload)
-                    .then(function () { setStatus(statusEl, 'Connector updated.', false); });
-        } else {
-            p = apiPost('/virtuallib/connectors', payload)
-                    .then(function () { setStatus(statusEl, 'Connector added.', false); });
-        }
-
-        p.then(function () {
-            document.getElementById('connectorFormSection').style.display = 'none';
-            loadConnectors();
-        }).catch(function (e) {
-            setStatus(statusEl, 'Error: ' + e.message, true);
-        });
-    });
-
     function getSelectedLibraryIds() {
         var checkboxes = document.querySelectorAll('#libraryCheckboxes .lib-checkbox:checked');
         var ids = [];
@@ -596,13 +514,6 @@
             .catch(function (e) { errorSyncUI(e.message); });
     }
 
-    document.getElementById('btnSyncAll').addEventListener('click', function () {
-        startSyncUI();
-        apiPost('/virtuallib/sync')
-            .then(function (results) { finishSyncUI(results || [], 'Synchronisation complete.'); })
-            .catch(function (e) { errorSyncUI(e.message); });
-    });
-
     function displaySyncResults(results, logEl, containerEl) {
         var lines = [];
         if (!results || results.length === 0) {
@@ -642,10 +553,97 @@
     }
 
     // -------------------------------------------------------------------
-    // Init
+    // Init — use Emby page lifecycle events
     // -------------------------------------------------------------------
 
-    loadConnectors();
+    page.addEventListener('pageshow', function () {
+        loadConnectors();
+
+        document.getElementById('btnSaveGlobal').addEventListener('click', function () {
+            var statusEl = document.getElementById('globalSaveStatus');
+            setStatus(statusEl,
+                'Note: root path and intervals are saved in plugin XML config after restart.',
+                false);
+        });
+
+        document.getElementById('btnAddConnector').addEventListener('click', openAddConnector);
+
+        document.getElementById('btnCancelConnector').addEventListener('click', function () {
+            document.getElementById('connectorFormSection').style.display = 'none';
+        });
+
+        document.getElementById('btnTestConnection').addEventListener('click', function () {
+            var statusEl = document.getElementById('testResultMsg');
+            var connectorId = document.getElementById('connectorId').value;
+            setStatus(statusEl, 'Testing\u2026', false);
+
+            if (connectorId) {
+                apiPost('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/test')
+                    .then(function (res) {
+                        if (res.Success) {
+                            setStatus(statusEl,
+                                'Connected \u2014 server v' + (res.ServerVersion || '?'),
+                                false);
+                            fetchAndRenderLibraries(connectorId, getSelectedLibraryIds());
+                        } else {
+                            setStatus(statusEl,
+                                'Failed: ' + (res.ErrorMessage || 'unknown error'),
+                                true);
+                        }
+                    })
+                    .catch(function (e) {
+                        setStatus(statusEl, 'Error: ' + e.message, true);
+                    });
+            } else {
+                statusEl.textContent = 'Save the connector first to enable connection test.';
+                statusEl.style.color = 'var(--theme-warning-color, orange)';
+            }
+        });
+
+        document.getElementById('btnSaveConnector').addEventListener('click', function () {
+            var statusEl = document.getElementById('connectorSaveStatus');
+            clearStatus(statusEl);
+
+            var id = document.getElementById('connectorId').value;
+            var payload = {
+                DisplayName: document.getElementById('connectorName').value.trim(),
+                ServerType: document.getElementById('connectorType').value,
+                ServerUrl: document.getElementById('connectorUrl').value.trim(),
+                ApiKey: document.getElementById('connectorApiKey').value.trim(),
+                LibraryIds: getSelectedLibraryIds(),
+                Enabled: true
+            };
+
+            if (!payload.DisplayName || !payload.ServerUrl || !payload.ApiKey) {
+                setStatus(statusEl, 'Name, URL and API Key are required.', true);
+                return;
+            }
+
+            var p;
+            if (id) {
+                payload.Id = id;
+                p = apiPut('/virtuallib/connectors/' + encodeURIComponent(id), payload)
+                        .then(function () { setStatus(statusEl, 'Connector updated.', false); });
+            } else {
+                p = apiPost('/virtuallib/connectors', payload)
+                        .then(function () { setStatus(statusEl, 'Connector added.', false); });
+            }
+
+            p.then(function () {
+                document.getElementById('connectorFormSection').style.display = 'none';
+                loadConnectors();
+            }).catch(function (e) {
+                setStatus(statusEl, 'Error: ' + e.message, true);
+            });
+        });
+
+        document.getElementById('btnSyncAll').addEventListener('click', function () {
+            startSyncUI();
+            apiPost('/virtuallib/sync')
+                .then(function (results) { finishSyncUI(results || [], 'Synchronisation complete.'); })
+                .catch(function (e) { errorSyncUI(e.message); });
+        });
+    });
 
 }());
 </script>
