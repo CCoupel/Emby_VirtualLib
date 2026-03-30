@@ -1,23 +1,26 @@
+using System.Text;
+using System.Text.Json;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace VirtualLib.Core;
 
 /// <summary>
-/// Ensures Emby virtual folders exist (or are removed) for connector libraries.
-/// Structure: virtualLibRoot/{ConnectorName}/{LibraryName}
-/// Virtual folder name: "{ConnectorName} — {LibraryName}"
+/// Creates/removes Emby virtual folders via the local HTTP API to ensure
+/// the collection type is properly set (ILibraryManager.AddVirtualFolder
+/// ignores collectionType when PathInfos are provided).
 /// </summary>
 public sealed class LibraryProvisioner
 {
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<LibraryProvisioner> _logger;
+    private readonly HttpClient _http;
 
     public LibraryProvisioner(ILibraryManager libraryManager, ILogger<LibraryProvisioner> logger)
     {
         _libraryManager = libraryManager;
         _logger = logger;
+        _http = new HttpClient();
     }
 
     /// <summary>
@@ -27,7 +30,9 @@ public sealed class LibraryProvisioner
         string connectorName,
         string libraryName,
         string libraryType,
-        string virtualLibRoot)
+        string virtualLibRoot,
+        string localBaseUrl,
+        string authToken)
     {
         var virtualFolderName = BuildFolderName(connectorName, libraryName);
 
@@ -41,18 +46,28 @@ public sealed class LibraryProvisioner
         Directory.CreateDirectory(folderPath);
 
         var collectionType = MapCollectionType(libraryType);
-        var options = new LibraryOptions
-        {
-            PathInfos = new[] { new MediaPathInfo { Path = folderPath } }
-        };
 
         _logger.LogInformation(
             "Creating virtual folder '{Name}' (type={Type}) → '{Path}'",
             virtualFolderName, collectionType, folderPath);
 
+        // POST /Library/VirtualFolders?name=NAME&collectionType=TYPE&refreshLibrary=false
+        var qs = $"name={Uri.EscapeDataString(virtualFolderName)}" +
+                 (string.IsNullOrEmpty(collectionType) ? "" : $"&collectionType={collectionType}") +
+                 "&refreshLibrary=true";
+        var url = $"{localBaseUrl.TrimEnd('/')}/Library/VirtualFolders?{qs}";
+
+        var body = JsonSerializer.Serialize(new { Paths = new[] { folderPath } });
+        var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+        req.Headers.Add("X-Emby-Token", authToken);
+
         try
         {
-            _libraryManager.AddVirtualFolder(virtualFolderName, collectionType, options, refreshLibrary: true);
+            var resp = _http.Send(req);
+            _logger.LogInformation("CreateVirtualFolder response: {Status}", resp.StatusCode);
         }
         catch (Exception ex)
         {
@@ -64,7 +79,8 @@ public sealed class LibraryProvisioner
     /// Removes the Emby virtual folder for the given connector + library if it exists.
     /// Does NOT delete the .strm/.nfo files on disk.
     /// </summary>
-    public void RemoveVirtualFolder(string connectorName, string libraryName)
+    public void RemoveVirtualFolder(string connectorName, string libraryName,
+        string localBaseUrl, string authToken)
     {
         var virtualFolderName = BuildFolderName(connectorName, libraryName);
 
@@ -78,15 +94,15 @@ public sealed class LibraryProvisioner
         }
 
         _logger.LogInformation("Removing virtual folder '{Name}' (ItemId={Id})", virtualFolderName, folder.ItemId);
+
+        if (string.IsNullOrEmpty(folder.ItemId) || !long.TryParse(folder.ItemId, out var internalId))
+        {
+            _logger.LogWarning("Virtual folder '{Name}' has unexpected ItemId '{Id}'", virtualFolderName, folder.ItemId);
+            return;
+        }
+
         try
         {
-            // ItemId is the numeric internal ID (e.g. "29189"), not a GUID
-            if (string.IsNullOrEmpty(folder.ItemId) || !long.TryParse(folder.ItemId, out var internalId))
-            {
-                _logger.LogWarning("Virtual folder '{Name}' has unexpected ItemId '{Id}'", virtualFolderName, folder.ItemId);
-                return;
-            }
-
             _libraryManager.RemoveVirtualFolder(internalId, refreshLibrary: true);
         }
         catch (Exception ex)
