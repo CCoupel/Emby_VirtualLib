@@ -1,7 +1,9 @@
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Api;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using VirtualLib.Core;
 using VirtualLib.Core.Models;
 
@@ -132,14 +134,21 @@ public sealed class ConfigController : BaseApiService
 
     // Services instanciés une seule fois par classe (singleton léger via lazy)
     private static readonly Lazy<IConnectorFactory> _connectorFactory =
-        new(() => new ConnectorFactory(new DefaultHttpClientFactory(), Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance));
+        new(() => new ConnectorFactory(new DefaultHttpClientFactory(), NullLoggerFactory.Instance));
 
     private static readonly Lazy<SyncService> _syncService =
         new(() => new SyncService(
             _connectorFactory.Value,
             new StrmGenerator(),
             new NfoGenerator(),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<SyncService>.Instance));
+            NullLogger<SyncService>.Instance));
+
+    private readonly LibraryProvisioner _libraryProvisioner;
+
+    public ConfigController(ILibraryManager libraryManager)
+    {
+        _libraryProvisioner = new LibraryProvisioner(libraryManager, NullLogger<LibraryProvisioner>.Instance);
+    }
 
     // -----------------------------------------------------------------------
     // GET /virtuallib/connectors
@@ -298,6 +307,10 @@ public sealed class ConfigController : BaseApiService
 
         var virtualLibRoot = config.VirtualLibraryRootPath;
 
+        var lib = connectorConfig.KnownLibraries.FirstOrDefault(l => l.Id == request.LibraryId);
+        if (lib != null && !string.IsNullOrEmpty(virtualLibRoot))
+            _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
+
         var result = _syncService.Value.SyncLibraryAsync(
             connectorConfig,
             request.LibraryId,
@@ -350,6 +363,14 @@ public sealed class ConfigController : BaseApiService
         }).ToList();
         Plugin.Instance.SaveConfiguration();
 
+        // Provision virtual folders for all discovered libraries
+        var virtualLibRoot = config.VirtualLibraryRootPath;
+        if (!string.IsNullOrEmpty(virtualLibRoot))
+        {
+            foreach (var lib in connectorConfig.KnownLibraries)
+                _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
+        }
+
         return ResultFactory.GetResult(Request, libList, NoHeaders);
     }
 
@@ -366,6 +387,8 @@ public sealed class ConfigController : BaseApiService
 
         foreach (var connectorConfig in enabledConnectors)
         {
+            ProvisionEnabledLibraries(connectorConfig, virtualLibRoot);
+
             var result = _syncService.Value.SyncConnectorAsync(
                 connectorConfig,
                 virtualLibRoot,
@@ -390,6 +413,7 @@ public sealed class ConfigController : BaseApiService
             throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
 
         var virtualLibRoot = config.VirtualLibraryRootPath;
+        ProvisionEnabledLibraries(connectorConfig, virtualLibRoot);
 
         var result = _syncService.Value.SyncConnectorAsync(
             connectorConfig,
@@ -398,5 +422,20 @@ public sealed class ConfigController : BaseApiService
             CancellationToken.None).GetAwaiter().GetResult();
 
         return ResultFactory.GetResult(Request, result, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // Private helpers
+    // -----------------------------------------------------------------------
+
+    private void ProvisionEnabledLibraries(ConnectorConfig connectorConfig, string virtualLibRoot)
+    {
+        if (string.IsNullOrEmpty(virtualLibRoot)) return;
+
+        var enabledLibs = connectorConfig.KnownLibraries
+            .Where(l => connectorConfig.LibraryIds.Contains(l.Id));
+
+        foreach (var lib in enabledLibs)
+            _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
     }
 }
