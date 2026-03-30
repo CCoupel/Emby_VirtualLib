@@ -1,6 +1,5 @@
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Api;
-using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
@@ -145,19 +144,11 @@ public sealed class ConfigController : BaseApiService
             NullLogger<SyncService>.Instance));
 
     private readonly LibraryProvisioner _libraryProvisioner;
-    private readonly IServerConfigurationManager _serverConfig;
 
-    public ConfigController(ILibraryManager libraryManager, IServerConfigurationManager serverConfig)
+    public ConfigController(ILibraryManager libraryManager)
     {
         _libraryProvisioner = new LibraryProvisioner(libraryManager, NullLogger<LibraryProvisioner>.Instance);
-        _serverConfig = serverConfig;
     }
-
-    private string LocalBaseUrl =>
-        $"http://localhost:{_serverConfig.Configuration.HttpServerPortNumber}/emby";
-
-    private string AuthToken =>
-        Request?.Headers["X-Emby-Token"] ?? Request?.QueryString["api_key"] ?? string.Empty;
 
     // -----------------------------------------------------------------------
     // GET /virtuallib/connectors
@@ -228,10 +219,10 @@ public sealed class ConfigController : BaseApiService
             var removedIds = existing.LibraryIds.Except(request.LibraryIds).ToList();
 
             foreach (var lib in updated.KnownLibraries.Where(l => addedIds.Contains(l.Id)))
-                _libraryProvisioner.EnsureVirtualFolder(updated.DisplayName, lib.Name, lib.Type, virtualLibRoot, LocalBaseUrl, AuthToken);
+                _libraryProvisioner.EnsureVirtualFolder(updated.DisplayName, lib.Name, lib.Type, virtualLibRoot);
 
             foreach (var lib in existing.KnownLibraries.Where(l => removedIds.Contains(l.Id)))
-                _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name, LocalBaseUrl, AuthToken);
+                _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name);
         }
 
         return ResultFactory.GetResult(Request, updated, NoHeaders);
@@ -253,7 +244,7 @@ public sealed class ConfigController : BaseApiService
 
         // Remove all virtual folders for this connector's libraries
         foreach (var lib in existing.KnownLibraries)
-            _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name, LocalBaseUrl, AuthToken);
+            _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name);
     }
 
     // -----------------------------------------------------------------------
@@ -336,7 +327,7 @@ public sealed class ConfigController : BaseApiService
 
         var lib = connectorConfig.KnownLibraries.FirstOrDefault(l => l.Id == request.LibraryId);
         if (lib != null && !string.IsNullOrEmpty(virtualLibRoot))
-            _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, LocalBaseUrl, AuthToken);
+            _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
 
         var result = _syncService.Value.SyncLibraryAsync(
             connectorConfig,
@@ -395,7 +386,7 @@ public sealed class ConfigController : BaseApiService
         if (!string.IsNullOrEmpty(virtualLibRoot))
         {
             foreach (var lib in connectorConfig.KnownLibraries)
-                _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, LocalBaseUrl, AuthToken);
+                _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
         }
 
         return ResultFactory.GetResult(Request, libList, NoHeaders);
@@ -463,6 +454,6 @@ public sealed class ConfigController : BaseApiService
             .Where(l => connectorConfig.LibraryIds.Contains(l.Id));
 
         foreach (var lib in enabledLibs)
-            _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, LocalBaseUrl, AuthToken);
+            _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
     }
 }

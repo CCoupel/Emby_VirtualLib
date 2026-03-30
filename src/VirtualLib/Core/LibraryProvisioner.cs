@@ -1,26 +1,24 @@
-using System.Text;
-using System.Text.Json;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace VirtualLib.Core;
 
 /// <summary>
-/// Creates/removes Emby virtual folders via the local HTTP API to ensure
-/// the collection type is properly set (ILibraryManager.AddVirtualFolder
-/// ignores collectionType when PathInfos are provided).
+/// Creates/removes Emby virtual folders via the internal library manager.
+/// Step 1: AddVirtualFolder without PathInfos so collectionType is preserved.
+/// Step 2: AddMediaPaths to associate the physical directory.
 /// </summary>
 public sealed class LibraryProvisioner
 {
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<LibraryProvisioner> _logger;
-    private readonly HttpClient _http;
 
     public LibraryProvisioner(ILibraryManager libraryManager, ILogger<LibraryProvisioner> logger)
     {
         _libraryManager = libraryManager;
         _logger = logger;
-        _http = new HttpClient();
     }
 
     /// <summary>
@@ -30,9 +28,7 @@ public sealed class LibraryProvisioner
         string connectorName,
         string libraryName,
         string libraryType,
-        string virtualLibRoot,
-        string localBaseUrl,
-        string authToken)
+        string virtualLibRoot)
     {
         var virtualFolderName = BuildFolderName(connectorName, libraryName);
 
@@ -51,23 +47,29 @@ public sealed class LibraryProvisioner
             "Creating virtual folder '{Name}' (type={Type}) → '{Path}'",
             virtualFolderName, collectionType, folderPath);
 
-        // POST /Library/VirtualFolders?name=NAME&collectionType=TYPE&refreshLibrary=false
-        var qs = $"name={Uri.EscapeDataString(virtualFolderName)}" +
-                 (string.IsNullOrEmpty(collectionType) ? "" : $"&collectionType={collectionType}") +
-                 "&refreshLibrary=true";
-        var url = $"{localBaseUrl.TrimEnd('/')}/Library/VirtualFolders?{qs}";
-
-        var body = JsonSerializer.Serialize(new { Paths = new[] { folderPath } });
-        var req = new HttpRequestMessage(HttpMethod.Post, url)
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json")
-        };
-        req.Headers.Add("X-Emby-Token", authToken);
-
         try
         {
-            var resp = _http.Send(req);
-            _logger.LogInformation("CreateVirtualFolder response: {Status}", resp.StatusCode);
+            // Step 1: create without PathInfos so Emby uses collectionType correctly.
+            // ContentType must also be set in LibraryOptions — the standalone parameter is not enough.
+            _libraryManager.AddVirtualFolder(virtualFolderName, collectionType,
+                new LibraryOptions { ContentType = collectionType }, refreshLibrary: false);
+
+            // Step 2: find the newly created folder and attach the physical path
+            var created = _libraryManager.GetVirtualFolders()
+                .FirstOrDefault(f => string.Equals(f.Name, virtualFolderName, StringComparison.OrdinalIgnoreCase));
+
+            if (created != null && long.TryParse(created.ItemId, out var itemId) &&
+                _libraryManager.GetItemById(itemId) is CollectionFolder collectionFolder)
+            {
+                _libraryManager.AddMediaPaths(
+                    collectionFolder,
+                    new[] { new MediaPathInfo { Path = folderPath } },
+                    refreshLibrary: true);
+            }
+            else
+            {
+                _logger.LogWarning("Could not resolve CollectionFolder for '{Name}' to add media path", virtualFolderName);
+            }
         }
         catch (Exception ex)
         {
@@ -79,8 +81,7 @@ public sealed class LibraryProvisioner
     /// Removes the Emby virtual folder for the given connector + library if it exists.
     /// Does NOT delete the .strm/.nfo files on disk.
     /// </summary>
-    public void RemoveVirtualFolder(string connectorName, string libraryName,
-        string localBaseUrl, string authToken)
+    public void RemoveVirtualFolder(string connectorName, string libraryName)
     {
         var virtualFolderName = BuildFolderName(connectorName, libraryName);
 
