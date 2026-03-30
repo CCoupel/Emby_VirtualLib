@@ -211,11 +211,16 @@ public sealed class ConfigController : BaseApiService
         config.Connectors.Add(updated);
         Plugin.Instance.SaveConfiguration();
 
-        // Remove virtual folders for libraries that were unchecked
+        // Sync virtual folders: create for newly checked, remove for unchecked
         var virtualLibRoot = config.VirtualLibraryRootPath;
         if (!string.IsNullOrEmpty(virtualLibRoot))
         {
+            var addedIds   = request.LibraryIds.Except(existing.LibraryIds).ToList();
             var removedIds = existing.LibraryIds.Except(request.LibraryIds).ToList();
+
+            foreach (var lib in updated.KnownLibraries.Where(l => addedIds.Contains(l.Id)))
+                _libraryProvisioner.EnsureVirtualFolder(updated.DisplayName, lib.Name, lib.Type, virtualLibRoot);
+
             foreach (var lib in existing.KnownLibraries.Where(l => removedIds.Contains(l.Id)))
                 _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name);
         }

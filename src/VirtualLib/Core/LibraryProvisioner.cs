@@ -80,14 +80,20 @@ public sealed class LibraryProvisioner
         _logger.LogInformation("Removing virtual folder '{Name}' (ItemId={Id})", virtualFolderName, folder.ItemId);
         try
         {
-            var itemGuid = Guid.Parse(folder.ItemId);
+            if (string.IsNullOrEmpty(folder.ItemId) || !Guid.TryParse(folder.ItemId, out var itemGuid))
+            {
+                _logger.LogWarning("Virtual folder '{Name}' has invalid ItemId '{Id}'", virtualFolderName, folder.ItemId);
+                return;
+            }
+
             var item = _libraryManager.GetItemById(itemGuid);
             if (item == null)
             {
-                _logger.LogWarning("Could not resolve entity for virtual folder '{Name}'", virtualFolderName);
+                _logger.LogWarning("Could not resolve entity for virtual folder '{Name}' (ItemId={Id})", virtualFolderName, folder.ItemId);
                 return;
             }
-            _libraryManager.RemoveVirtualFolder(item.InternalId, refreshLibrary: true);
+
+            _libraryManager.DeleteItem(item, new DeleteOptions { DeleteFileLocation = false });
         }
         catch (Exception ex)
         {
