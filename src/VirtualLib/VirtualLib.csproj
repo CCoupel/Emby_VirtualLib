@@ -11,6 +11,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Http" Version="6.0.0" />
+    <!-- Required to access IResponse.OutputWriter (PipeWriter) for streaming responses -->
+    <PackageReference Include="System.IO.Pipelines" Version="8.0.0" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.0" />
     <PackageReference Include="System.Text.Json" Version="6.0.0" />
   </ItemGroup>
