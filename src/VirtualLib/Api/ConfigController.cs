@@ -151,13 +151,12 @@ public sealed class ConfigController : BaseApiService
     }
 
     /// <summary>
-    /// Derives the Emby server's base URL from the incoming request so .strm files
-    /// point to the address the client is already using (LAN IP, domain, etc.).
-    /// </summary>
-    /// <summary>
     /// Base URL for .strm proxy links, derived from the incoming request.
-    /// Finds the /virtuallib/ prefix in the URL to correctly preserve any
-    /// reverse-proxy base path (e.g. /emby in http://media.example.com/emby/virtuallib/...).
+    /// Handles reverse proxies: X-Forwarded-Proto and X-Forwarded-Host override
+    /// the internal scheme/host while preserving the base path (e.g. /emby).
+    /// Example: internal http://localhost:8096/emby/virtuallib/sync
+    ///          + X-Forwarded-Proto: https, X-Forwarded-Host: media.example.com
+    ///          → https://media.example.com/emby
     /// </summary>
     private string ProxyBaseUrl
     {
@@ -170,7 +169,22 @@ public sealed class ConfigController : BaseApiService
                 {
                     var idx = raw.IndexOf("/virtuallib/", StringComparison.OrdinalIgnoreCase);
                     if (idx > 0)
-                        return raw.Substring(0, idx);
+                    {
+                        var baseUrl = raw.Substring(0, idx); // e.g. "http://localhost:8096/emby"
+                        var uri = new Uri(baseUrl);
+
+                        // Override scheme/host from reverse-proxy forwarding headers
+                        var forwardedProto = Request?.Headers["X-Forwarded-Proto"]
+                            ?.Split(',')[0].Trim();
+                        var forwardedHost = Request?.Headers["X-Forwarded-Host"]
+                            ?.Split(',')[0].Trim();
+
+                        var scheme = !string.IsNullOrEmpty(forwardedProto) ? forwardedProto : uri.Scheme;
+                        var authority = !string.IsNullOrEmpty(forwardedHost) ? forwardedHost : uri.Authority;
+                        var path = uri.AbsolutePath.TrimEnd('/');
+
+                        return $"{scheme}://{authority}{path}";
+                    }
                 }
             }
             catch { }
