@@ -14,11 +14,12 @@ public sealed class StrmGenerator
     public string Generate(
         MediaItem item,
         string connectorId,
+        string connectorName,
         string libraryName,
         string virtualLibRoot,
         string proxyBaseUrl = "http://localhost:8096")
     {
-        var dirPath = GetDirectoryPath(item, libraryName, virtualLibRoot);
+        var dirPath = GetDirectoryPath(item, connectorName, libraryName, virtualLibRoot);
         var fileName = GetFileName(item);
         var filePath = Path.Combine(dirPath, fileName + ".strm");
         var streamUrl = $"{proxyBaseUrl.TrimEnd('/')}/virtuallib/proxy/{connectorId}/{item.RemoteId}";
@@ -29,22 +30,23 @@ public sealed class StrmGenerator
         return filePath;
     }
 
-    public string GetDirectoryPath(MediaItem item, string libraryName, string virtualLibRoot)
+    public string GetDirectoryPath(MediaItem item, string connectorName, string libraryName, string virtualLibRoot)
     {
+        var safeConnector = SanitizeName(connectorName);
         var safeLibrary = SanitizeName(libraryName);
 
         if (item.Type == MediaType.Episode)
         {
             var seriesName = SanitizeName(item.SeriesName ?? item.Title);
             var season = item.SeasonNumber ?? 0;
-            return Path.Combine(virtualLibRoot, safeLibrary, seriesName, $"Season {season:D2}");
+            return Path.Combine(virtualLibRoot, safeConnector, safeLibrary, seriesName, $"Season {season:D2}");
         }
         else
         {
             var folderName = item.Year.HasValue
                 ? $"{SanitizeName(item.Title)} ({item.Year})"
                 : SanitizeName(item.Title);
-            return Path.Combine(virtualLibRoot, safeLibrary, folderName);
+            return Path.Combine(virtualLibRoot, safeConnector, safeLibrary, folderName);
         }
     }
 

@@ -269,7 +269,7 @@ public sealed class ConfigController : BaseApiService
 
         foreach (var lib in connectorConfig.KnownLibraries)
         {
-            var dir = Path.Combine(virtualLibRoot, StrmGenerator.SanitizeName(lib.Name));
+            var dir = Path.Combine(virtualLibRoot, StrmGenerator.SanitizeName(connectorConfig.DisplayName), StrmGenerator.SanitizeName(lib.Name));
             var count = Directory.Exists(dir)
                 ? Directory.GetFiles(dir, "*.strm", SearchOption.AllDirectories).Length
                 : 0;

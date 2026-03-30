@@ -238,7 +238,7 @@ public sealed class SyncService
             try
             {
                 var strmPath = Path.Combine(
-                    _strmGenerator.GetDirectoryPath(item, libraryName, virtualLibRoot),
+                    _strmGenerator.GetDirectoryPath(item, config.DisplayName, libraryName, virtualLibRoot),
                     _strmGenerator.GetFileName(item) + ".strm");
 
                 if (File.Exists(strmPath)) { libSkipped++; continue; }
@@ -252,7 +252,7 @@ public sealed class SyncService
                     metadata = BuildFallbackMetadata(item);
                 }
 
-                strmPath = _strmGenerator.Generate(item, config.Id, libraryName, virtualLibRoot);
+                strmPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryName, virtualLibRoot);
                 var nfoDir = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
                 _nfoGenerator.Generate(metadata, nfoDir);
                 libCreated++;
