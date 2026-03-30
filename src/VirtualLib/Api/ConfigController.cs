@@ -154,16 +154,23 @@ public sealed class ConfigController : BaseApiService
     /// Derives the Emby server's base URL from the incoming request so .strm files
     /// point to the address the client is already using (LAN IP, domain, etc.).
     /// </summary>
+    /// <summary>
+    /// Base URL for .strm proxy links, derived from the incoming request.
+    /// Finds the /virtuallib/ prefix in the URL to correctly preserve any
+    /// reverse-proxy base path (e.g. /emby in http://media.example.com/emby/virtuallib/...).
+    /// </summary>
     private string ProxyBaseUrl
     {
         get
         {
             try
             {
-                if (Request?.AbsoluteUri != null)
+                var raw = Request?.AbsoluteUri;
+                if (!string.IsNullOrEmpty(raw))
                 {
-                    var uri = new Uri(Request.AbsoluteUri);
-                    return $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+                    var idx = raw.IndexOf("/virtuallib/", StringComparison.OrdinalIgnoreCase);
+                    if (idx > 0)
+                        return raw.Substring(0, idx);
                 }
             }
             catch { }
