@@ -37,7 +37,16 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             new PluginPageInfo
             {
                 Name = "VirtualLibConfig",
-                EmbeddedResourcePath = $"{GetType().Namespace}.Web_Pages.config.html"
+                EmbeddedResourcePath = $"{GetType().Namespace}.Web_Pages.config.html",
+                EnableInMainMenu = true,
+                DisplayName = "VirtualLib",
+                MenuSection = "server",
+                MenuIcon = "folder_open"
+            },
+            new PluginPageInfo
+            {
+                Name = "VirtualLibConfigScript",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Web_Pages.configjs.js"
             }
         };
 }

@@ -31,6 +31,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Web_Pages\config.html" />
+    <EmbeddedResource Include="Web_Pages\configjs.js" />
     <EmbeddedResource Include="Images\thumb.png" />
   </ItemGroup>
 </Project>

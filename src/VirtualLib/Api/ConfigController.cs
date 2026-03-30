@@ -61,6 +61,19 @@ public sealed class GetConnectorLibraries : IReturn<List<RemoteLibrary>>
     public string Id { get; set; } = string.Empty;
 }
 
+[Route("/virtuallib/settings", "GET", Summary = "Get global settings")]
+[Authenticated]
+public sealed class GetSettings : IReturn<GlobalSettings> { }
+
+[Route("/virtuallib/settings", "PUT", Summary = "Save global settings")]
+[Authenticated]
+public sealed class SaveSettings : IReturn<GlobalSettings>
+{
+    public string VirtualLibraryRootPath { get; set; } = string.Empty;
+    public int SyncIntervalHours { get; set; } = 6;
+    public int ProxyTimeoutSeconds { get; set; } = 30;
+}
+
 [Route("/virtuallib/sync", "POST", Summary = "Sync all enabled connectors")]
 [Authenticated]
 public sealed class SyncAll : IReturn<List<SyncResult>> { }
@@ -70,6 +83,17 @@ public sealed class SyncAll : IReturn<List<SyncResult>> { }
 public sealed class SyncConnector : IReturn<SyncResult>
 {
     public string Id { get; set; } = string.Empty;
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+public sealed class GlobalSettings
+{
+    public string VirtualLibraryRootPath { get; set; } = string.Empty;
+    public int SyncIntervalHours { get; set; } = 6;
+    public int ProxyTimeoutSeconds { get; set; } = 30;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +195,39 @@ public sealed class ConfigController : BaseApiService
 
         config.Connectors.Remove(existing);
         Plugin.Instance.SaveConfiguration();
+    }
+
+    // -----------------------------------------------------------------------
+    // GET /virtuallib/settings
+    // -----------------------------------------------------------------------
+    public object Get(GetSettings request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        return ResultFactory.GetResult(Request, new GlobalSettings
+        {
+            VirtualLibraryRootPath = config.VirtualLibraryRootPath,
+            SyncIntervalHours = config.SyncIntervalHours,
+            ProxyTimeoutSeconds = config.ProxyTimeoutSeconds
+        }, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // PUT /virtuallib/settings
+    // -----------------------------------------------------------------------
+    public object Put(SaveSettings request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        config.VirtualLibraryRootPath = request.VirtualLibraryRootPath;
+        config.SyncIntervalHours = request.SyncIntervalHours;
+        config.ProxyTimeoutSeconds = request.ProxyTimeoutSeconds;
+        Plugin.Instance.SaveConfiguration();
+
+        return ResultFactory.GetResult(Request, new GlobalSettings
+        {
+            VirtualLibraryRootPath = config.VirtualLibraryRootPath,
+            SyncIntervalHours = config.SyncIntervalHours,
+            ProxyTimeoutSeconds = config.ProxyTimeoutSeconds
+        }, NoHeaders);
     }
 
     // -----------------------------------------------------------------------
