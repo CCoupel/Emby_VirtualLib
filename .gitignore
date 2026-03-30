@@ -1,0 +1,31 @@
+# Répertoire privé — tokens, kubeconfig, clés API
+private/
+
+# Fichiers sensibles à la racine (sécurité supplémentaire)
+*.yml
+*.yaml
+!.github/**/*.yml
+
+# Build outputs
+bin/
+obj/
+*.dll
+*.pdb
+*.user
+
+# Libs Emby (extraites localement, ne pas committer)
+libs/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.suo
+*.user
+
+# NuGet
+*.nupkg
+packages/
+
+# OS
+.DS_Store
+Thumbs.db

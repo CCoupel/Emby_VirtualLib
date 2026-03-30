@@ -1,0 +1,34 @@
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Plugins;
+using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Serialization;
+
+namespace VirtualLib;
+
+public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+{
+    public static Plugin? Instance { get; private set; }
+
+    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+        : base(applicationPaths, xmlSerializer)
+    {
+        Instance = this;
+    }
+
+    public override string Name => "VirtualLib";
+
+    public override Guid Id => new Guid("A1B2C3D4-E5F6-7890-ABCD-EF1234567890");
+
+    public override string Description =>
+        "Aggregate remote media server libraries as native virtual libraries on this Emby host.";
+
+    public IEnumerable<PluginPageInfo> GetPages() =>
+        new[]
+        {
+            new PluginPageInfo
+            {
+                Name = "VirtualLib",
+                EmbeddedResourcePath = $"{GetType().Namespace}.Web_Pages.config.html"
+            }
+        };
+}
