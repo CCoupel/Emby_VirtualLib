@@ -150,6 +150,27 @@ public sealed class ConfigController : BaseApiService
         _libraryProvisioner = new LibraryProvisioner(libraryManager, NullLogger<LibraryProvisioner>.Instance);
     }
 
+    /// <summary>
+    /// Derives the Emby server's base URL from the incoming request so .strm files
+    /// point to the address the client is already using (LAN IP, domain, etc.).
+    /// </summary>
+    private string ProxyBaseUrl
+    {
+        get
+        {
+            try
+            {
+                if (Request?.AbsoluteUri != null)
+                {
+                    var uri = new Uri(Request.AbsoluteUri);
+                    return $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+                }
+            }
+            catch { }
+            return "http://localhost:8096";
+        }
+    }
+
     // -----------------------------------------------------------------------
     // GET /virtuallib/connectors
     // -----------------------------------------------------------------------
@@ -333,6 +354,7 @@ public sealed class ConfigController : BaseApiService
             connectorConfig,
             request.LibraryId,
             virtualLibRoot,
+            ProxyBaseUrl,
             progress: null,
             CancellationToken.None).GetAwaiter().GetResult();
 
@@ -410,6 +432,7 @@ public sealed class ConfigController : BaseApiService
             var result = _syncService.Value.SyncConnectorAsync(
                 connectorConfig,
                 virtualLibRoot,
+                ProxyBaseUrl,
                 progress: null,
                 CancellationToken.None).GetAwaiter().GetResult();
 
@@ -436,6 +459,7 @@ public sealed class ConfigController : BaseApiService
         var result = _syncService.Value.SyncConnectorAsync(
             connectorConfig,
             virtualLibRoot,
+            ProxyBaseUrl,
             progress: null,
             CancellationToken.None).GetAwaiter().GetResult();
 

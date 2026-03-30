@@ -73,6 +73,7 @@ public sealed class SyncService
     public async Task<SyncResult> SyncConnectorAsync(
         ConnectorConfig config,
         string virtualLibRoot,
+        string proxyBaseUrl,
         IProgress<SyncProgress>? progress,
         CancellationToken ct)
     {
@@ -150,7 +151,7 @@ public sealed class SyncService
                 "Syncing library '{LibraryName}' ({LibraryId}) for connector {ConnectorId}",
                 libraryName, libraryId, config.Id);
 
-            var libResult = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, progress, ct);
+            var libResult = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, progress, ct);
             libraryResults.Add(libResult);
             created += libResult.ItemsCreated;
             skipped += libResult.ItemsSkipped;
@@ -174,6 +175,7 @@ public sealed class SyncService
         ConnectorConfig config,
         string libraryId,
         string virtualLibRoot,
+        string proxyBaseUrl,
         IProgress<SyncProgress>? progress,
         CancellationToken ct)
     {
@@ -193,7 +195,7 @@ public sealed class SyncService
 
         var libraryName = config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId)?.Name ?? libraryId;
 
-        var libResult = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, progress, ct);
+        var libResult = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, progress, ct);
 
         var duration = DateTime.UtcNow - startTime;
         return SyncResult.Completed(config.DisplayName, libResult.ItemsCreated, libResult.ItemsSkipped, libResult.ItemsFailed, duration, new List<LibrarySyncResult> { libResult });
@@ -209,6 +211,7 @@ public sealed class SyncService
         string libraryId,
         string libraryName,
         string virtualLibRoot,
+        string proxyBaseUrl,
         IProgress<SyncProgress>? progress,
         CancellationToken ct)
     {
@@ -252,7 +255,7 @@ public sealed class SyncService
                     metadata = BuildFallbackMetadata(item);
                 }
 
-                strmPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryName, virtualLibRoot);
+                strmPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryName, virtualLibRoot, proxyBaseUrl);
                 var nfoDir = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
                 _nfoGenerator.Generate(metadata, nfoDir);
                 libCreated++;
