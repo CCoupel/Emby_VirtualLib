@@ -10,6 +10,13 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public int ProxyTimeoutSeconds { get; set; } = 30;
 }
 
+public sealed class KnownLibrary
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Type { get; set; } = string.Empty;
+}
+
 public sealed class ConnectorConfig
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
@@ -19,4 +26,5 @@ public sealed class ConnectorConfig
     public string ApiKey { get; set; } = string.Empty;
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
+    public List<KnownLibrary> KnownLibraries { get; set; } = new();
 }

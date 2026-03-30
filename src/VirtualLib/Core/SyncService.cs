@@ -14,23 +14,33 @@ public sealed class SyncProgress
     public string CurrentItem { get; init; } = string.Empty;
 }
 
+public sealed class LibrarySyncResult
+{
+    public string LibraryName { get; init; } = string.Empty;
+    public int ItemsCreated { get; init; }
+    public int ItemsSkipped { get; init; }
+    public int ItemsFailed { get; init; }
+}
+
 /// <summary>
 /// Result of a completed sync operation.
 /// </summary>
 public sealed class SyncResult
 {
     public bool Success { get; init; }
+    public string ConnectorName { get; init; } = string.Empty;
     public string? ErrorMessage { get; init; }
     public int ItemsCreated { get; init; }
     public int ItemsSkipped { get; init; }
     public int ItemsFailed { get; init; }
     public TimeSpan Duration { get; init; }
+    public List<LibrarySyncResult> Libraries { get; init; } = new();
 
-    public static SyncResult Failure(string error, TimeSpan duration) =>
-        new() { Success = false, ErrorMessage = error, Duration = duration };
+    public static SyncResult Failure(string connectorName, string error, TimeSpan duration) =>
+        new() { Success = false, ConnectorName = connectorName, ErrorMessage = error, Duration = duration };
 
-    public static SyncResult Completed(int created, int skipped, int failed, TimeSpan duration) =>
-        new() { Success = true, ItemsCreated = created, ItemsSkipped = skipped, ItemsFailed = failed, Duration = duration };
+    public static SyncResult Completed(string connectorName, int created, int skipped, int failed, TimeSpan duration, List<LibrarySyncResult> libraries) =>
+        new() { Success = true, ConnectorName = connectorName, ItemsCreated = created, ItemsSkipped = skipped, ItemsFailed = failed, Duration = duration, Libraries = libraries };
 }
 
 /// <summary>
@@ -90,7 +100,7 @@ public sealed class SyncService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Connection test threw an exception for connector {ConnectorId}", config.Id);
-            return SyncResult.Failure($"Connection test failed: {ex.Message}", DateTime.UtcNow - startTime);
+            return SyncResult.Failure(config.DisplayName, $"Connection test failed: {ex.Message}", DateTime.UtcNow - startTime);
         }
 
         if (!testResult.Success)
@@ -99,6 +109,7 @@ public sealed class SyncService
                 "Connection test failed for connector {ConnectorId}: {Error}",
                 config.Id, testResult.ErrorMessage);
             return SyncResult.Failure(
+                config.DisplayName,
                 $"Connection test failed: {testResult.ErrorMessage}",
                 DateTime.UtcNow - startTime);
         }
@@ -125,6 +136,8 @@ public sealed class SyncService
         var libraryNameMap = allLibraries.ToDictionary(l => l.Id, l => l.Name);
 
         // --- 3. Sync each configured library ---
+        var libraryResults = new List<LibrarySyncResult>();
+
         foreach (var libraryId in config.LibraryIds)
         {
             ct.ThrowIfCancellationRequested();
@@ -137,95 +150,11 @@ public sealed class SyncService
                 "Syncing library '{LibraryName}' ({LibraryId}) for connector {ConnectorId}",
                 libraryName, libraryId, config.Id);
 
-            IReadOnlyList<MediaItem> items;
-            try
-            {
-                items = await connector.ListItemsAsync(libraryId, ct);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to list items for library {LibraryId}", libraryId);
-                failed++;
-                continue;
-            }
-
-            _logger.LogInformation(
-                "Found {Count} items in library '{LibraryName}'",
-                items.Count, libraryName);
-
-            for (var i = 0; i < items.Count; i++)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                var item = items[i];
-
-                progress?.Report(new SyncProgress
-                {
-                    LibraryName = libraryName,
-                    Current = i + 1,
-                    Total = items.Count,
-                    CurrentItem = item.Title
-                });
-
-                try
-                {
-                    // --- 3a. Skip if .strm already exists ---
-                    var strmPath = Path.Combine(
-                        _strmGenerator.GetDirectoryPath(item, libraryName, virtualLibRoot),
-                        _strmGenerator.GetFileName(item) + ".strm");
-
-                    if (File.Exists(strmPath))
-                    {
-                        skipped++;
-                        continue;
-                    }
-
-                    // --- 3b. Get full metadata ---
-                    MediaMetadata metadata;
-                    try
-                    {
-                        metadata = await connector.GetMetadataAsync(item.RemoteId, ct);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to get metadata for item {RemoteId} — using basic info", item.RemoteId);
-                        // Fallback: create minimal metadata from the MediaItem
-                        metadata = BuildFallbackMetadata(item);
-                    }
-
-                    // --- 3c. Generate .strm ---
-                    strmPath = _strmGenerator.Generate(
-                        item,
-                        config.Id,
-                        libraryName,
-                        virtualLibRoot);
-
-                    // --- 3d. Generate .nfo ---
-                    var nfoDir = Path.GetDirectoryName(strmPath)
-                                 ?? Path.Combine(virtualLibRoot, libraryName);
-                    _nfoGenerator.Generate(metadata, nfoDir);
-
-                    created++;
-                    _logger.LogDebug("Generated files for item '{Title}' ({RemoteId})", item.Title, item.RemoteId);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to generate files for item '{Title}' ({RemoteId})", item.Title, item.RemoteId);
-                    failed++;
-                }
-            }
+            var libResult = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, progress, ct);
+            libraryResults.Add(libResult);
+            created += libResult.ItemsCreated;
+            skipped += libResult.ItemsSkipped;
+            failed += libResult.ItemsFailed;
         }
 
         var duration = DateTime.UtcNow - startTime;
@@ -233,12 +162,111 @@ public sealed class SyncService
             "Sync complete for connector '{DisplayName}': {Created} created, {Skipped} skipped, {Failed} failed in {Duration}",
             config.DisplayName, created, skipped, failed, duration);
 
-        return SyncResult.Completed(created, skipped, failed, duration);
+        return SyncResult.Completed(config.DisplayName, created, skipped, failed, duration, libraryResults);
+    }
+
+    // -----------------------------------------------------------------
+    // Public single-library sync
+    // -----------------------------------------------------------------
+
+    /// <summary>Synchronises a single library within a connector.</summary>
+    public async Task<SyncResult> SyncLibraryAsync(
+        ConnectorConfig config,
+        string libraryId,
+        string virtualLibRoot,
+        IProgress<SyncProgress>? progress,
+        CancellationToken ct)
+    {
+        var startTime = DateTime.UtcNow;
+
+        using var connector = _connectorFactory.Create(config);
+
+        ConnectorTestResult testResult;
+        try { testResult = await connector.TestConnectionAsync(ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return SyncResult.Failure(config.DisplayName, $"Connection test failed: {ex.Message}", DateTime.UtcNow - startTime);
+        }
+
+        if (!testResult.Success)
+            return SyncResult.Failure(config.DisplayName, $"Connection test failed: {testResult.ErrorMessage}", DateTime.UtcNow - startTime);
+
+        var libraryName = config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId)?.Name ?? libraryId;
+
+        var libResult = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, progress, ct);
+
+        var duration = DateTime.UtcNow - startTime;
+        return SyncResult.Completed(config.DisplayName, libResult.ItemsCreated, libResult.ItemsSkipped, libResult.ItemsFailed, duration, new List<LibrarySyncResult> { libResult });
     }
 
     // -----------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------
+
+    private async Task<LibrarySyncResult> SyncLibraryItemsAsync(
+        IMediaServerConnector connector,
+        ConnectorConfig config,
+        string libraryId,
+        string libraryName,
+        string virtualLibRoot,
+        IProgress<SyncProgress>? progress,
+        CancellationToken ct)
+    {
+        int libCreated = 0, libSkipped = 0, libFailed = 0;
+
+        IReadOnlyList<MediaItem> items;
+        try
+        {
+            items = await connector.ListItemsAsync(libraryId, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list items for library {LibraryId}", libraryId);
+            return new LibrarySyncResult { LibraryName = libraryName, ItemsFailed = 1 };
+        }
+
+        _logger.LogInformation("Found {Count} items in library '{LibraryName}'", items.Count, libraryName);
+
+        for (var i = 0; i < items.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var item = items[i];
+
+            progress?.Report(new SyncProgress { LibraryName = libraryName, Current = i + 1, Total = items.Count, CurrentItem = item.Title });
+
+            try
+            {
+                var strmPath = Path.Combine(
+                    _strmGenerator.GetDirectoryPath(item, libraryName, virtualLibRoot),
+                    _strmGenerator.GetFileName(item) + ".strm");
+
+                if (File.Exists(strmPath)) { libSkipped++; continue; }
+
+                MediaMetadata metadata;
+                try { metadata = await connector.GetMetadataAsync(item.RemoteId, ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to get metadata for item {RemoteId}", item.RemoteId);
+                    metadata = BuildFallbackMetadata(item);
+                }
+
+                strmPath = _strmGenerator.Generate(item, config.Id, libraryName, virtualLibRoot);
+                var nfoDir = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
+                _nfoGenerator.Generate(metadata, nfoDir);
+                libCreated++;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to generate files for item '{Title}'", item.Title);
+                libFailed++;
+            }
+        }
+
+        return new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed };
+    }
 
     private static MediaMetadata BuildFallbackMetadata(MediaItem item) =>
         new()

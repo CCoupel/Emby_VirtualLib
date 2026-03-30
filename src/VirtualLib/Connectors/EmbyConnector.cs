@@ -190,12 +190,32 @@ public sealed class EmbyConnector : IMediaServerConnector
     {
         if (_userId is not null) return _userId;
 
+        // Try /Users/Me (works with session tokens)
         try
         {
             var response = await _httpClient.GetAsync("emby/Users/Me", cancellationToken);
+            if (response.IsSuccessStatusCode)
+            {
+                var user = await response.Content.ReadFromJsonAsync<EmbyUser>(cancellationToken: cancellationToken);
+                if (user?.Id is not null)
+                {
+                    _userId = user.Id;
+                    return _userId;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Users/Me failed for connector {ConnectorId}, trying user list", ConnectorId);
+        }
+
+        // Fallback: pick the first admin user (works with API keys)
+        try
+        {
+            var response = await _httpClient.GetAsync("emby/Users?IsAdministrator=true&Limit=1", cancellationToken);
             response.EnsureSuccessStatusCode();
-            var user = await response.Content.ReadFromJsonAsync<EmbyUser>(cancellationToken: cancellationToken);
-            _userId = user?.Id;
+            var users = await response.Content.ReadFromJsonAsync<List<EmbyUser>>(cancellationToken: cancellationToken);
+            _userId = users?.FirstOrDefault()?.Id;
             return _userId;
         }
         catch (Exception ex)

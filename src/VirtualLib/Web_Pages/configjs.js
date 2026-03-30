@@ -81,11 +81,13 @@ define([], function () {
             noMsg.style.display = 'none';
 
             connectors.forEach(function (c) {
+                // --- Connector header row ---
                 var tr = document.createElement('tr');
+                tr.style.cssText = 'border-top:1px solid rgba(255,255,255,0.1)';
 
-                function td(text) {
+                function td(text, style) {
                     var cell = document.createElement('td');
-                    cell.style.cssText = 'padding:6px 8px';
+                    cell.style.cssText = 'padding:6px 8px' + (style ? ';' + style : '');
                     cell.textContent = text;
                     return cell;
                 }
@@ -93,11 +95,6 @@ define([], function () {
                 tr.appendChild(td(c.DisplayName || ''));
                 tr.appendChild(td(c.ServerType || ''));
                 tr.appendChild(td(c.ServerUrl || ''));
-
-                var enabledCell = document.createElement('td');
-                enabledCell.style.cssText = 'padding:6px 8px';
-                enabledCell.textContent = c.Enabled ? '\u2713' : '\u2014';
-                tr.appendChild(enabledCell);
 
                 var actionCell = document.createElement('td');
                 actionCell.style.cssText = 'padding:6px 8px';
@@ -107,32 +104,89 @@ define([], function () {
                 btnEdit.className = 'emby-button';
                 btnEdit.textContent = 'Edit';
                 btnEdit.style.marginRight = '4px';
-                btnEdit.addEventListener('click', (function (id) {
-                    return function () { openEditConnector(id); };
-                }(c.Id)));
+                btnEdit.addEventListener('click', (function (id) { return function () { openEditConnector(id); }; }(c.Id)));
 
                 var btnDelete = document.createElement('button');
                 btnDelete.setAttribute('is', 'emby-button');
                 btnDelete.className = 'emby-button';
                 btnDelete.textContent = 'Delete';
                 btnDelete.style.marginRight = '4px';
-                btnDelete.addEventListener('click', (function (id) {
-                    return function () { deleteConnector(id); };
-                }(c.Id)));
+                btnDelete.addEventListener('click', (function (id) { return function () { deleteConnector(id); }; }(c.Id)));
 
                 var btnSync = document.createElement('button');
                 btnSync.setAttribute('is', 'emby-button');
                 btnSync.className = 'emby-button';
-                btnSync.textContent = 'Sync';
-                btnSync.addEventListener('click', (function (id) {
-                    return function () { syncSingleConnector(id); };
-                }(c.Id)));
+                btnSync.textContent = 'Sync All';
+                btnSync.addEventListener('click', (function (id) { return function () { syncSingleConnector(id); }; }(c.Id)));
 
                 actionCell.appendChild(btnEdit);
                 actionCell.appendChild(btnDelete);
                 actionCell.appendChild(btnSync);
                 tr.appendChild(actionCell);
                 tbody.appendChild(tr);
+
+                // --- Library sub-rows ---
+                var libs = c.KnownLibraries || [];
+                if (libs.length === 0) {
+                    var trNoLib = document.createElement('tr');
+                    var tdNoLib = document.createElement('td');
+                    tdNoLib.colSpan = 4;
+                    tdNoLib.style.cssText = 'padding:4px 8px 4px 2em;opacity:0.5;font-size:0.85em';
+                    tdNoLib.textContent = 'No libraries discovered yet \u2014 click Test Connection in the Edit form.';
+                    trNoLib.appendChild(tdNoLib);
+                    tbody.appendChild(trNoLib);
+                } else {
+                    libs.forEach(function (lib) {
+                        var trLib = document.createElement('tr');
+                        var tdLib = document.createElement('td');
+                        tdLib.colSpan = 4;
+                        tdLib.style.cssText = 'padding:2px 8px 2px 2em';
+
+                        var label = document.createElement('label');
+                        label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;cursor:pointer;min-width:200px';
+
+                        var cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.checked = (c.LibraryIds || []).indexOf(lib.Id) !== -1;
+                        cb.addEventListener('change', (function (connId, libId) {
+                            return function () { toggleLibrary(connId, libId, this.checked); };
+                        }(c.Id, lib.Id)));
+
+                        var nameSpan = document.createElement('span');
+                        nameSpan.textContent = lib.Name;
+
+                        var typeSpan = document.createElement('span');
+                        typeSpan.style.cssText = 'opacity:0.5;font-size:0.8em';
+                        typeSpan.textContent = '(' + lib.Type + ')';
+
+                        label.appendChild(cb);
+                        label.appendChild(nameSpan);
+                        label.appendChild(typeSpan);
+
+                        var countSpan = document.createElement('span');
+                        countSpan.style.cssText = 'margin-left:12px;opacity:0.6;font-size:0.85em';
+                        countSpan.textContent = '\u2026';
+                        countSpan.setAttribute('data-count-lib', lib.Id);
+
+                        var btnLibSync = document.createElement('button');
+                        btnLibSync.setAttribute('is', 'emby-button');
+                        btnLibSync.className = 'emby-button';
+                        btnLibSync.textContent = 'Sync';
+                        btnLibSync.style.cssText = 'margin-left:8px;padding:2px 8px;font-size:0.85em';
+                        btnLibSync.addEventListener('click', (function (connId, libId) {
+                            return function () { syncLibrary(connId, libId); };
+                        }(c.Id, lib.Id)));
+
+                        tdLib.appendChild(label);
+                        tdLib.appendChild(countSpan);
+                        tdLib.appendChild(btnLibSync);
+                        trLib.appendChild(tdLib);
+                        tbody.appendChild(trLib);
+                    });
+
+                    // Load entry counts asynchronously
+                    loadLibraryStats(c.Id);
+                }
             });
         }
 
@@ -154,11 +208,6 @@ define([], function () {
             q('connectorType').value = 'Emby';
             q('connectorUrl').value = '';
             q('connectorApiKey').value = '';
-            q('librarySection').style.display = 'none';
-
-            var libBox = q('libraryCheckboxes');
-            while (libBox.firstChild) libBox.removeChild(libBox.firstChild);
-
             q('connectorFormTitle').textContent = 'Add Connector';
             clearStatus(q('testResultMsg'));
             clearStatus(q('connectorSaveStatus'));
@@ -177,88 +226,20 @@ define([], function () {
                 q('connectorUrl').value = c.ServerUrl || '';
                 q('connectorApiKey').value = c.ApiKey || '';
                 q('connectorFormTitle').textContent = 'Edit Connector';
-                q('librarySection').style.display = 'none';
-
-                var libBox = q('libraryCheckboxes');
-                while (libBox.firstChild) libBox.removeChild(libBox.firstChild);
-
                 clearStatus(q('testResultMsg'));
                 clearStatus(q('connectorSaveStatus'));
                 q('connectorFormSection').style.display = '';
                 q('connectorFormSection').scrollIntoView({ behavior: 'smooth' });
-
-                fetchAndRenderLibraries(id, c.LibraryIds || []);
             }).catch(function (e) {
                 Dashboard.alert('Failed to load connectors: ' + e.message);
             });
         }
 
-        function fetchAndRenderLibraries(connectorId, selectedIds) {
-            var librarySection = q('librarySection');
-            var container = q('libraryCheckboxes');
-            while (container.firstChild) container.removeChild(container.firstChild);
-
-            var loadingMsg = document.createElement('em');
-            loadingMsg.textContent = 'Loading libraries\u2026';
-            container.appendChild(loadingMsg);
-            librarySection.style.display = '';
-
-            if (!connectorId) {
-                while (container.firstChild) container.removeChild(container.firstChild);
-                var hint = document.createElement('em');
-                hint.textContent = 'Save connector first, then libraries will appear here.';
-                container.appendChild(hint);
-                return;
-            }
-
+        function refreshKnownLibraries(connectorId) {
+            // Silently refresh KnownLibraries cache on the server, then reload the table
             apiGet('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/libraries')
-                .then(function (libs) { renderLibraryCheckboxes(libs || [], selectedIds); })
-                .catch(function (e) {
-                    while (container.firstChild) container.removeChild(container.firstChild);
-                    var errMsg = document.createElement('span');
-                    errMsg.style.color = 'var(--theme-error-color, #e53935)';
-                    errMsg.textContent = 'Failed to load libraries: ' + e.message;
-                    container.appendChild(errMsg);
-                });
-        }
-
-        function renderLibraryCheckboxes(libs, selectedIds) {
-            var container = q('libraryCheckboxes');
-            while (container.firstChild) container.removeChild(container.firstChild);
-
-            if (!libs.length) {
-                var msg = document.createElement('em');
-                msg.textContent = 'No libraries found on this server.';
-                container.appendChild(msg);
-                return;
-            }
-
-            libs.forEach(function (lib) {
-                var label = document.createElement('label');
-                label.style.cssText = 'display:block;margin:4px 0;cursor:pointer';
-
-                var cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.className = 'lib-checkbox';
-                cb.value = lib.Id;
-                cb.style.marginRight = '6px';
-                if (selectedIds && selectedIds.indexOf(lib.Id) !== -1) cb.checked = true;
-
-                var nameSpan = document.createTextNode(lib.Name + ' ');
-                var typeSpan = document.createElement('span');
-                typeSpan.style.cssText = 'opacity:0.6;font-size:0.85em';
-                typeSpan.textContent = '(' + lib.Type + ')';
-
-                label.appendChild(cb);
-                label.appendChild(nameSpan);
-                label.appendChild(typeSpan);
-                container.appendChild(label);
-            });
-        }
-
-        function getSelectedLibraryIds() {
-            return Array.from(view.querySelectorAll('#libraryCheckboxes .lib-checkbox:checked'))
-                .map(function (cb) { return cb.value; });
+                .then(function () { loadConnectors(); })
+                .catch(function () { /* ignore */ });
         }
 
         // -------------------------------------------------------------------
@@ -300,7 +281,55 @@ define([], function () {
             startSyncUI();
             q('syncProgressBar').style.width = '30%';
             apiPost('/virtuallib/connectors/' + encodeURIComponent(id) + '/sync')
-                .then(function (result) { finishSyncUI([result], 'Done.'); })
+                .then(function (result) {
+                    finishSyncUI([result], 'Done.');
+                    loadLibraryStats(id);
+                })
+                .catch(function (e) { errorSyncUI(e.message); });
+        }
+
+        function loadLibraryStats(connectorId) {
+            apiGet('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/stats')
+                .then(function (stats) {
+                    if (!stats || !stats.length) return;
+                    stats.forEach(function (s) {
+                        view.querySelectorAll('[data-count-lib="' + s.LibraryId + '"]').forEach(function (span) {
+                            span.textContent = s.EntryCount + ' entries';
+                        });
+                    });
+                })
+                .catch(function () { /* silently ignore */ });
+        }
+
+        function toggleLibrary(connectorId, libraryId, enabled) {
+            apiGet('/virtuallib/connectors').then(function (connectors) {
+                var c = connectors.find(function (x) { return x.Id === connectorId; });
+                if (!c) return;
+                var ids = (c.LibraryIds || []).slice();
+                if (enabled && ids.indexOf(libraryId) === -1) ids.push(libraryId);
+                if (!enabled) ids = ids.filter(function (id) { return id !== libraryId; });
+                var payload = {
+                    Id: c.Id,
+                    DisplayName: c.DisplayName,
+                    ServerType: c.ServerType,
+                    ServerUrl: c.ServerUrl,
+                    ApiKey: c.ApiKey,
+                    LibraryIds: ids,
+                    Enabled: c.Enabled
+                };
+                return apiPut('/virtuallib/connectors/' + encodeURIComponent(connectorId), payload);
+            }).catch(function (e) {
+                console.error('VirtualLib: failed to toggle library', e);
+            });
+        }
+
+        function syncLibrary(connectorId, libraryId) {
+            startSyncUI();
+            apiPost('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/libraries/' + encodeURIComponent(libraryId) + '/sync')
+                .then(function (result) {
+                    finishSyncUI([result], 'Done.');
+                    loadLibraryStats(connectorId);
+                })
                 .catch(function (e) { errorSyncUI(e.message); });
         }
 
@@ -309,17 +338,27 @@ define([], function () {
             if (!results || results.length === 0) {
                 lines.push('No connectors were synced.');
             } else {
-                results.forEach(function (r, i) {
-                    lines.push('Connector ' + (i + 1) + ':');
+                results.forEach(function (r) {
+                    var name = r.ConnectorName || 'Connector';
+                    lines.push('\u25B6 ' + name);
                     if (!r.Success) {
                         lines.push('  Status : FAILED');
                         lines.push('  Error  : ' + (r.ErrorMessage || 'unknown'));
                     } else {
                         lines.push('  Status   : OK');
-                        lines.push('  Created  : ' + r.ItemsCreated);
-                        lines.push('  Skipped  : ' + r.ItemsSkipped);
-                        lines.push('  Failed   : ' + r.ItemsFailed);
                         lines.push('  Duration : ' + formatDuration(r.Duration));
+                        if (r.Libraries && r.Libraries.length > 0) {
+                            r.Libraries.forEach(function (lib) {
+                                lines.push('  \u2022 ' + lib.LibraryName);
+                                lines.push('      Created  : ' + lib.ItemsCreated);
+                                lines.push('      Skipped  : ' + lib.ItemsSkipped);
+                                lines.push('      Failed   : ' + lib.ItemsFailed);
+                            });
+                        } else {
+                            lines.push('  Created  : ' + r.ItemsCreated);
+                            lines.push('  Skipped  : ' + r.ItemsSkipped);
+                            lines.push('  Failed   : ' + r.ItemsFailed);
+                        }
                     }
                     lines.push('');
                 });
@@ -390,7 +429,7 @@ define([], function () {
                         .then(function (res) {
                             if (res.Success) {
                                 setStatus(statusEl, 'Connected \u2014 server v' + (res.ServerVersion || '?'), false);
-                                fetchAndRenderLibraries(connectorId, getSelectedLibraryIds());
+                                refreshKnownLibraries(connectorId);
                             } else {
                                 setStatus(statusEl, 'Failed: ' + (res.ErrorMessage || 'unknown error'), true);
                             }
@@ -407,40 +446,62 @@ define([], function () {
                 clearStatus(statusEl);
 
                 var id = q('connectorId').value;
-                var payload = {
-                    DisplayName: q('connectorName').value.trim(),
-                    ServerType: q('connectorType').value,
-                    ServerUrl: q('connectorUrl').value.trim(),
-                    ApiKey: q('connectorApiKey').value.trim(),
-                    LibraryIds: getSelectedLibraryIds(),
-                    Enabled: true
-                };
+                var displayName = q('connectorName').value.trim();
+                var serverUrl = q('connectorUrl').value.trim();
+                var apiKey = q('connectorApiKey').value.trim();
 
-                if (!payload.DisplayName || !payload.ServerUrl || !payload.ApiKey) {
+                if (!displayName || !serverUrl || !apiKey) {
                     setStatus(statusEl, 'Name, URL and API Key are required.', true);
                     return;
                 }
 
                 var p;
                 if (id) {
-                    payload.Id = id;
-                    p = apiPut('/virtuallib/connectors/' + encodeURIComponent(id), payload)
-                            .then(function () { setStatus(statusEl, 'Connector updated.', false); });
+                    // Edit: preserve existing LibraryIds (managed via table checkboxes)
+                    apiGet('/virtuallib/connectors').then(function (connectors) {
+                        var existing = connectors.find(function (x) { return x.Id === id; });
+                        var payload = {
+                            Id: id,
+                            DisplayName: displayName,
+                            ServerType: q('connectorType').value,
+                            ServerUrl: serverUrl,
+                            ApiKey: apiKey,
+                            LibraryIds: existing ? (existing.LibraryIds || []) : [],
+                            Enabled: true
+                        };
+                        return apiPut('/virtuallib/connectors/' + encodeURIComponent(id), payload);
+                    }).then(function () {
+                        setStatus(statusEl, 'Connector updated.', false);
+                        q('connectorFormSection').style.display = 'none';
+                        loadConnectors();
+                    }).catch(function (e) { setStatus(statusEl, 'Error: ' + e.message, true); });
                 } else {
-                    p = apiPost('/virtuallib/connectors', payload)
-                            .then(function () { setStatus(statusEl, 'Connector added.', false); });
+                    var payload = {
+                        DisplayName: displayName,
+                        ServerType: q('connectorType').value,
+                        ServerUrl: serverUrl,
+                        ApiKey: apiKey,
+                        LibraryIds: [],
+                        Enabled: true
+                    };
+                    apiPost('/virtuallib/connectors', payload)
+                        .then(function () {
+                            setStatus(statusEl, 'Connector added.', false);
+                            q('connectorFormSection').style.display = 'none';
+                            loadConnectors();
+                        }).catch(function (e) { setStatus(statusEl, 'Error: ' + e.message, true); });
                 }
-
-                p.then(function () {
-                    q('connectorFormSection').style.display = 'none';
-                    loadConnectors();
-                }).catch(function (e) { setStatus(statusEl, 'Error: ' + e.message, true); });
             });
 
             q('btnSyncAll').addEventListener('click', function () {
                 startSyncUI();
                 apiPost('/virtuallib/sync')
-                    .then(function (results) { finishSyncUI(results || [], 'Synchronisation complete.'); })
+                    .then(function (results) {
+                        finishSyncUI(results || [], 'Synchronisation complete.');
+                        apiGet('/virtuallib/connectors').then(function (connectors) {
+                            connectors.forEach(function (c) { loadLibraryStats(c.Id); });
+                        }).catch(function () {});
+                    })
                     .catch(function (e) { errorSyncUI(e.message); });
             });
         });

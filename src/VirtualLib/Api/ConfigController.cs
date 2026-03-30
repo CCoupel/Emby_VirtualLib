@@ -61,6 +61,21 @@ public sealed class GetConnectorLibraries : IReturn<List<RemoteLibrary>>
     public string Id { get; set; } = string.Empty;
 }
 
+[Route("/virtuallib/connectors/{Id}/stats", "GET", Summary = "Get entry counts per library")]
+[Authenticated]
+public sealed class GetConnectorStats : IReturn<List<LibraryStats>>
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+[Route("/virtuallib/connectors/{Id}/libraries/{LibraryId}/sync", "POST", Summary = "Sync a single library")]
+[Authenticated]
+public sealed class SyncLibrary : IReturn<SyncResult>
+{
+    public string Id { get; set; } = string.Empty;
+    public string LibraryId { get; set; } = string.Empty;
+}
+
 [Route("/virtuallib/settings", "GET", Summary = "Get global settings")]
 [Authenticated]
 public sealed class GetSettings : IReturn<GlobalSettings> { }
@@ -94,6 +109,13 @@ public sealed class GlobalSettings
     public string VirtualLibraryRootPath { get; set; } = string.Empty;
     public int SyncIntervalHours { get; set; } = 6;
     public int ProxyTimeoutSeconds { get; set; } = 30;
+}
+
+public sealed class LibraryStats
+{
+    public string LibraryId { get; set; } = string.Empty;
+    public string LibraryName { get; set; } = string.Empty;
+    public int EntryCount { get; set; }
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +195,8 @@ public sealed class ConfigController : BaseApiService
             ServerUrl = request.ServerUrl,
             ApiKey = request.ApiKey,
             LibraryIds = request.LibraryIds,
-            Enabled = request.Enabled
+            Enabled = request.Enabled,
+            KnownLibraries = existing.KnownLibraries
         };
 
         config.Connectors.Add(updated);
@@ -231,6 +254,61 @@ public sealed class ConfigController : BaseApiService
     }
 
     // -----------------------------------------------------------------------
+    // GET /virtuallib/connectors/{Id}/stats
+    // -----------------------------------------------------------------------
+    public object Get(GetConnectorStats request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        var connectorConfig = config.Connectors.FirstOrDefault(c => c.Id == request.Id);
+
+        if (connectorConfig is null)
+            throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
+
+        var virtualLibRoot = config.VirtualLibraryRootPath;
+        var stats = new List<LibraryStats>();
+
+        foreach (var lib in connectorConfig.KnownLibraries)
+        {
+            var dir = Path.Combine(virtualLibRoot, StrmGenerator.SanitizeName(lib.Name));
+            var count = Directory.Exists(dir)
+                ? Directory.GetFiles(dir, "*.strm", SearchOption.AllDirectories).Length
+                : 0;
+
+            stats.Add(new LibraryStats
+            {
+                LibraryId = lib.Id,
+                LibraryName = lib.Name,
+                EntryCount = count
+            });
+        }
+
+        return ResultFactory.GetResult(Request, stats, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // POST /virtuallib/connectors/{Id}/libraries/{LibraryId}/sync
+    // -----------------------------------------------------------------------
+    public object Post(SyncLibrary request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        var connectorConfig = config.Connectors.FirstOrDefault(c => c.Id == request.Id);
+
+        if (connectorConfig is null)
+            throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
+
+        var virtualLibRoot = config.VirtualLibraryRootPath;
+
+        var result = _syncService.Value.SyncLibraryAsync(
+            connectorConfig,
+            request.LibraryId,
+            virtualLibRoot,
+            progress: null,
+            CancellationToken.None).GetAwaiter().GetResult();
+
+        return ResultFactory.GetResult(Request, result, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
     // POST /virtuallib/connectors/{Id}/test
     // -----------------------------------------------------------------------
     public object Post(TestConnector request)
@@ -261,7 +339,18 @@ public sealed class ConfigController : BaseApiService
         using var connector = _connectorFactory.Value.Create(connectorConfig);
         var libraries = connector.ListLibrariesAsync(CancellationToken.None).GetAwaiter().GetResult();
 
-        return ResultFactory.GetResult(Request, libraries.ToList(), NoHeaders);
+        var libList = libraries.ToList();
+
+        // Cache known libraries in config
+        connectorConfig.KnownLibraries = libList.Select(l => new KnownLibrary
+        {
+            Id = l.Id,
+            Name = l.Name,
+            Type = l.Type.ToString()
+        }).ToList();
+        Plugin.Instance.SaveConfiguration();
+
+        return ResultFactory.GetResult(Request, libList, NoHeaders);
     }
 
     // -----------------------------------------------------------------------
