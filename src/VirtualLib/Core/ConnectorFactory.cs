@@ -21,7 +21,7 @@ public sealed class ConnectorFactory : IConnectorFactory
 
     public IMediaServerConnector Create(ConnectorConfig config) => config.ServerType switch
     {
-        ServerTypes.Emby => new EmbyConnector(
+        ServerTypes.Emby or ServerTypes.Jellyfin => new EmbyConnector(
             config,
             _httpClientFactory,
             _loggerFactory.CreateLogger<EmbyConnector>()),

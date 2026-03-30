@@ -173,7 +173,18 @@ public sealed class SyncService
 
                 try
                 {
-                    // --- 3a. Get full metadata ---
+                    // --- 3a. Skip if .strm already exists ---
+                    var strmPath = Path.Combine(
+                        _strmGenerator.GetDirectoryPath(item, libraryName, virtualLibRoot),
+                        _strmGenerator.GetFileName(item) + ".strm");
+
+                    if (File.Exists(strmPath))
+                    {
+                        skipped++;
+                        continue;
+                    }
+
+                    // --- 3b. Get full metadata ---
                     MediaMetadata metadata;
                     try
                     {
@@ -190,14 +201,14 @@ public sealed class SyncService
                         metadata = BuildFallbackMetadata(item);
                     }
 
-                    // --- 3b. Generate .strm ---
-                    var strmPath = _strmGenerator.Generate(
+                    // --- 3c. Generate .strm ---
+                    strmPath = _strmGenerator.Generate(
                         item,
                         config.Id,
                         libraryName,
                         virtualLibRoot);
 
-                    // --- 3c. Generate .nfo ---
+                    // --- 3d. Generate .nfo ---
                     var nfoDir = Path.GetDirectoryName(strmPath)
                                  ?? Path.Combine(virtualLibRoot, libraryName);
                     _nfoGenerator.Generate(metadata, nfoDir);
