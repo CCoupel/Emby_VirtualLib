@@ -240,11 +240,13 @@ public sealed class SyncService
 
             try
             {
-                var strmPath = Path.Combine(
-                    _strmGenerator.GetDirectoryPath(item, config.DisplayName, libraryName, virtualLibRoot),
-                    _strmGenerator.GetFileName(item) + ".strm");
+                // Always regenerate the .strm (cheap — just a URL line).
+                // Skip the expensive metadata fetch only when the .nfo already exists.
+                var strmPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryName, virtualLibRoot, proxyBaseUrl);
+                var nfoDir   = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
+                var nfoPath  = Path.Combine(nfoDir, _strmGenerator.GetFileName(item) + ".nfo");
 
-                if (File.Exists(strmPath)) { libSkipped++; continue; }
+                if (File.Exists(nfoPath)) { libSkipped++; continue; }
 
                 MediaMetadata metadata;
                 try { metadata = await connector.GetMetadataAsync(item.RemoteId, ct); }
@@ -255,8 +257,6 @@ public sealed class SyncService
                     metadata = BuildFallbackMetadata(item);
                 }
 
-                strmPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryName, virtualLibRoot, proxyBaseUrl);
-                var nfoDir = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
                 _nfoGenerator.Generate(metadata, nfoDir);
                 libCreated++;
             }

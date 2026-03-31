@@ -29,6 +29,16 @@
                 </div>
 
                 <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="proxyBaseUrl">Proxy Base URL</label>
+                    <input type="url" id="proxyBaseUrl" class="emby-input"
+                           placeholder="e.g. https://media.coupel.net/emby (leave empty for auto-detect)" />
+                    <div class="fieldDescription">
+                        Base URL used in .strm files to reach this server's proxy endpoint.
+                        Set this if auto-detection returns the wrong scheme (http vs https).
+                    </div>
+                </div>
+
+                <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="syncInterval">Auto-sync Interval (hours)</label>
                     <input type="number" id="syncInterval" class="emby-input" min="1" max="168" value="6" />
                 </div>

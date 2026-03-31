@@ -41,7 +41,7 @@ public sealed class EmbyConnector : IMediaServerConnector
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromSeconds(10));
 
-            var response = await _httpClient.GetAsync("emby/System/Info/Public", cts.Token);
+            var response = await _httpClient.GetAsync("System/Info/Public", cts.Token);
             response.EnsureSuccessStatusCode();
             var info = await response.Content.ReadFromJsonAsync<EmbySystemInfo>(cancellationToken: cts.Token);
             return ConnectorTestResult.Ok(info?.Version ?? "unknown");
@@ -57,7 +57,7 @@ public sealed class EmbyConnector : IMediaServerConnector
     {
         try
         {
-            var response = await _httpClient.GetAsync("emby/Library/VirtualFolders", cancellationToken);
+            var response = await _httpClient.GetAsync("Library/VirtualFolders", cancellationToken);
             response.EnsureSuccessStatusCode();
             var folders = await response.Content.ReadFromJsonAsync<List<EmbyLibraryFolder>>(cancellationToken: cancellationToken)
                           ?? new List<EmbyLibraryFolder>();
@@ -100,7 +100,7 @@ public sealed class EmbyConnector : IMediaServerConnector
 
             try
             {
-                var url = $"emby/Users/{userId}/Items" +
+                var url = $"Users/{userId}/Items" +
                           $"?ParentId={libraryId}" +
                           $"&Recursive=true" +
                           $"&IncludeItemTypes=Movie,Episode" +
@@ -145,7 +145,7 @@ public sealed class EmbyConnector : IMediaServerConnector
         string itemId,
         CancellationToken cancellationToken = default)
     {
-        var url = $"emby/Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags";
+        var url = $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags";
         var response = await _httpClient.GetAsync(url, cancellationToken);
         response.EnsureSuccessStatusCode();
 
@@ -170,7 +170,7 @@ public sealed class EmbyConnector : IMediaServerConnector
         try
         {
             var imageType = MapArtworkType(artworkType);
-            var url = $"emby/Items/{itemId}/Images/{imageType}?Quality=90";
+            var url = $"Items/{itemId}/Images/{imageType}?Quality=90";
             var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -193,7 +193,7 @@ public sealed class EmbyConnector : IMediaServerConnector
         // Try /Users/Me (works with session tokens)
         try
         {
-            var response = await _httpClient.GetAsync("emby/Users/Me", cancellationToken);
+            var response = await _httpClient.GetAsync("Users/Me", cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 var user = await response.Content.ReadFromJsonAsync<EmbyUser>(cancellationToken: cancellationToken);
@@ -212,7 +212,7 @@ public sealed class EmbyConnector : IMediaServerConnector
         // Fallback: pick the first admin user (works with API keys)
         try
         {
-            var response = await _httpClient.GetAsync("emby/Users?IsAdministrator=true&Limit=1", cancellationToken);
+            var response = await _httpClient.GetAsync("Users?IsAdministrator=true&Limit=1", cancellationToken);
             response.EnsureSuccessStatusCode();
             var users = await response.Content.ReadFromJsonAsync<List<EmbyUser>>(cancellationToken: cancellationToken);
             _userId = users?.FirstOrDefault()?.Id;

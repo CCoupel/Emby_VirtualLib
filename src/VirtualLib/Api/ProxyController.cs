@@ -3,6 +3,7 @@ using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Api;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using VirtualLib.Core;
 
@@ -14,7 +15,7 @@ namespace VirtualLib.Api;
 
 [Route("/virtuallib/proxy/{ConnectorId}/{ItemId}", "GET",
     Summary = "Pipe media stream from a remote connector to the client")]
-[Authenticated]
+[Unauthenticated]
 public sealed class ProxyStreamRequest : IReturn<object>
 {
     public string ConnectorId { get; set; } = string.Empty;
@@ -82,27 +83,44 @@ public sealed class ProxyController : BaseApiService
         PooledConnectionLifetime = TimeSpan.FromMinutes(10),
     });
 
-    private static readonly Lazy<IConnectorFactory> _connectorFactory =
-        new(() => new ConnectorFactory(new DefaultHttpClientFactory(), NullLoggerFactory.Instance));
+    private readonly ILogger<ProxyController> _logger;
+    private readonly IConnectorFactory _connectorFactory;
+
+    public ProxyController()
+    {
+        _logger = NullLoggerFactory.Instance.CreateLogger<ProxyController>();
+        _connectorFactory = new ConnectorFactory(new DefaultHttpClientFactory(), NullLoggerFactory.Instance);
+    }
 
     public async Task<object> Get(ProxyStreamRequest request)
     {
+        var clientIp = Request.RemoteIp?.ToString() ?? "unknown";
+        var range = Request.Headers["Range"];
+
+        _logger.LogInformation(
+            "Proxy request — connector={ConnectorId} item={ItemId} range={Range} from={ClientIp}",
+            request.ConnectorId, request.ItemId, range ?? "none", clientIp);
+
         var config = Plugin.Instance!.Configuration;
         var connectorConfig = config.Connectors.FirstOrDefault(c => c.Id == request.ConnectorId);
 
         if (connectorConfig is null)
+        {
+            _logger.LogWarning("Connector not found: {ConnectorId}", request.ConnectorId);
             throw new ResourceNotFoundException($"Connector '{request.ConnectorId}' not found.");
+        }
 
         // Get remote stream URL from connector (handles Emby/Jellyfin/Plex differences)
         string remoteUrl;
-        using (var connector = _connectorFactory.Value.Create(connectorConfig))
+        using (var connector = _connectorFactory.Create(connectorConfig))
             remoteUrl = await connector.GetStreamUrlAsync(request.ItemId);
+
+        _logger.LogDebug("Remote URL resolved: {RemoteUrl}", remoteUrl);
 
         // Build remote request, forwarding Range for seek support
         var remoteRequest = new HttpRequestMessage(HttpMethod.Get, remoteUrl);
-        var rangeHeader = Request.Headers["Range"];
-        if (!string.IsNullOrEmpty(rangeHeader))
-            remoteRequest.Headers.TryAddWithoutValidation("Range", rangeHeader);
+        if (!string.IsNullOrEmpty(range))
+            remoteRequest.Headers.TryAddWithoutValidation("Range", range);
 
         // Send to remote — ResponseHeadersRead starts streaming immediately
         HttpResponseMessage remoteResponse;
@@ -112,39 +130,73 @@ public sealed class ProxyController : BaseApiService
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Upstream connection failed for item={ItemId} url={RemoteUrl}", request.ItemId, remoteUrl);
             throw new Exception($"Upstream connection failed: {ex.Message}", ex);
         }
 
         var statusCode = remoteResponse.StatusCode;
         var contentType = remoteResponse.Content.Headers.ContentType?.ToString()
                           ?? "application/octet-stream";
+        var contentLength = remoteResponse.Content.Headers.ContentLength;
+
+        _logger.LogInformation(
+            "Upstream response — status={StatusCode} type={ContentType} length={ContentLength} item={ItemId}",
+            (int)statusCode, contentType, contentLength?.ToString() ?? "unknown", request.ItemId);
 
         // Collect headers to forward (Content-Length, Content-Range, Accept-Ranges)
         var forwardHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        if (remoteResponse.Content.Headers.ContentLength is { } cl)
+        if (contentLength is { } cl)
             forwardHeaders["Content-Length"] = cl.ToString();
 
         forwardHeaders["Accept-Ranges"] = "bytes";
 
-        foreach (var h in remoteResponse.Headers)
-        {
-            if (h.Key.Equals("Content-Range", StringComparison.OrdinalIgnoreCase))
-                forwardHeaders["Content-Range"] = string.Join(", ", h.Value);
-        }
+        // Content-Range is in Content.Headers (not response Headers) in .NET HttpClient
+        var contentRangeHeader = remoteResponse.Content.Headers.ContentRange;
+        if (contentRangeHeader != null)
+            forwardHeaders["Content-Range"] = contentRangeHeader.ToString();
+
+        if (forwardHeaders.TryGetValue("Content-Range", out var contentRangeValue))
+            _logger.LogDebug("Content-Range forwarded: {ContentRange}", contentRangeValue);
 
         return new ProxyStreamResult(statusCode, contentType, Request,
             async (response, ct) =>
             {
-                // Set extra headers on the IResponse before writing body
                 response.StatusCode = (int)statusCode;
                 foreach (var h in forwardHeaders)
                     response.AddHeader(h.Key, h.Value);
 
+                _logger.LogDebug("Stream start — item={ItemId} to={ClientIp}", request.ItemId, clientIp);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+
                 using (remoteResponse)
                 using (var remoteStream = await remoteResponse.Content.ReadAsStreamAsync(ct))
-                await using (var outputStream = response.OutputWriter.AsStream(leaveOpen: false))
-                    await remoteStream.CopyToAsync(outputStream, ct);
+                {
+                    var outputStream = response.OutputWriter.AsStream(leaveOpen: false);
+                    try
+                    {
+                        await remoteStream.CopyToAsync(outputStream, ct);
+                    }
+                    catch (OperationCanceledException ex) when (ex.CancellationToken != ct)
+                    {
+                        // Client (ffprobe/player) closed the connection early — not our cancellation
+                        _logger.LogDebug("Client closed stream early for item={ItemId}", request.ItemId);
+                    }
+                    catch (IOException ex) when (!ct.IsCancellationRequested)
+                    {
+                        // Broken pipe — client disconnected (normal for ffprobe seeking)
+                        _logger.LogDebug("Broken pipe for item={ItemId}: {Message}", request.ItemId, ex.Message);
+                    }
+                    finally
+                    {
+                        try { await outputStream.DisposeAsync(); } catch { }
+                    }
+                }
+
+                sw.Stop();
+                _logger.LogInformation(
+                    "Stream complete — item={ItemId} elapsed={ElapsedMs}ms to={ClientIp}",
+                    request.ItemId, sw.ElapsedMilliseconds, clientIp);
             });
     }
 }

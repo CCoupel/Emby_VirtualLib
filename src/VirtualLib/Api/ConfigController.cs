@@ -87,6 +87,7 @@ public sealed class GetSettings : IReturn<GlobalSettings> { }
 public sealed class SaveSettings : IReturn<GlobalSettings>
 {
     public string VirtualLibraryRootPath { get; set; } = string.Empty;
+    public string ProxyBaseUrl { get; set; } = string.Empty;
     public int SyncIntervalHours { get; set; } = 6;
     public int ProxyTimeoutSeconds { get; set; } = 30;
 }
@@ -109,6 +110,7 @@ public sealed class SyncConnector : IReturn<SyncResult>
 public sealed class GlobalSettings
 {
     public string VirtualLibraryRootPath { get; set; } = string.Empty;
+    public string ProxyBaseUrl { get; set; } = string.Empty;
     public int SyncIntervalHours { get; set; } = 6;
     public int ProxyTimeoutSeconds { get; set; } = 30;
 }
@@ -151,17 +153,20 @@ public sealed class ConfigController : BaseApiService
     }
 
     /// <summary>
-    /// Base URL for .strm proxy links, derived from the incoming request.
-    /// Handles reverse proxies: X-Forwarded-Proto and X-Forwarded-Host override
-    /// the internal scheme/host while preserving the base path (e.g. /emby).
-    /// Example: internal http://localhost:8096/emby/virtuallib/sync
-    ///          + X-Forwarded-Proto: https, X-Forwarded-Host: media.example.com
-    ///          → https://media.example.com/emby
+    /// Base URL for .strm proxy links.
+    /// Uses the value from plugin configuration if set; otherwise auto-detects
+    /// from the incoming request (with X-Forwarded-Proto/Host support).
     /// </summary>
     private string ProxyBaseUrl
     {
         get
         {
+            // Explicit config takes priority
+            var configured = Plugin.Instance?.Configuration.ProxyBaseUrl?.Trim().TrimEnd('/');
+            if (!string.IsNullOrEmpty(configured))
+                return configured;
+
+            // Auto-detect from request
             try
             {
                 var raw = Request?.AbsoluteUri;
@@ -170,16 +175,24 @@ public sealed class ConfigController : BaseApiService
                     var idx = raw.IndexOf("/virtuallib/", StringComparison.OrdinalIgnoreCase);
                     if (idx > 0)
                     {
-                        var baseUrl = raw.Substring(0, idx); // e.g. "http://localhost:8096/emby"
+                        var baseUrl = raw.Substring(0, idx);
                         var uri = new Uri(baseUrl);
 
-                        // Override scheme/host from reverse-proxy forwarding headers
-                        var forwardedProto = Request?.Headers["X-Forwarded-Proto"]
-                            ?.Split(',')[0].Trim();
-                        var forwardedHost = Request?.Headers["X-Forwarded-Host"]
-                            ?.Split(',')[0].Trim();
+                        var forwardedProto = Request?.Headers["X-Forwarded-Proto"]?.Split(',')[0].Trim();
+                        var forwardedHost  = Request?.Headers["X-Forwarded-Host"]?.Split(',')[0].Trim();
+                        var forwardedPort  = Request?.Headers["X-Forwarded-Port"]?.Split(',')[0].Trim();
+                        var forwardedSsl   = Request?.Headers["X-Forwarded-Ssl"]?.Split(',')[0].Trim();
 
-                        var scheme = !string.IsNullOrEmpty(forwardedProto) ? forwardedProto : uri.Scheme;
+                        string scheme;
+                        if (!string.IsNullOrEmpty(forwardedProto))
+                            scheme = forwardedProto;
+                        else if (string.Equals(forwardedSsl, "on", StringComparison.OrdinalIgnoreCase))
+                            scheme = "https";
+                        else if (forwardedPort == "443")
+                            scheme = "https";
+                        else
+                            scheme = uri.Scheme;
+
                         var authority = !string.IsNullOrEmpty(forwardedHost) ? forwardedHost : uri.Authority;
                         var path = uri.AbsolutePath.TrimEnd('/');
 
@@ -298,6 +311,7 @@ public sealed class ConfigController : BaseApiService
         return ResultFactory.GetResult(Request, new GlobalSettings
         {
             VirtualLibraryRootPath = config.VirtualLibraryRootPath,
+            ProxyBaseUrl = config.ProxyBaseUrl,
             SyncIntervalHours = config.SyncIntervalHours,
             ProxyTimeoutSeconds = config.ProxyTimeoutSeconds
         }, NoHeaders);
@@ -310,6 +324,7 @@ public sealed class ConfigController : BaseApiService
     {
         var config = Plugin.Instance!.Configuration;
         config.VirtualLibraryRootPath = request.VirtualLibraryRootPath;
+        config.ProxyBaseUrl = request.ProxyBaseUrl;
         config.SyncIntervalHours = request.SyncIntervalHours;
         config.ProxyTimeoutSeconds = request.ProxyTimeoutSeconds;
         Plugin.Instance.SaveConfiguration();
@@ -317,6 +332,7 @@ public sealed class ConfigController : BaseApiService
         return ResultFactory.GetResult(Request, new GlobalSettings
         {
             VirtualLibraryRootPath = config.VirtualLibraryRootPath,
+            ProxyBaseUrl = config.ProxyBaseUrl,
             SyncIntervalHours = config.SyncIntervalHours,
             ProxyTimeoutSeconds = config.ProxyTimeoutSeconds
         }, NoHeaders);

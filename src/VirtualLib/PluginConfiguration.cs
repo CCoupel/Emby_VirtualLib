@@ -6,6 +6,11 @@ public sealed class PluginConfiguration : BasePluginConfiguration
 {
     public List<ConnectorConfig> Connectors { get; set; } = new();
     public string VirtualLibraryRootPath { get; set; } = string.Empty;
+    /// <summary>
+    /// Base URL used to build .strm proxy links (e.g. https://media.coupel.net/emby).
+    /// Leave empty to auto-detect from the incoming request.
+    /// </summary>
+    public string ProxyBaseUrl { get; set; } = string.Empty;
     public int SyncIntervalHours { get; set; } = 6;
     public int ProxyTimeoutSeconds { get; set; } = 30;
 }

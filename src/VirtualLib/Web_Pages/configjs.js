@@ -386,6 +386,7 @@ define([], function () {
         function loadGlobalSettings() {
             apiGet('/virtuallib/settings').then(function (s) {
                 q('virtualLibRoot').value = s.VirtualLibraryRootPath || '';
+                q('proxyBaseUrl').value = s.ProxyBaseUrl || '';
                 q('syncInterval').value = s.SyncIntervalHours || 6;
                 q('proxyTimeout').value = s.ProxyTimeoutSeconds || 30;
             }).catch(function (e) {
@@ -405,6 +406,7 @@ define([], function () {
                 var statusEl = q('globalSaveStatus');
                 var payload = {
                     VirtualLibraryRootPath: q('virtualLibRoot').value.trim(),
+                    ProxyBaseUrl: q('proxyBaseUrl').value.trim(),
                     SyncIntervalHours: parseInt(q('syncInterval').value, 10) || 6,
                     ProxyTimeoutSeconds: parseInt(q('proxyTimeout').value, 10) || 30
                 };
