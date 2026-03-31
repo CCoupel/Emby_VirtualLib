@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using VirtualLib.Connectors.Internal;
@@ -14,6 +15,11 @@ public sealed class EmbyConnector : IMediaServerConnector
     private readonly ConnectorConfig _config;
     private readonly HttpClient _httpClient;
     private readonly ILogger<EmbyConnector> _logger;
+
+    // User-credentials session state
+    private string? _sessionToken;
+    private readonly SemaphoreSlim _authLock = new(1, 1);
+
     private string? _userId;
     private bool _disposed;
 
@@ -30,9 +36,103 @@ public sealed class EmbyConnector : IMediaServerConnector
         _logger = logger;
         _httpClient = httpClientFactory.CreateClient();
         _httpClient.BaseAddress = new Uri(config.ServerUrl.TrimEnd('/') + "/");
-        _httpClient.DefaultRequestHeaders.Add(EmbyTokenHeader, config.ApiKey);
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
+
+        // For API key mode, set the token header once at construction.
+        // For UserCredentials, the header is set lazily after the first auth.
+        if (_config.AuthMode == AuthMode.ApiKey)
+            _httpClient.DefaultRequestHeaders.Add(EmbyTokenHeader, config.ApiKey);
     }
+
+    // -------------------------------------------------------------------------
+    // Authentication (UserCredentials mode)
+    // -------------------------------------------------------------------------
+
+    private async Task EnsureAuthenticatedAsync(CancellationToken ct, bool forceRefresh = false)
+    {
+        if (_config.AuthMode != AuthMode.UserCredentials) return;
+        if (_sessionToken != null && !forceRefresh) return;
+
+        await _authLock.WaitAsync(ct);
+        try
+        {
+            // Double-check inside the lock
+            if (_sessionToken != null && !forceRefresh) return;
+
+            _logger.LogInformation("Authenticating as user '{Username}' on connector {ConnectorId}",
+                _config.Username, ConnectorId);
+
+            var body = new { Username = _config.Username, Pw = _config.Password };
+            using var response = await _httpClient.PostAsJsonAsync("Users/AuthenticateByName", body, ct);
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<EmbyAuthResult>(cancellationToken: ct)
+                         ?? throw new InvalidOperationException("Empty auth response");
+
+            _sessionToken = result.AccessToken;
+            if (result.User?.Id is not null)
+                _userId = result.User.Id;
+
+            // Update the default auth header for subsequent requests
+            if (_httpClient.DefaultRequestHeaders.Contains(EmbyTokenHeader))
+                _httpClient.DefaultRequestHeaders.Remove(EmbyTokenHeader);
+            _httpClient.DefaultRequestHeaders.Add(EmbyTokenHeader, _sessionToken);
+
+            _logger.LogInformation("Authenticated as '{Username}' (userId={UserId}) on {ConnectorId}",
+                _config.Username, _userId, ConnectorId);
+        }
+        finally
+        {
+            _authLock.Release();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // HTTP helpers with 401-retry for user credentials
+    // -------------------------------------------------------------------------
+
+    private async Task<HttpResponseMessage> GetWithRetryAsync(
+        string url,
+        CancellationToken ct,
+        HttpCompletionOption completion = HttpCompletionOption.ResponseContentRead)
+    {
+        await EnsureAuthenticatedAsync(ct);
+        var response = await _httpClient.GetAsync(url, completion, ct);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized
+            && _config.AuthMode == AuthMode.UserCredentials)
+        {
+            response.Dispose();
+            _logger.LogDebug("401 on {Url} — re-authenticating", url);
+            await EnsureAuthenticatedAsync(ct, forceRefresh: true);
+            response = await _httpClient.GetAsync(url, completion, ct);
+        }
+
+        return response;
+    }
+
+    private async Task<HttpResponseMessage> PostWithRetryAsync(
+        string url,
+        object body,
+        CancellationToken ct)
+    {
+        await EnsureAuthenticatedAsync(ct);
+        var response = await _httpClient.PostAsJsonAsync(url, body, ct);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized
+            && _config.AuthMode == AuthMode.UserCredentials)
+        {
+            response.Dispose();
+            await EnsureAuthenticatedAsync(ct, forceRefresh: true);
+            response = await _httpClient.PostAsJsonAsync(url, body, ct);
+        }
+
+        return response;
+    }
+
+    // -------------------------------------------------------------------------
+    // IMediaServerConnector
+    // -------------------------------------------------------------------------
 
     public async Task<ConnectorTestResult> TestConnectionAsync(CancellationToken cancellationToken = default)
     {
@@ -41,7 +141,11 @@ public sealed class EmbyConnector : IMediaServerConnector
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromSeconds(10));
 
-            var response = await _httpClient.GetAsync("System/Info/Public", cts.Token);
+            // For user credentials, force a fresh auth on every test
+            if (_config.AuthMode == AuthMode.UserCredentials)
+                await EnsureAuthenticatedAsync(cts.Token, forceRefresh: true);
+
+            using var response = await GetWithRetryAsync("System/Info/Public", cts.Token);
             response.EnsureSuccessStatusCode();
             var info = await response.Content.ReadFromJsonAsync<EmbySystemInfo>(cancellationToken: cts.Token);
             return ConnectorTestResult.Ok(info?.Version ?? "unknown");
@@ -57,7 +161,7 @@ public sealed class EmbyConnector : IMediaServerConnector
     {
         try
         {
-            var response = await _httpClient.GetAsync("Library/VirtualFolders", cancellationToken);
+            using var response = await GetWithRetryAsync("Library/VirtualFolders", cancellationToken);
             response.EnsureSuccessStatusCode();
             var folders = await response.Content.ReadFromJsonAsync<List<EmbyLibraryFolder>>(cancellationToken: cancellationToken)
                           ?? new List<EmbyLibraryFolder>();
@@ -108,14 +212,13 @@ public sealed class EmbyConnector : IMediaServerConnector
                           $"&StartIndex={startIndex}" +
                           $"&Limit={PageSize}";
 
-                var response = await _httpClient.GetAsync(url, cancellationToken);
+                using var response = await GetWithRetryAsync(url, cancellationToken);
                 response.EnsureSuccessStatusCode();
 
                 var page = await response.Content.ReadFromJsonAsync<EmbyItemsResponse>(cancellationToken: cancellationToken);
                 if (page is null) break;
 
                 totalCount = page.TotalRecordCount;
-
                 if (page.Items.Count == 0) break;
 
                 foreach (var embyItem in page.Items)
@@ -146,7 +249,7 @@ public sealed class EmbyConnector : IMediaServerConnector
         CancellationToken cancellationToken = default)
     {
         var url = $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags";
-        var response = await _httpClient.GetAsync(url, cancellationToken);
+        using var response = await GetWithRetryAsync(url, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         var item = await response.Content.ReadFromJsonAsync<EmbyItem>(cancellationToken: cancellationToken)
@@ -155,11 +258,22 @@ public sealed class EmbyConnector : IMediaServerConnector
         return MapMetadata(item);
     }
 
-    public Task<string> GetStreamUrlAsync(string itemId, CancellationToken cancellationToken = default)
+    public async Task<string> GetStreamUrlAsync(string itemId, CancellationToken cancellationToken = default)
     {
         var baseUrl = _config.ServerUrl.TrimEnd('/');
-        var url = $"{baseUrl}/Videos/{itemId}/stream?api_key={_config.ApiKey}&Static=true";
-        return Task.FromResult(url);
+        string token;
+
+        if (_config.AuthMode == AuthMode.UserCredentials)
+        {
+            await EnsureAuthenticatedAsync(cancellationToken);
+            token = _sessionToken!;
+        }
+        else
+        {
+            token = _config.ApiKey;
+        }
+
+        return $"{baseUrl}/Videos/{itemId}/stream?api_key={token}&Static=true";
     }
 
     public async Task<Stream?> GetArtworkStreamAsync(
@@ -171,10 +285,15 @@ public sealed class EmbyConnector : IMediaServerConnector
         {
             var imageType = MapArtworkType(artworkType);
             var url = $"Items/{itemId}/Images/{imageType}?Quality=90";
-            var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            // Response NOT disposed here — caller owns the returned stream
+            var response = await GetWithRetryAsync(url, cancellationToken, HttpCompletionOption.ResponseHeadersRead);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                response.Dispose();
                 return null;
+            }
 
             response.EnsureSuccessStatusCode();
             return await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -186,14 +305,66 @@ public sealed class EmbyConnector : IMediaServerConnector
         }
     }
 
-    private async Task<string?> GetUserIdAsync(CancellationToken cancellationToken)
+    public async Task ReportPlaybackStartAsync(string itemId, CancellationToken cancellationToken = default)
     {
-        if (_userId is not null) return _userId;
+        if (_config.AuthMode != AuthMode.UserCredentials) return;
 
-        // Try /Users/Me (works with session tokens)
         try
         {
-            var response = await _httpClient.GetAsync("Users/Me", cancellationToken);
+            var userId = await GetUserIdAsync(cancellationToken);
+            var body = new
+            {
+                ItemId = itemId,
+                MediaSourceId = itemId,
+                UserId = userId,
+                CanSeek = true,
+                QueueableMediaTypes = new[] { "Video" }
+            };
+            using var response = await PostWithRetryAsync("Sessions/Playing", body, cancellationToken);
+            _logger.LogDebug("Reported PlaybackStart for item={ItemId} userId={UserId}", itemId, userId);
+        }
+        catch (Exception ex)
+        {
+            // Best-effort — never break the stream because of a reporting failure
+            _logger.LogDebug(ex, "Failed to report PlaybackStart for item {ItemId}", itemId);
+        }
+    }
+
+    public async Task ReportPlaybackStoppedAsync(string itemId, CancellationToken cancellationToken = default)
+    {
+        if (_config.AuthMode != AuthMode.UserCredentials) return;
+
+        try
+        {
+            var userId = await GetUserIdAsync(cancellationToken);
+            var body = new
+            {
+                ItemId = itemId,
+                MediaSourceId = itemId,
+                UserId = userId
+            };
+            using var response = await PostWithRetryAsync("Sessions/Playing/Stopped", body, cancellationToken);
+            _logger.LogDebug("Reported PlaybackStopped for item={ItemId} userId={UserId}", itemId, userId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to report PlaybackStopped for item {ItemId}", itemId);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    private async Task<string?> GetUserIdAsync(CancellationToken cancellationToken)
+    {
+        // In UserCredentials mode, userId is already set from the auth response
+        if (_userId is not null) return _userId;
+
+        // Try /Users/Me (works with session tokens and API keys)
+        try
+        {
+            using var response = await GetWithRetryAsync("Users/Me", cancellationToken);
             if (response.IsSuccessStatusCode)
             {
                 var user = await response.Content.ReadFromJsonAsync<EmbyUser>(cancellationToken: cancellationToken);
@@ -209,10 +380,10 @@ public sealed class EmbyConnector : IMediaServerConnector
             _logger.LogDebug(ex, "Users/Me failed for connector {ConnectorId}, trying user list", ConnectorId);
         }
 
-        // Fallback: pick the first admin user (works with API keys)
+        // Fallback: first admin user (API key mode)
         try
         {
-            var response = await _httpClient.GetAsync("Users?IsAdministrator=true&Limit=1", cancellationToken);
+            using var response = await GetWithRetryAsync("Users?IsAdministrator=true&Limit=1", cancellationToken);
             response.EnsureSuccessStatusCode();
             var users = await response.Content.ReadFromJsonAsync<List<EmbyUser>>(cancellationToken: cancellationToken);
             _userId = users?.FirstOrDefault()?.Id;
@@ -326,6 +497,7 @@ public sealed class EmbyConnector : IMediaServerConnector
     {
         if (!_disposed)
         {
+            _authLock.Dispose();
             _httpClient.Dispose();
             _disposed = true;
         }

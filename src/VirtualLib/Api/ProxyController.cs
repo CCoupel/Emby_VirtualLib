@@ -110,10 +110,18 @@ public sealed class ProxyController : BaseApiService
             throw new ResourceNotFoundException($"Connector '{request.ConnectorId}' not found.");
         }
 
-        // Get remote stream URL from connector (handles Emby/Jellyfin/Plex differences)
+        // Connector lifetime extends into the write-body lambda (for playback reporting).
+        var connector = _connectorFactory.Create(connectorConfig);
         string remoteUrl;
-        using (var connector = _connectorFactory.Create(connectorConfig))
+        try
+        {
             remoteUrl = await connector.GetStreamUrlAsync(request.ItemId);
+        }
+        catch
+        {
+            connector.Dispose();
+            throw;
+        }
 
         _logger.LogDebug("Remote URL resolved: {RemoteUrl}", remoteUrl);
 
@@ -130,6 +138,7 @@ public sealed class ProxyController : BaseApiService
         }
         catch (Exception ex)
         {
+            connector.Dispose();
             _logger.LogError(ex, "Upstream connection failed for item={ItemId} url={RemoteUrl}", request.ItemId, remoteUrl);
             throw new Exception($"Upstream connection failed: {ex.Message}", ex);
         }
@@ -169,6 +178,9 @@ public sealed class ProxyController : BaseApiService
                 _logger.LogDebug("Stream start — item={ItemId} to={ClientIp}", request.ItemId, clientIp);
                 var sw = System.Diagnostics.Stopwatch.StartNew();
 
+                // Notify the remote server that playback has started (user credentials mode only)
+                await connector.ReportPlaybackStartAsync(request.ItemId, ct);
+
                 using (remoteResponse)
                 using (var remoteStream = await remoteResponse.Content.ReadAsStreamAsync(ct))
                 {
@@ -197,6 +209,10 @@ public sealed class ProxyController : BaseApiService
                 _logger.LogInformation(
                     "Stream complete — item={ItemId} elapsed={ElapsedMs}ms to={ClientIp}",
                     request.ItemId, sw.ElapsedMilliseconds, clientIp);
+
+                // Notify the remote server that playback has stopped
+                await connector.ReportPlaybackStoppedAsync(request.ItemId, CancellationToken.None);
+                connector.Dispose();
             });
     }
 }

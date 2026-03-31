@@ -202,12 +202,22 @@ define([], function () {
         // Add / Edit form
         // -------------------------------------------------------------------
 
+        function updateAuthModeVisibility() {
+            var mode = q('connectorAuthMode').value;
+            q('apiKeySection').style.display = mode === 'ApiKey' ? '' : 'none';
+            q('userCredSection').style.display = mode === 'UserCredentials' ? '' : 'none';
+        }
+
         function openAddConnector() {
             q('connectorId').value = '';
             q('connectorName').value = '';
             q('connectorType').value = 'Emby';
             q('connectorUrl').value = '';
+            q('connectorAuthMode').value = 'ApiKey';
             q('connectorApiKey').value = '';
+            q('connectorUsername').value = '';
+            q('connectorPassword').value = '';
+            updateAuthModeVisibility();
             q('connectorFormTitle').textContent = 'Add Connector';
             clearStatus(q('testResultMsg'));
             clearStatus(q('connectorSaveStatus'));
@@ -224,7 +234,11 @@ define([], function () {
                 q('connectorName').value = c.DisplayName || '';
                 q('connectorType').value = c.ServerType || 'Emby';
                 q('connectorUrl').value = c.ServerUrl || '';
+                q('connectorAuthMode').value = c.AuthMode || 'ApiKey';
                 q('connectorApiKey').value = c.ApiKey || '';
+                q('connectorUsername').value = c.Username || '';
+                q('connectorPassword').value = '';  // never pre-fill password
+                updateAuthModeVisibility();
                 q('connectorFormTitle').textContent = 'Edit Connector';
                 clearStatus(q('testResultMsg'));
                 clearStatus(q('connectorSaveStatus'));
@@ -313,7 +327,10 @@ define([], function () {
                     DisplayName: c.DisplayName,
                     ServerType: c.ServerType,
                     ServerUrl: c.ServerUrl,
+                    AuthMode: c.AuthMode || 'ApiKey',
                     ApiKey: c.ApiKey,
+                    Username: c.Username || '',
+                    Password: '',  // empty = preserve existing on server side
                     LibraryIds: ids,
                     Enabled: c.Enabled
                 };
@@ -416,6 +433,7 @@ define([], function () {
             });
 
             q('btnAddConnector').addEventListener('click', openAddConnector);
+            q('connectorAuthMode').addEventListener('change', updateAuthModeVisibility);
 
             q('btnCancelConnector').addEventListener('click', function () {
                 q('connectorFormSection').style.display = 'none';
@@ -450,14 +468,24 @@ define([], function () {
                 var id = q('connectorId').value;
                 var displayName = q('connectorName').value.trim();
                 var serverUrl = q('connectorUrl').value.trim();
+                var authMode = q('connectorAuthMode').value;
                 var apiKey = q('connectorApiKey').value.trim();
+                var username = q('connectorUsername').value.trim();
+                var password = q('connectorPassword').value;
 
-                if (!displayName || !serverUrl || !apiKey) {
-                    setStatus(statusEl, 'Name, URL and API Key are required.', true);
+                if (!displayName || !serverUrl) {
+                    setStatus(statusEl, 'Name and URL are required.', true);
+                    return;
+                }
+                if (authMode === 'ApiKey' && !apiKey) {
+                    setStatus(statusEl, 'API Key is required in API Key mode.', true);
+                    return;
+                }
+                if (authMode === 'UserCredentials' && !username) {
+                    setStatus(statusEl, 'Username is required in User Credentials mode.', true);
                     return;
                 }
 
-                var p;
                 if (id) {
                     // Edit: preserve existing LibraryIds (managed via table checkboxes)
                     apiGet('/virtuallib/connectors').then(function (connectors) {
@@ -467,7 +495,10 @@ define([], function () {
                             DisplayName: displayName,
                             ServerType: q('connectorType').value,
                             ServerUrl: serverUrl,
+                            AuthMode: authMode,
                             ApiKey: apiKey,
+                            Username: username,
+                            Password: password,  // empty = preserve existing on server side
                             LibraryIds: existing ? (existing.LibraryIds || []) : [],
                             Enabled: true
                         };
@@ -478,11 +509,18 @@ define([], function () {
                         loadConnectors();
                     }).catch(function (e) { setStatus(statusEl, 'Error: ' + e.message, true); });
                 } else {
+                    if (authMode === 'UserCredentials' && !password) {
+                        setStatus(statusEl, 'Password is required for a new User Credentials connector.', true);
+                        return;
+                    }
                     var payload = {
                         DisplayName: displayName,
                         ServerType: q('connectorType').value,
                         ServerUrl: serverUrl,
+                        AuthMode: authMode,
                         ApiKey: apiKey,
+                        Username: username,
+                        Password: password,
                         LibraryIds: [],
                         Enabled: true
                     };

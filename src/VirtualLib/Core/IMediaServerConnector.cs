@@ -53,4 +53,16 @@ public interface IMediaServerConnector : IDisposable
         string itemId,
         ArtworkType artworkType,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Notifie le serveur distant qu'une lecture vient de démarrer.
+    /// No-op si le connecteur utilise un API key (pas de session utilisateur).
+    /// </summary>
+    Task ReportPlaybackStartAsync(string itemId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Notifie le serveur distant que la lecture s'est arrêtée.
+    /// No-op si le connecteur utilise un API key.
+    /// </summary>
+    Task ReportPlaybackStoppedAsync(string itemId, CancellationToken cancellationToken = default);
 }

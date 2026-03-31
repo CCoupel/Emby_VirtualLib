@@ -2,6 +2,8 @@ using MediaBrowser.Model.Plugins;
 
 namespace VirtualLib;
 
+public enum AuthMode { ApiKey, UserCredentials }
+
 public sealed class PluginConfiguration : BasePluginConfiguration
 {
     public List<ConnectorConfig> Connectors { get; set; } = new();
@@ -28,7 +30,16 @@ public sealed class ConnectorConfig
     public string DisplayName { get; set; } = string.Empty;
     public string ServerType { get; set; } = "Emby";
     public string ServerUrl { get; set; } = string.Empty;
+
+    // --- Authentication ---
+    public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
+    /// <summary>Used when AuthMode == ApiKey</summary>
     public string ApiKey { get; set; } = string.Empty;
+    /// <summary>Used when AuthMode == UserCredentials</summary>
+    public string Username { get; set; } = string.Empty;
+    /// <summary>Used when AuthMode == UserCredentials. Stored in Emby config (disk-level encryption).</summary>
+    public string Password { get; set; } = string.Empty;
+
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
     public List<KnownLibrary> KnownLibraries { get; set; } = new();

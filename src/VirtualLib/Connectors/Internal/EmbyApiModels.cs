@@ -106,3 +106,21 @@ internal sealed class EmbyUser
     [JsonPropertyName("Id")]
     public string Id { get; init; } = string.Empty;
 }
+
+internal sealed class EmbyAuthResult
+{
+    [JsonPropertyName("AccessToken")]
+    public string AccessToken { get; init; } = string.Empty;
+
+    [JsonPropertyName("User")]
+    public EmbyUser? User { get; init; }
+
+    [JsonPropertyName("SessionInfo")]
+    public EmbySessionInfo? SessionInfo { get; init; }
+}
+
+internal sealed class EmbySessionInfo
+{
+    [JsonPropertyName("Id")]
+    public string Id { get; init; } = string.Empty;
+}

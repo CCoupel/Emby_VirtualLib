@@ -24,7 +24,10 @@ public sealed class CreateConnector : IReturn<ConnectorConfig>
     public string DisplayName { get; set; } = string.Empty;
     public string ServerType { get; set; } = ServerTypes.Emby;
     public string ServerUrl { get; set; } = string.Empty;
+    public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
     public string ApiKey { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
 }
@@ -37,7 +40,10 @@ public sealed class UpdateConnector : IReturn<ConnectorConfig>
     public string DisplayName { get; set; } = string.Empty;
     public string ServerType { get; set; } = ServerTypes.Emby;
     public string ServerUrl { get; set; } = string.Empty;
+    public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
     public string ApiKey { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
 }
@@ -227,7 +233,10 @@ public sealed class ConfigController : BaseApiService
             DisplayName = request.DisplayName,
             ServerType = request.ServerType,
             ServerUrl = request.ServerUrl,
+            AuthMode = request.AuthMode,
             ApiKey = request.ApiKey,
+            Username = request.Username,
+            Password = request.Password,
             LibraryIds = request.LibraryIds,
             Enabled = request.Enabled
         };
@@ -257,7 +266,11 @@ public sealed class ConfigController : BaseApiService
             DisplayName = request.DisplayName,
             ServerType = request.ServerType,
             ServerUrl = request.ServerUrl,
+            AuthMode = request.AuthMode,
             ApiKey = request.ApiKey,
+            Username = request.Username,
+            // Preserve existing password if the client sent an empty string (placeholder pattern)
+            Password = string.IsNullOrEmpty(request.Password) ? existing.Password : request.Password,
             LibraryIds = request.LibraryIds,
             Enabled = request.Enabled,
             KnownLibraries = existing.KnownLibraries

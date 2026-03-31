@@ -108,13 +108,40 @@
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="connectorUrl">Server URL</label>
                     <input type="url" id="connectorUrl" class="emby-input"
-                           placeholder="http://192.168.1.10:8096" />
+                           placeholder="http://192.168.1.10:8096 or https://media.example.com/emby" />
                 </div>
 
                 <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="connectorAuthMode">Authentication Mode</label>
+                    <select id="connectorAuthMode" is="emby-select" class="emby-select-withcolor emby-input">
+                        <option value="ApiKey">API Key</option>
+                        <option value="UserCredentials">User Credentials (recommended)</option>
+                    </select>
+                    <div class="fieldDescription">
+                        <strong>User Credentials</strong>: the remote server sees this user's sessions,
+                        applies their restrictions, and records watch history &amp; resume points.
+                        <strong>API Key</strong>: full admin access, no usage tracking.
+                    </div>
+                </div>
+
+                <div id="apiKeySection" class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="connectorApiKey">API Key</label>
                     <input type="password" id="connectorApiKey" class="emby-input"
                            placeholder="Paste your API key here" autocomplete="new-password" />
+                </div>
+
+                <div id="userCredSection" style="display:none">
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="connectorUsername">Username</label>
+                        <input type="text" id="connectorUsername" class="emby-input"
+                               placeholder="Remote server username" autocomplete="username" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="connectorPassword">Password</label>
+                        <input type="password" id="connectorPassword" class="emby-input"
+                               placeholder="Remote server password" autocomplete="new-password" />
+                        <div class="fieldDescription">Stored in the plugin configuration (protected by Emby).</div>
+                    </div>
                 </div>
 
                 <div style="margin-top:0.75em">
