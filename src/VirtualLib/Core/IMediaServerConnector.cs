@@ -55,6 +55,12 @@ public interface IMediaServerConnector : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Retourne le nombre d'éléments dans une bibliothèque distante.
+    /// Utilise Limit=0 pour ne récupérer que le TotalRecordCount, sans charger les items.
+    /// </summary>
+    Task<int> GetItemCountAsync(string libraryId, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Notifie le serveur distant qu'une lecture vient de démarrer.
     /// No-op si le connecteur utilise un API key (pas de session utilisateur).
     /// </summary>

@@ -22,6 +22,8 @@ public sealed class KnownLibrary
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
+    /// <summary>Cached item count from the remote server (updated on library list refresh).</summary>
+    public int RemoteItemCount { get; set; } = -1;
 }
 
 public sealed class ConnectorConfig

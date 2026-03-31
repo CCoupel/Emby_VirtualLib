@@ -256,6 +256,32 @@ public sealed class EmbyConnector : IMediaServerConnector
         return items;
     }
 
+    public async Task<int> GetItemCountAsync(string libraryId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var userId = await GetUserIdAsync(cancellationToken);
+            if (userId is null) return 0;
+
+            var url = $"Users/{userId}/Items" +
+                      $"?ParentId={libraryId}" +
+                      $"&Recursive=true" +
+                      $"&IncludeItemTypes=Movie,Episode" +
+                      $"&Limit=0";
+
+            using var response = await GetWithRetryAsync(url, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            var page = await response.Content.ReadFromJsonAsync<EmbyItemsResponse>(cancellationToken: cancellationToken);
+            return page?.TotalRecordCount ?? 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get item count for library {LibraryId} on connector {ConnectorId}", libraryId, ConnectorId);
+            return 0;
+        }
+    }
+
     public async Task<MediaMetadata> GetMetadataAsync(
         string itemId,
         CancellationToken cancellationToken = default)
@@ -370,29 +396,18 @@ public sealed class EmbyConnector : IMediaServerConnector
 
     private async Task<string?> GetUserIdAsync(CancellationToken cancellationToken)
     {
-        // In UserCredentials mode, userId is already set from the auth response
         if (_userId is not null) return _userId;
 
-        // Try /Users/Me (works with session tokens and API keys)
-        try
+        // UserCredentials: authenticate to get userId from the auth response.
+        // Never call /Users/Me — some Emby versions route it to /Users/{id},
+        // fail to parse "Me" as a Guid, and return 500.
+        if (_config.AuthMode == AuthMode.UserCredentials)
         {
-            using var response = await GetWithRetryAsync("Users/Me", cancellationToken);
-            if (response.IsSuccessStatusCode)
-            {
-                var user = await response.Content.ReadFromJsonAsync<EmbyUser>(cancellationToken: cancellationToken);
-                if (user?.Id is not null)
-                {
-                    _userId = user.Id;
-                    return _userId;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Users/Me failed for connector {ConnectorId}, trying user list", ConnectorId);
+            await EnsureAuthenticatedAsync(cancellationToken);
+            if (_userId is not null) return _userId;
         }
 
-        // Fallback: first admin user (API key mode)
+        // API key mode: fetch the first admin user
         try
         {
             using var response = await GetWithRetryAsync("Users?IsAdministrator=true&Limit=1", cancellationToken);

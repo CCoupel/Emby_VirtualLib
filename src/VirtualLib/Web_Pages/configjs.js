@@ -142,15 +142,31 @@ define([], function () {
                         tdLib.colSpan = 4;
                         tdLib.style.cssText = 'padding:2px 8px 2px 2em';
 
+                        var libEnabled = (c.LibraryIds || []).indexOf(lib.Id) !== -1;
+
+                        // Create sync button first so the checkbox listener can reference it
+                        var btnLibSync = document.createElement('button');
+                        btnLibSync.setAttribute('is', 'emby-button');
+                        btnLibSync.className = 'emby-button';
+                        btnLibSync.textContent = 'Sync';
+                        btnLibSync.style.cssText = 'margin-left:8px;padding:2px 8px;font-size:0.85em';
+                        btnLibSync.disabled = !libEnabled;
+                        btnLibSync.addEventListener('click', (function (connId, libId) {
+                            return function () { syncLibrary(connId, libId); };
+                        }(c.Id, lib.Id)));
+
                         var label = document.createElement('label');
                         label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;cursor:pointer;min-width:200px';
 
                         var cb = document.createElement('input');
                         cb.type = 'checkbox';
-                        cb.checked = (c.LibraryIds || []).indexOf(lib.Id) !== -1;
-                        cb.addEventListener('change', (function (connId, libId) {
-                            return function () { toggleLibrary(connId, libId, this.checked); };
-                        }(c.Id, lib.Id)));
+                        cb.checked = libEnabled;
+                        cb.addEventListener('change', (function (connId, libId, syncBtn) {
+                            return function () {
+                                syncBtn.disabled = !this.checked;
+                                toggleLibrary(connId, libId, this.checked);
+                            };
+                        }(c.Id, lib.Id, btnLibSync)));
 
                         var nameSpan = document.createElement('span');
                         nameSpan.textContent = lib.Name;
@@ -163,19 +179,13 @@ define([], function () {
                         label.appendChild(nameSpan);
                         label.appendChild(typeSpan);
 
+                        var remoteCount = (lib.RemoteItemCount !== undefined && lib.RemoteItemCount >= 0)
+                            ? lib.RemoteItemCount : '?';
                         var countSpan = document.createElement('span');
                         countSpan.style.cssText = 'margin-left:12px;opacity:0.6;font-size:0.85em';
-                        countSpan.textContent = '\u2026';
-                        countSpan.setAttribute('data-count-lib', lib.Id);
-
-                        var btnLibSync = document.createElement('button');
-                        btnLibSync.setAttribute('is', 'emby-button');
-                        btnLibSync.className = 'emby-button';
-                        btnLibSync.textContent = 'Sync';
-                        btnLibSync.style.cssText = 'margin-left:8px;padding:2px 8px;font-size:0.85em';
-                        btnLibSync.addEventListener('click', (function (connId, libId) {
-                            return function () { syncLibrary(connId, libId); };
-                        }(c.Id, lib.Id)));
+                        countSpan.textContent = '\u2026 / ' + remoteCount + ' distant';
+                        countSpan.setAttribute('data-count-lib', lib.Id)
+                        countSpan.setAttribute('data-remote-count', remoteCount);
 
                         tdLib.appendChild(label);
                         tdLib.appendChild(countSpan);
@@ -184,8 +194,9 @@ define([], function () {
                         tbody.appendChild(trLib);
                     });
 
-                    // Load entry counts asynchronously
+                    // Load local entry counts, then refresh remote counts from server
                     loadLibraryStats(c.Id);
+                    refreshRemoteCounts(c.Id);
                 }
             });
         }
@@ -252,7 +263,10 @@ define([], function () {
         function refreshKnownLibraries(connectorId) {
             // Silently refresh KnownLibraries cache on the server, then reload the table
             apiGet('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/libraries')
-                .then(function () { loadConnectors(); })
+                .then(function () {
+                    loadConnectors();
+                    refreshRemoteCounts(connectorId);
+                })
                 .catch(function () { /* ignore */ });
         }
 
@@ -302,13 +316,30 @@ define([], function () {
                 .catch(function (e) { errorSyncUI(e.message); });
         }
 
+        function refreshRemoteCounts(connectorId) {
+            apiGet('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/item-counts')
+                .then(function (stats) {
+                    if (!stats || !stats.length) return;
+                    stats.forEach(function (s) {
+                        view.querySelectorAll('[data-count-lib="' + s.LibraryId + '"]').forEach(function (span) {
+                            var local = span.getAttribute('data-local-count') || '\u2026';
+                            span.textContent = local + ' / ' + s.RemoteItemCount + ' distant';
+                            span.setAttribute('data-remote-count', s.RemoteItemCount);
+                        });
+                    });
+                })
+                .catch(function () { /* silently ignore */ });
+        }
+
         function loadLibraryStats(connectorId) {
             apiGet('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/stats')
                 .then(function (stats) {
                     if (!stats || !stats.length) return;
                     stats.forEach(function (s) {
                         view.querySelectorAll('[data-count-lib="' + s.LibraryId + '"]').forEach(function (span) {
-                            span.textContent = s.EntryCount + ' entries';
+                            var remoteCount = span.getAttribute('data-remote-count') || '?';
+                            span.textContent = s.EntryCount + ' locaux / ' + remoteCount + ' distant';
+                            span.setAttribute('data-local-count', s.EntryCount);
                         });
                     });
                 })

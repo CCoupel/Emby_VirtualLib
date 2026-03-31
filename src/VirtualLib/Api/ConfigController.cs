@@ -88,6 +88,13 @@ public sealed class GetConnectorStats : IReturn<List<LibraryStats>>
     public string Id { get; set; } = string.Empty;
 }
 
+[Route("/virtuallib/connectors/{Id}/item-counts", "GET", Summary = "Fetch and cache remote item counts per library")]
+[Authenticated]
+public sealed class GetRemoteItemCounts : IReturn<List<LibraryStats>>
+{
+    public string Id { get; set; } = string.Empty;
+}
+
 [Route("/virtuallib/connectors/{Id}/libraries/{LibraryId}/sync", "POST", Summary = "Sync a single library")]
 [Authenticated]
 public sealed class SyncLibrary : IReturn<SyncResult>
@@ -138,6 +145,7 @@ public sealed class LibraryStats
     public string LibraryId { get; set; } = string.Empty;
     public string LibraryName { get; set; } = string.Empty;
     public int EntryCount { get; set; }
+    public int RemoteItemCount { get; set; } = -1;
 }
 
 // ---------------------------------------------------------------------------
@@ -388,9 +396,48 @@ public sealed class ConfigController : BaseApiService
             {
                 LibraryId = lib.Id,
                 LibraryName = lib.Name,
-                EntryCount = count
+                EntryCount = count,
+                RemoteItemCount = lib.RemoteItemCount
             });
         }
+
+        return ResultFactory.GetResult(Request, stats, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // GET /virtuallib/connectors/{Id}/item-counts
+    // -----------------------------------------------------------------------
+    public object Get(GetRemoteItemCounts request)
+    {
+        var config = Plugin.Instance!.Configuration;
+        var connectorConfig = config.Connectors.FirstOrDefault(c => c.Id == request.Id);
+
+        if (connectorConfig is null)
+            throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
+
+        if (connectorConfig.KnownLibraries.Count == 0)
+            return ResultFactory.GetResult(Request, new List<LibraryStats>(), NoHeaders);
+
+        try
+        {
+            using var connector = _connectorFactory.Value.Create(connectorConfig);
+            Task.WhenAll(connectorConfig.KnownLibraries
+                .Select(lib => connector.GetItemCountAsync(lib.Id, CancellationToken.None)
+                    .ContinueWith(t => { if (t.IsCompletedSuccessfully) lib.RemoteItemCount = t.Result; },
+                        TaskContinuationOptions.ExecuteSynchronously))
+            ).GetAwaiter().GetResult();
+        }
+        catch { /* best-effort */ }
+
+        Plugin.Instance.SaveConfiguration();
+
+        var stats = connectorConfig.KnownLibraries.Select(lib => new LibraryStats
+        {
+            LibraryId = lib.Id,
+            LibraryName = lib.Name,
+            EntryCount = 0,   // not computed here — use /stats for local count
+            RemoteItemCount = lib.RemoteItemCount
+        }).ToList();
 
         return ResultFactory.GetResult(Request, stats, NoHeaders);
     }
@@ -478,13 +525,30 @@ public sealed class ConfigController : BaseApiService
 
         var libList = libraries.ToList();
 
-        // Cache known libraries in config
+        // Cache known libraries in config, preserving existing RemoteItemCount
+        var existingCounts = connectorConfig.KnownLibraries
+            .ToDictionary(l => l.Id, l => l.RemoteItemCount);
+
         connectorConfig.KnownLibraries = libList.Select(l => new KnownLibrary
         {
             Id = l.Id,
             Name = l.Name,
-            Type = l.Type.ToString()
+            Type = l.Type.ToString(),
+            RemoteItemCount = existingCounts.GetValueOrDefault(l.Id, -1)
         }).ToList();
+
+        // Fetch remote item counts in parallel and update the cache
+        try
+        {
+            using var countConnector = _connectorFactory.Value.Create(connectorConfig);
+            Task.WhenAll(connectorConfig.KnownLibraries
+                .Select(lib => countConnector.GetItemCountAsync(lib.Id, CancellationToken.None)
+                    .ContinueWith(t => { if (t.IsCompletedSuccessfully) lib.RemoteItemCount = t.Result; },
+                        TaskContinuationOptions.ExecuteSynchronously))
+            ).GetAwaiter().GetResult();
+        }
+        catch { /* best-effort — don't fail the list if counts can't be fetched */ }
+
         Plugin.Instance.SaveConfiguration();
 
         // Provision virtual folders for all discovered libraries
