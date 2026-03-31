@@ -62,8 +62,20 @@ public sealed class EmbyConnector : IMediaServerConnector
             _logger.LogInformation("Authenticating as user '{Username}' on connector {ConnectorId}",
                 _config.Username, ConnectorId);
 
-            var body = new { Username = _config.Username, Pw = _config.Password };
-            using var response = await _httpClient.PostAsJsonAsync("Users/AuthenticateByName", body, ct);
+            // AuthenticateByName requires:
+            // 1. X-Emby-Authorization header identifying the client (otherwise 400)
+            // 2. A body with Content-Length (not chunked) — ServiceStack may fail to read
+            //    chunked bodies for this endpoint, resulting in Username=null → 400
+            var bodyJson = System.Text.Json.JsonSerializer.Serialize(
+                new { Username = _config.Username, Pw = _config.Password });
+
+            var authRequest = new HttpRequestMessage(HttpMethod.Post, "Users/AuthenticateByName");
+            authRequest.Headers.TryAddWithoutValidation(
+                "X-Emby-Authorization",
+                "MediaBrowser Client=\"VirtualLib\", Device=\"VirtualLib Plugin\", DeviceId=\"VirtualLib\", Version=\"1.0.0\"");
+            authRequest.Content = new StringContent(bodyJson, System.Text.Encoding.UTF8, "application/json");
+
+            using var response = await _httpClient.SendAsync(authRequest, ct);
             response.EnsureSuccessStatusCode();
 
             var result = await response.Content.ReadFromJsonAsync<EmbyAuthResult>(cancellationToken: ct)

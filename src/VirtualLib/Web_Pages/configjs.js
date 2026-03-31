@@ -444,21 +444,27 @@ define([], function () {
                 var connectorId = q('connectorId').value;
                 setStatus(statusEl, 'Testing\u2026', false);
 
-                if (connectorId) {
-                    apiPost('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/test')
-                        .then(function (res) {
-                            if (res.Success) {
-                                setStatus(statusEl, 'Connected \u2014 server v' + (res.ServerVersion || '?'), false);
-                                refreshKnownLibraries(connectorId);
-                            } else {
-                                setStatus(statusEl, 'Failed: ' + (res.ErrorMessage || 'unknown error'), true);
-                            }
-                        })
-                        .catch(function (e) { setStatus(statusEl, 'Error: ' + e.message, true); });
-                } else {
-                    statusEl.textContent = 'Save the connector first to enable connection test.';
-                    statusEl.style.color = 'var(--theme-warning-color, orange)';
-                }
+                // Always test with current form values — works before and after save
+                var params = {
+                    ServerType: q('connectorType').value,
+                    ServerUrl: q('connectorUrl').value.trim(),
+                    AuthMode: q('connectorAuthMode').value,
+                    ApiKey: q('connectorApiKey').value.trim(),
+                    Username: q('connectorUsername').value.trim(),
+                    Password: q('connectorPassword').value
+                };
+
+                apiPost('/virtuallib/test-connection', params)
+                    .then(function (res) {
+                        if (res.Success) {
+                            setStatus(statusEl, 'Connected \u2014 server v' + (res.ServerVersion || '?'), false);
+                            // If the connector is already saved, refresh its library list
+                            if (connectorId) refreshKnownLibraries(connectorId);
+                        } else {
+                            setStatus(statusEl, 'Failed: ' + (res.ErrorMessage || 'unknown error'), true);
+                        }
+                    })
+                    .catch(function (e) { setStatus(statusEl, 'Error: ' + e.message, true); });
             });
 
             q('btnSaveConnector').addEventListener('click', function () {

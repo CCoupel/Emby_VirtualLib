@@ -62,6 +62,18 @@ public sealed class TestConnector : IReturn<ConnectorTestResult>
     public string Id { get; set; } = string.Empty;
 }
 
+[Route("/virtuallib/test-connection", "POST", Summary = "Test connection with ad-hoc parameters (before saving)")]
+[Authenticated]
+public sealed class TestConnectionParams : IReturn<ConnectorTestResult>
+{
+    public string ServerType { get; set; } = ServerTypes.Emby;
+    public string ServerUrl { get; set; } = string.Empty;
+    public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
+    public string ApiKey { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
+
 [Route("/virtuallib/connectors/{Id}/libraries", "GET", Summary = "List remote libraries available on a connector")]
 [Authenticated]
 public sealed class GetConnectorLibraries : IReturn<List<RemoteLibrary>>
@@ -425,6 +437,28 @@ public sealed class ConfigController : BaseApiService
         using var connector = _connectorFactory.Value.Create(connectorConfig);
         var result = connector.TestConnectionAsync(CancellationToken.None).GetAwaiter().GetResult();
 
+        return ResultFactory.GetResult(Request, result, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // POST /virtuallib/test-connection  (ad-hoc, before saving)
+    // -----------------------------------------------------------------------
+    public object Post(TestConnectionParams request)
+    {
+        var tempConfig = new ConnectorConfig
+        {
+            Id = "test",
+            DisplayName = "test",
+            ServerType = request.ServerType,
+            ServerUrl = request.ServerUrl,
+            AuthMode = request.AuthMode,
+            ApiKey = request.ApiKey,
+            Username = request.Username,
+            Password = request.Password
+        };
+
+        using var connector = _connectorFactory.Value.Create(tempConfig);
+        var result = connector.TestConnectionAsync(CancellationToken.None).GetAwaiter().GetResult();
         return ResultFactory.GetResult(Request, result, NoHeaders);
     }
 
