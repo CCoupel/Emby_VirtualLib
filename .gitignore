@@ -13,8 +13,9 @@ obj/
 *.pdb
 *.user
 
-# Libs Emby (extraites localement, ne pas committer)
-libs/
+# Libs Emby — committées pour le CI (nécessaires au build sans installation Emby)
+!libs/
+!libs/*.dll
 
 # Visual Studio / Rider
 .vs/
