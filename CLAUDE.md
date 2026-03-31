@@ -77,29 +77,9 @@ Le flux de lecture :
 
 ## Phases de développement
 
-### Phase 1 — MVP (priorité)
-- [ ] Scaffolding projet C# plugin Emby
-- [ ] Interface `IMediaServerConnector` et modèles normalisés
-- [ ] `EmbyConnector` : auth, list libraries, list items, metadata
-- [ ] `StrmGenerator` : génération fichiers .strm
-- [ ] `NfoGenerator` : génération fichiers .nfo (movie + episode)
-- [ ] `PluginConfiguration` : UI config (URL serveur B + API key)
-- [ ] Sync manuelle (bouton dans l'UI)
-- [ ] Tests unitaires ConnectorEmby + générateurs
+Voir `docs/ROADMAP.md` pour le plan détaillé.
 
-### Phase 2 — Proxy & Automation
-- [ ] `ProxyController` : endpoint HTTP proxy vers serveur source
-- [ ] Pipe stream avec support Range headers (seek)
-- [ ] `LibrarySyncJob` : sync automatique planifiée (configurable)
-- [ ] Détection delta (ajouts/suppressions depuis dernière sync)
-- [ ] Téléchargement artwork (poster, backdrop, thumb)
-- [ ] Tests intégration ProxyController
-
-### Phase 3 — Multi-connecteurs
-- [ ] `JellyfinConnector` (API proche d'Emby)
-- [ ] `PlexConnector` (API XML différente)
-- [ ] Support multi-sources (N serveurs configurés)
-- [ ] UI multi-serveurs
+Phase actuelle : **2a — Synchronisation des métadonnées** (Phase 1.5 UI + Phase 2b Proxy terminées)
 
 ## Règles de développement
 

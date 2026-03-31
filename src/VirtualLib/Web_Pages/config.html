@@ -1,0 +1,175 @@
+<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow"
+     data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true"
+     data-bindheader="true" data-controller="__plugin/VirtualLibConfigScript101"
+     data-title="VirtualLib">
+
+    <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
+
+        <div id="VirtualLibConfigPage">
+
+            <div class="sectionTitleContainer flex align-items-center">
+                <h2 class="sectionTitle">VirtualLib</h2>
+            </div>
+            <p class="fieldDescription">
+                Aggregate remote media server libraries (Emby, Jellyfin, Plex)
+                as virtual libraries on this server.
+            </p>
+
+            <!-- Global Settings -->
+            <div class="detailSection">
+                <div class="detailSectionHeader">Global Settings</div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="virtualLibRoot">Virtual Library Root Path</label>
+                    <input type="text" id="virtualLibRoot" class="emby-input"
+                           placeholder="e.g. /mnt/virtuallib or D:\VirtualLib" />
+                    <div class="fieldDescription">
+                        Absolute path where .strm and .nfo files will be generated.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="proxyBaseUrl">Proxy Base URL</label>
+                    <input type="url" id="proxyBaseUrl" class="emby-input"
+                           placeholder="e.g. https://media.coupel.net/emby (leave empty for auto-detect)" />
+                    <div class="fieldDescription">
+                        Base URL used in .strm files to reach this server's proxy endpoint.
+                        Set this if auto-detection returns the wrong scheme (http vs https).
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="syncInterval">Auto-sync Interval (hours)</label>
+                    <input type="number" id="syncInterval" class="emby-input" min="1" max="168" value="6" />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="proxyTimeout">Proxy Timeout (seconds)</label>
+                    <input type="number" id="proxyTimeout" class="emby-input" min="5" max="300" value="30" />
+                </div>
+
+
+                <div style="margin-top:1em">
+                    <button id="btnSaveGlobal" is="emby-button" class="raised emby-button">
+                        <span>Save Settings</span>
+                    </button>
+                    <span id="globalSaveStatus" style="margin-left:1em;font-size:0.9em"></span>
+                </div>
+            </div>
+
+            <!-- Connector list -->
+            <div class="detailSection" style="margin-top:2em">
+                <div class="detailSectionHeader">Remote Connectors</div>
+
+                <p id="noConnectorsMsg" class="fieldDescription" style="display:none">
+                    No connectors configured. Click "Add Connector" below.
+                </p>
+
+                <table id="connectorTable" style="width:100%;border-collapse:collapse;display:none">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding:6px 8px">Name</th>
+                            <th style="text-align:left;padding:6px 8px">Type</th>
+                            <th style="text-align:left;padding:6px 8px">URL</th>
+                            <th style="text-align:left;padding:6px 8px">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="connectorTableBody"></tbody>
+                </table>
+
+                <div style="margin-top:1em">
+                    <button id="btnAddConnector" is="emby-button" class="raised emby-button">
+                        <span>+ Add Connector</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Add/Edit form -->
+            <div id="connectorFormSection" class="detailSection" style="margin-top:2em;display:none">
+                <div class="detailSectionHeader" id="connectorFormTitle">Add Connector</div>
+
+                <input type="hidden" id="connectorId" value="" />
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="connectorName">Display Name</label>
+                    <input type="text" id="connectorName" class="emby-input"
+                           placeholder="e.g. Home Server B" />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="connectorType">Server Type</label>
+                    <select id="connectorType" is="emby-select" class="emby-select-withcolor emby-input">
+                        <option value="Emby">Emby</option>
+                        <option value="Jellyfin">Jellyfin</option>
+                        <option value="Plex">Plex</option>
+                    </select>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="connectorUrl">Server URL</label>
+                    <input type="url" id="connectorUrl" class="emby-input"
+                           placeholder="http://192.168.1.10:8096" />
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="connectorApiKey">API Key</label>
+                    <input type="password" id="connectorApiKey" class="emby-input"
+                           placeholder="Paste your API key here" autocomplete="new-password" />
+                </div>
+
+                <div style="margin-top:0.75em">
+                    <button id="btnTestConnection" is="emby-button" class="raised emby-button">
+                        <span>Test Connection</span>
+                    </button>
+                    <span id="testResultMsg" style="margin-left:1em;font-size:0.9em"></span>
+                </div>
+
+                <div style="margin-top:1.5em">
+                    <button id="btnSaveConnector" is="emby-button" class="raised emby-button">
+                        <span>Save Connector</span>
+                    </button>
+                    <button id="btnCancelConnector" is="emby-button" class="emby-button"
+                            style="margin-left:0.5em">
+                        <span>Cancel</span>
+                    </button>
+                    <span id="connectorSaveStatus" style="margin-left:1em;font-size:0.9em"></span>
+                </div>
+            </div>
+
+            <!-- Synchronisation -->
+            <div class="detailSection" style="margin-top:2em">
+                <div class="detailSectionHeader">Synchronisation</div>
+
+                <p class="fieldDescription">
+                    Trigger a manual synchronisation of all enabled connectors.
+                    .strm and .nfo files are generated in the root path configured above.
+                </p>
+
+                <div style="margin-top:0.75em">
+                    <button id="btnSyncAll" is="emby-button" class="raised emby-button">
+                        <span>Synchronise Now</span>
+                    </button>
+                </div>
+
+                <div id="syncProgressContainer" style="display:none;margin-top:1em">
+                    <div style="background:var(--card-bg,#333);border-radius:4px;overflow:hidden;height:8px">
+                        <div id="syncProgressBar"
+                             style="height:100%;width:0%;background:var(--accent-color,#00a4dc);
+                                    transition:width 0.3s"></div>
+                    </div>
+                    <div id="syncProgressLabel"
+                         style="margin-top:0.4em;font-size:0.85em;opacity:0.8"></div>
+                </div>
+
+                <div id="syncResultContainer" style="display:none;margin-top:1em">
+                    <div class="detailSectionHeader" style="font-size:0.95em">Sync Results</div>
+                    <pre id="syncResultLog"
+                         style="font-size:0.85em;margin-top:0.5em;max-height:300px;overflow-y:auto;
+                                background:var(--input-background,rgba(0,0,0,0.1));padding:8px;
+                                border-radius:4px;white-space:pre-wrap;word-break:break-word"></pre>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
