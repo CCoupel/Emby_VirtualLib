@@ -79,7 +79,7 @@ Le flux de lecture :
 
 Voir `docs/ROADMAP.md` pour le plan détaillé.
 
-Phase actuelle : **1.5 — UI & Sync manuelle**
+Phase actuelle : **2a — Synchronisation des métadonnées** (Phase 1.5 UI + Phase 2b Proxy terminées)
 
 ## Règles de développement
 

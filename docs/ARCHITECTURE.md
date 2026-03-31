@@ -71,13 +71,28 @@ Implémentation de `IMediaServerConnector` pour les serveurs Emby (et Jellyfin d
 - API Key dans le header `X-Emby-Token`
 - Ou `X-MediaBrowser-Token` (compatibilité Jellyfin)
 
+**Pattern d'URL — règle importante** :
+`ConnectorConfig.ServerUrl` doit inclure le chemin de base complet (ex : `https://media.example.com/emby`).
+`HttpClient.BaseAddress` est défini sur `{ServerUrl}/` (avec slash final).
+Les chemins relatifs dans le connector ne doivent PAS répéter ce préfixe :
+
+```csharp
+// ✅ Correct — BaseAddress = "https://media.example.com/emby/"
+"Library/VirtualFolders"
+$"Users/{userId}/Items?..."
+$"Items/{itemId}?..."
+
+// ❌ Incorrect — double préfixe /emby/emby/
+"emby/Library/VirtualFolders"
+```
+
 **Endpoints utilisés** :
 ```
-GET /emby/Library/VirtualFolders              → liste des bibliothèques
-GET /emby/Users/{userId}/Items?ParentId={id}  → items d'une bibliothèque
-GET /emby/Items/{itemId}                      → métadonnées d'un item
-GET /emby/Items/{itemId}/Images/{type}        → artwork
-GET /Videos/{itemId}/stream                   → stream vidéo
+GET Library/VirtualFolders              → liste des bibliothèques
+GET Users/{userId}/Items?ParentId={id}  → items d'une bibliothèque
+GET Items/{itemId}                      → métadonnées d'un item
+GET Items/{itemId}/Images/{type}        → artwork
+GET {ServerUrl}/Videos/{itemId}/stream  → stream vidéo (URL absolue)
 ```
 
 **Gestion de la pagination** :
@@ -159,22 +174,58 @@ Endpoint HTTP enregistré dans le pipeline ASP.NET d'Emby.
 GET /virtuallib/proxy/{connectorId}/{itemId}
 ```
 
+**Le DTO doit être marqué `[Unauthenticated]`** : ffprobe probe les STRM sans token d'authentification. Sans cet attribut, Emby retourne 401 et la lecture échoue immédiatement.
+
 **Comportement** :
 1. Résout le connector correspondant à `connectorId`
 2. Demande l'URL de stream à `connector.GetStreamUrlAsync(itemId)`
 3. Ouvre un `HttpClient` vers cette URL
-4. Copie les headers pertinents (Content-Type, Content-Length, Accept-Ranges)
+4. Copie les headers pertinents (Content-Type, Content-Length, Accept-Ranges, Content-Range)
 5. Supporte les `Range` headers pour permettre le seek
 6. Pipe le body vers la réponse client via `Stream.CopyToAsync`
 
 **Support Range (seek)** :
 ```csharp
 // Forwarde le header Range de la requête client vers la source
-if (Request.Headers.TryGetValue("Range", out var rangeHeader))
-{
-    upstreamRequest.Headers.Add("Range", rangeHeader.ToString());
-}
+if (!string.IsNullOrEmpty(range))
+    remoteRequest.Headers.TryAddWithoutValidation("Range", range);
 // Retourne 206 Partial Content si la source répond 206
+```
+
+**Point critique — Content-Range** :
+En .NET `HttpClient`, `Content-Range` est dans `response.Content.Headers` (HttpContentHeaders),
+**pas** dans `response.Headers` (HttpResponseHeaders). Ne pas le forwader cause des erreurs graves :
+- ffprobe lit un chunk de N bytes (ex: les 1663 derniers octets d'un MKV)
+- Voit Content-Length=1663 sans Content-Range → croit que le fichier fait 1663 bytes
+- Emby stocke `Size=1663` dans MediaSource
+- ffmpeg demande 1663 bytes, les obtient, voit EOF → "File ended prematurely"
+
+```csharp
+// ✅ Correct
+var contentRangeHeader = remoteResponse.Content.Headers.ContentRange;
+if (contentRangeHeader != null)
+    forwardHeaders["Content-Range"] = contentRangeHeader.ToString();
+
+// ❌ Incorrect — Content-Range n'est jamais dans response.Headers
+var cr = remoteResponse.Headers.GetValues("Content-Range");
+```
+
+**Gestion des déconnexions client** :
+ffprobe ferme la connexion après avoir lu quelques Mo (suffisant pour analyser les métadonnées).
+`PipeWriterStream.DisposeAsync()` lève une exception si Content-Length était 22 Go mais seulement
+quelques Mo ont été écrits. Il faut attraper explicitement :
+
+```csharp
+try { await remoteStream.CopyToAsync(outputStream, ct); }
+catch (OperationCanceledException ex) when (ex.CancellationToken != ct)
+{
+    // Client closed connection — not Emby's cancellation token
+}
+catch (IOException ex) when (!ct.IsCancellationRequested)
+{
+    // Broken pipe — normal for ffprobe
+}
+finally { try { await outputStream.DisposeAsync(); } catch { } }
 ```
 
 ---
@@ -214,6 +265,10 @@ public class PluginConfiguration : BasePluginConfiguration
     public string VirtualLibraryRootPath { get; set; } = "";
     public int SyncIntervalHours { get; set; } = 6;
     public int ProxyTimeoutSeconds { get; set; } = 30;
+    // Override de l'URL de base pour les .strm (utile derrière un reverse proxy)
+    // Exemple : "https://media.example.com/emby2"
+    // Si vide, l'URL est auto-détectée depuis les headers X-Forwarded-*
+    public string ProxyBaseUrl { get; set; } = string.Empty;
 }
 
 public class ConnectorConfig
@@ -221,6 +276,8 @@ public class ConnectorConfig
     public string Id { get; set; }              // GUID unique
     public string DisplayName { get; set; }     // Nom affiché dans l'UI
     public string ServerType { get; set; }      // "Emby" | "Jellyfin" | "Plex"
+    // URL complète incluant le chemin de base Emby
+    // Exemple : "https://media.example.com/emby" (sans slash final)
     public string ServerUrl { get; set; }
     public string ApiKey { get; set; }
     public List<string> LibraryIds { get; set; } = new();  // bibliothèques à sync

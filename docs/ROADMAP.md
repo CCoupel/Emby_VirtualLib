@@ -13,39 +13,39 @@
 
 ---
 
-## Phase 1.5 — UI & Sync manuelle *(en cours)*
+## Phase 1.5 — UI & Sync manuelle ✅ Terminé
 
-- [ ] Page de configuration HTML dans le dashboard Emby
-- [ ] Formulaire ajout / édition / suppression d'un serveur source (URL + API key)
-- [ ] Bouton "Tester la connexion" → `TestConnectionAsync`
-- [ ] Listing des bibliothèques disponibles après connexion (`ListLibrariesAsync`)
-- [ ] Sélection des bibliothèques à synchroniser (checkboxes → `ConnectorConfig.LibraryIds`)
-- [ ] Bouton "Synchroniser maintenant" → génération `.strm` + `.nfo` + scan Emby
-- [ ] Affichage progression / logs dans l'UI
+- [x] Page de configuration HTML dans le dashboard Emby
+- [x] Formulaire ajout / édition / suppression d'un serveur source (URL + API key)
+- [x] Bouton "Tester la connexion" → `TestConnectionAsync`
+- [x] Listing des bibliothèques disponibles après connexion (`ListLibrariesAsync`)
+- [x] Sélection des bibliothèques à synchroniser (checkboxes → `ConnectorConfig.LibraryIds`)
+- [x] Bouton "Synchroniser maintenant" → génération `.strm` + `.nfo` + scan Emby
+- [x] Paramètre `ProxyBaseUrl` (override de l'URL de base pour les `.strm`)
 
 ---
 
-## Phase 2a — Synchronisation des métadonnées
+## Phase 2a — Synchronisation des métadonnées *(en cours)*
 
+- [x] `SyncService` : orchestration sync par connector + bibliothèque
+- [x] Génération `.strm` + `.nfo` + téléchargement artwork
+- [x] Skip intelligent : toujours régénérer le `.strm` (cheap), ne sauter que si `.nfo` déjà présent
 - [ ] `LibrarySyncJob` : tâche planifiée (`IScheduledTask`) configurable
 - [ ] Détection delta : index JSON local `{connectorId}.json`
-- [ ] Téléchargement artwork (poster, backdrop, thumb)
 - [ ] Gestion des suppressions (items supprimés sur la source)
 - [ ] Logs de sync dans le dashboard
 - [ ] Tests intégration sync job
 
 ---
 
-## Phase 2b — Proxy streaming
+## Phase 2b — Proxy streaming ✅ Terminé
 
-- [ ] `ProxyController` : endpoint `GET /virtuallib/proxy/{connectorId}/{itemId}`
-- [ ] Support `Range` headers (seek / scrubbing)
-- [ ] Mode proxy configurable à 3 niveaux :
-  - Par serveur (`ConnectorConfig.ProxyMode`)
-  - Par bibliothèque (override dans la config de lib)
-  - Par média (override item-level)
-- [ ] Modes : `Proxy` (passe par A) | `Direct` (URL source au client) | `Auto` (proxy si WAN, direct si LAN)
-- [ ] Tests intégration ProxyController
+- [x] `ProxyController` : endpoint `GET /virtuallib/proxy/{connectorId}/{itemId}`
+- [x] Support `Range` headers (seek / scrubbing)
+- [x] Forward `Content-Range` et `Accept-Ranges` (obligatoire pour que ffprobe détecte la taille réelle)
+- [x] `[Unauthenticated]` sur le DTO ProxyStreamRequest (ffprobe probe sans token)
+- [x] Gestion propre des déconnexions client (broken pipe, OperationCanceledException)
+- [x] Lecture validée end-to-end : web + app, direct play + transcodage
 
 ---
 
