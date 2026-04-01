@@ -228,6 +228,7 @@ define([], function () {
             q('connectorApiKey').value = '';
             q('connectorUsername').value = '';
             q('connectorPassword').value = '';
+            q('connectorMetadataMode').value = 'RemoteSync';
             updateAuthModeVisibility();
             q('connectorFormTitle').textContent = 'Add Connector';
             clearStatus(q('testResultMsg'));
@@ -249,6 +250,7 @@ define([], function () {
                 q('connectorApiKey').value = c.ApiKey || '';
                 q('connectorUsername').value = c.Username || '';
                 q('connectorPassword').value = '';  // never pre-fill password
+                q('connectorMetadataMode').value = c.MetadataMode || 'RemoteSync';
                 updateAuthModeVisibility();
                 q('connectorFormTitle').textContent = 'Edit Connector';
                 clearStatus(q('testResultMsg'));
@@ -362,6 +364,7 @@ define([], function () {
                     ApiKey: c.ApiKey,
                     Username: c.Username || '',
                     Password: '',  // empty = preserve existing on server side
+                    MetadataMode: c.MetadataMode || 'RemoteSync',
                     LibraryIds: ids,
                     Enabled: c.Enabled
                 };
@@ -509,6 +512,7 @@ define([], function () {
                 var apiKey = q('connectorApiKey').value.trim();
                 var username = q('connectorUsername').value.trim();
                 var password = q('connectorPassword').value;
+                var metadataMode = q('connectorMetadataMode').value;
 
                 if (!displayName || !serverUrl) {
                     setStatus(statusEl, 'Name and URL are required.', true);
@@ -536,6 +540,7 @@ define([], function () {
                             ApiKey: apiKey,
                             Username: username,
                             Password: password,  // empty = preserve existing on server side
+                            MetadataMode: metadataMode,
                             LibraryIds: existing ? (existing.LibraryIds || []) : [],
                             Enabled: true
                         };
@@ -558,6 +563,7 @@ define([], function () {
                         ApiKey: apiKey,
                         Username: username,
                         Password: password,
+                        MetadataMode: metadataMode,
                         LibraryIds: [],
                         Enabled: true
                     };

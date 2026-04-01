@@ -29,6 +29,7 @@ public sealed class CreateConnector : IReturn<ConnectorConfig>
     public string ApiKey { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    public MetadataMode MetadataMode { get; set; } = MetadataMode.RemoteSync;
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
 }
@@ -45,6 +46,7 @@ public sealed class UpdateConnector : IReturn<ConnectorConfig>
     public string ApiKey { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    public MetadataMode MetadataMode { get; set; } = MetadataMode.RemoteSync;
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
 }
@@ -262,6 +264,7 @@ public sealed class ConfigController : BaseApiService
             ApiKey = request.ApiKey,
             Username = request.Username,
             Password = request.Password,
+            MetadataMode = request.MetadataMode,
             LibraryIds = request.LibraryIds,
             Enabled = request.Enabled
         };
@@ -296,6 +299,7 @@ public sealed class ConfigController : BaseApiService
             Username = request.Username,
             // Preserve existing password if the client sent an empty string (placeholder pattern)
             Password = string.IsNullOrEmpty(request.Password) ? existing.Password : request.Password,
+            MetadataMode = request.MetadataMode,
             LibraryIds = request.LibraryIds,
             Enabled = request.Enabled,
             KnownLibraries = existing.KnownLibraries
@@ -312,7 +316,7 @@ public sealed class ConfigController : BaseApiService
             var removedIds = existing.LibraryIds.Except(request.LibraryIds).ToList();
 
             foreach (var lib in updated.KnownLibraries.Where(l => addedIds.Contains(l.Id)))
-                _libraryProvisioner.EnsureVirtualFolder(updated.DisplayName, lib.Name, lib.Type, virtualLibRoot);
+                _libraryProvisioner.EnsureVirtualFolder(updated.DisplayName, lib.Name, lib.Type, virtualLibRoot, updated.MetadataMode);
 
             foreach (var lib in existing.KnownLibraries.Where(l => removedIds.Contains(l.Id)))
                 _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name);
@@ -579,7 +583,8 @@ public sealed class ConfigController : BaseApiService
         if (!string.IsNullOrEmpty(virtualLibRoot))
         {
             foreach (var lib in connectorConfig.KnownLibraries)
-                _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
+                _libraryProvisioner.EnsureVirtualFolder(
+                    connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, connectorConfig.MetadataMode);
         }
 
         return ResultFactory.GetResult(Request, libList, NoHeaders);
@@ -655,6 +660,7 @@ public sealed class ConfigController : BaseApiService
             .Where(l => connectorConfig.LibraryIds.Contains(l.Id));
 
         foreach (var lib in enabledLibs)
-            _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
+            _libraryProvisioner.EnsureVirtualFolder(
+                connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, connectorConfig.MetadataMode);
     }
 }

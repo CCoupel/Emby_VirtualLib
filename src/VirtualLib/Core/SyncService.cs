@@ -244,8 +244,16 @@ public sealed class SyncService
                 // Skip the expensive metadata fetch only when the .nfo already exists.
                 var strmPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryName, virtualLibRoot, proxyBaseUrl);
                 var nfoDir   = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
-                var nfoPath  = Path.Combine(nfoDir, _strmGenerator.GetFileName(item) + ".nfo");
 
+                // LocalScraping: only .strm is needed — Emby handles metadata/images itself
+                if (config.MetadataMode == MetadataMode.LocalScraping)
+                {
+                    libCreated++;
+                    continue;
+                }
+
+                // RemoteSync: fetch metadata + write NFO + download artwork
+                var nfoPath = Path.Combine(nfoDir, _strmGenerator.GetFileName(item) + ".nfo");
                 if (File.Exists(nfoPath)) { libSkipped++; continue; }
 
                 MediaMetadata metadata;
