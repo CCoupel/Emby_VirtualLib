@@ -3,6 +3,7 @@ using MediaBrowser.Controller.Api;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
+using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using VirtualLib.Core;
 using VirtualLib.Core.Models;
@@ -28,6 +29,7 @@ public sealed class CreateConnector : IReturn<ConnectorConfig>
     public string ApiKey { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    public MetadataMode MetadataMode { get; set; } = MetadataMode.RemoteSync;
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
 }
@@ -44,6 +46,7 @@ public sealed class UpdateConnector : IReturn<ConnectorConfig>
     public string ApiKey { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public string Password { get; set; } = string.Empty;
+    public MetadataMode MetadataMode { get; set; } = MetadataMode.RemoteSync;
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
 }
@@ -172,9 +175,13 @@ public sealed class ConfigController : BaseApiService
             NullLogger<SyncService>.Instance));
 
     private readonly LibraryProvisioner _libraryProvisioner;
+    private readonly ILibraryManager _libraryManager;
+    private readonly ITaskManager _taskManager;
 
-    public ConfigController(ILibraryManager libraryManager)
+    public ConfigController(ILibraryManager libraryManager, ITaskManager taskManager)
     {
+        _libraryManager = libraryManager;
+        _taskManager = taskManager;
         _libraryProvisioner = new LibraryProvisioner(libraryManager, NullLogger<LibraryProvisioner>.Instance);
     }
 
@@ -257,6 +264,7 @@ public sealed class ConfigController : BaseApiService
             ApiKey = request.ApiKey,
             Username = request.Username,
             Password = request.Password,
+            MetadataMode = request.MetadataMode,
             LibraryIds = request.LibraryIds,
             Enabled = request.Enabled
         };
@@ -291,6 +299,7 @@ public sealed class ConfigController : BaseApiService
             Username = request.Username,
             // Preserve existing password if the client sent an empty string (placeholder pattern)
             Password = string.IsNullOrEmpty(request.Password) ? existing.Password : request.Password,
+            MetadataMode = request.MetadataMode,
             LibraryIds = request.LibraryIds,
             Enabled = request.Enabled,
             KnownLibraries = existing.KnownLibraries
@@ -307,7 +316,7 @@ public sealed class ConfigController : BaseApiService
             var removedIds = existing.LibraryIds.Except(request.LibraryIds).ToList();
 
             foreach (var lib in updated.KnownLibraries.Where(l => addedIds.Contains(l.Id)))
-                _libraryProvisioner.EnsureVirtualFolder(updated.DisplayName, lib.Name, lib.Type, virtualLibRoot);
+                _libraryProvisioner.EnsureVirtualFolder(updated.DisplayName, lib.Name, lib.Type, virtualLibRoot, updated.MetadataMode);
 
             foreach (var lib in existing.KnownLibraries.Where(l => removedIds.Contains(l.Id)))
                 _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name);
@@ -361,6 +370,21 @@ public sealed class ConfigController : BaseApiService
         config.SyncIntervalHours = request.SyncIntervalHours;
         config.ProxyTimeoutSeconds = request.ProxyTimeoutSeconds;
         Plugin.Instance.SaveConfiguration();
+
+        // Update the scheduled task trigger to reflect the new interval
+        var worker = _taskManager.ScheduledTasks
+            .FirstOrDefault(t => t.ScheduledTask is LibrarySyncJob);
+        if (worker != null)
+        {
+            worker.Triggers = new[]
+            {
+                new TaskTriggerInfo
+                {
+                    Type = TaskTriggerInfo.TriggerInterval,
+                    IntervalTicks = TimeSpan.FromHours(config.SyncIntervalHours).Ticks
+                }
+            };
+        }
 
         return ResultFactory.GetResult(Request, new GlobalSettings
         {
@@ -467,6 +491,9 @@ public sealed class ConfigController : BaseApiService
             progress: null,
             CancellationToken.None).GetAwaiter().GetResult();
 
+        if (result.Success && result.ItemsCreated > 0)
+            _libraryManager.QueueLibraryScan();
+
         return ResultFactory.GetResult(Request, result, NoHeaders);
     }
 
@@ -556,7 +583,8 @@ public sealed class ConfigController : BaseApiService
         if (!string.IsNullOrEmpty(virtualLibRoot))
         {
             foreach (var lib in connectorConfig.KnownLibraries)
-                _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
+                _libraryProvisioner.EnsureVirtualFolder(
+                    connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, connectorConfig.MetadataMode);
         }
 
         return ResultFactory.GetResult(Request, libList, NoHeaders);
@@ -587,6 +615,9 @@ public sealed class ConfigController : BaseApiService
             results.Add(result);
         }
 
+        if (results.Any(r => r.Success && r.ItemsCreated > 0))
+            _libraryManager.QueueLibraryScan();
+
         return ResultFactory.GetResult(Request, results, NoHeaders);
     }
 
@@ -611,6 +642,9 @@ public sealed class ConfigController : BaseApiService
             progress: null,
             CancellationToken.None).GetAwaiter().GetResult();
 
+        if (result.Success && result.ItemsCreated > 0)
+            _libraryManager.QueueLibraryScan();
+
         return ResultFactory.GetResult(Request, result, NoHeaders);
     }
 
@@ -626,6 +660,7 @@ public sealed class ConfigController : BaseApiService
             .Where(l => connectorConfig.LibraryIds.Contains(l.Id));
 
         foreach (var lib in enabledLibs)
-            _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
+            _libraryProvisioner.EnsureVirtualFolder(
+                connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, connectorConfig.MetadataMode);
     }
 }

@@ -244,20 +244,30 @@ public sealed class SyncService
                 // Skip the expensive metadata fetch only when the .nfo already exists.
                 var strmPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryName, virtualLibRoot, proxyBaseUrl);
                 var nfoDir   = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
-                var nfoPath  = Path.Combine(nfoDir, _strmGenerator.GetFileName(item) + ".nfo");
 
-                if (File.Exists(nfoPath)) { libSkipped++; continue; }
+                // LocalScraping: only .strm is needed — Emby handles metadata/images itself
+                if (config.MetadataMode == MetadataMode.LocalScraping)
+                {
+                    libCreated++;
+                    continue;
+                }
+
+                // RemoteSync / RemoteSyncFull: fetch metadata + write NFO + download artwork
+                var nfoPath = Path.Combine(nfoDir, _strmGenerator.GetFileName(item) + ".nfo");
+                if (config.MetadataMode == MetadataMode.RemoteSync && File.Exists(nfoPath)) { libSkipped++; continue; }
 
                 MediaMetadata metadata;
                 try { metadata = await connector.GetMetadataAsync(item.RemoteId, ct); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to get metadata for item {RemoteId}", item.RemoteId);
-                    metadata = BuildFallbackMetadata(item);
+                    _logger.LogWarning(ex, "Failed to get metadata for item {RemoteId} '{Title}' — will retry on next sync", item.RemoteId, item.Title);
+                    libFailed++;
+                    continue; // Don't write fallback NFO — let next sync retry
                 }
 
                 _nfoGenerator.Generate(metadata, nfoDir);
+                await DownloadArtworkAsync(connector, metadata, nfoDir, ct);
                 libCreated++;
             }
             catch (OperationCanceledException) { throw; }
@@ -271,24 +281,48 @@ public sealed class SyncService
         return new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed };
     }
 
-    private static MediaMetadata BuildFallbackMetadata(MediaItem item) =>
-        new()
+    private static readonly Dictionary<ArtworkType, string> _artworkFileNames = new()
+    {
+        { ArtworkType.Poster,   "poster.jpg"   },
+        { ArtworkType.Backdrop, "fanart.jpg"   },
+        { ArtworkType.Thumb,    "landscape.jpg" },
+        { ArtworkType.Logo,     "logo.png"     },
+    };
+
+    private async Task DownloadArtworkAsync(
+        IMediaServerConnector connector,
+        MediaItem item,
+        string targetDir,
+        CancellationToken ct)
+    {
+        foreach (var artworkType in item.AvailableArtwork)
         {
-            RemoteId = item.RemoteId,
-            Title = item.Title,
-            Type = item.Type,
-            Year = item.Year,
-            SeriesId = item.SeriesId,
-            SeriesName = item.SeriesName,
-            SeasonNumber = item.SeasonNumber,
-            EpisodeNumber = item.EpisodeNumber,
-            ImdbId = item.ImdbId,
-            TmdbId = item.TmdbId,
-            TvdbId = item.TvdbId,
-            DateAdded = item.DateAdded,
-            AvailableArtwork = item.AvailableArtwork,
-            Genres = Array.Empty<string>(),
-            Studios = Array.Empty<string>(),
-            Tags = Array.Empty<string>()
-        };
+            ct.ThrowIfCancellationRequested();
+
+            if (!_artworkFileNames.TryGetValue(artworkType, out var fileName)) continue;
+
+            var destPath = Path.Combine(targetDir, fileName);
+            if (File.Exists(destPath)) continue;
+
+            try
+            {
+                var stream = await connector.GetArtworkStreamAsync(item.RemoteId, artworkType, ct);
+                if (stream is null) continue;
+
+                await using (stream)
+                {
+                    await using var file = File.Create(destPath);
+                    await stream.CopyToAsync(file, ct);
+                }
+
+                _logger.LogDebug("Downloaded {ArtworkType} for item {RemoteId}", artworkType, item.RemoteId);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to download {ArtworkType} for item {RemoteId} — skipping", artworkType, item.RemoteId);
+            }
+        }
+    }
+
 }

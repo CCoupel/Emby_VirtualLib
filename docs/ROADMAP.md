@@ -25,16 +25,26 @@
 
 ---
 
-## Phase 2a — Synchronisation des métadonnées *(en cours)*
+## Phase 2a — Synchronisation des métadonnées ✅ Terminé (v1.1.0)
 
 - [x] `SyncService` : orchestration sync par connector + bibliothèque
-- [x] Génération `.strm` + `.nfo` + téléchargement artwork
-- [x] Skip intelligent : toujours régénérer le `.strm` (cheap), ne sauter que si `.nfo` déjà présent
-- [ ] `LibrarySyncJob` : tâche planifiée (`IScheduledTask`) configurable
-- [ ] Détection delta : index JSON local `{connectorId}.json`
+- [x] Génération `.strm` + `.nfo` + téléchargement artwork (poster, fanart, landscape, logo)
+- [x] Métadonnées complètes : cast, directors, writers, tagline, trailer URL
+- [x] Skip intelligent : toujours régénérer le `.strm`, ne sauter le `.nfo` qu'en mode `RemoteSync`
+- [x] `MetadataMode` par connecteur : `RemoteSync` (incrémental) / `RemoteSyncFull` (force) / `LocalScraping`
+- [x] `LibraryOptions` Emby appliquées selon le mode (fetchers TMDB/TVDB/FanArt, cache, chapitres)
+- [x] `LibrarySyncJob` : tâche planifiée (`IScheduledTask`) avec intervalle configurable
+- [x] Mise à jour dynamique du trigger sans redémarrage
+- [x] `QueueLibraryScan()` déclenché si des items ont été créés
+- [x] Compteurs d'items distants par bibliothèque (endpoint `/item-counts`)
+- [x] Fix `Users/Me` 500 : `GetUserIdAsync` sans appel à `/Users/Me`
+- [x] Progression sync par librairie dans l'UI (itération client-side)
+
+**Reste en backlog :**
+- [ ] Détection delta : index JSON local `{connectorId}.json` (issue #12)
 - [ ] Gestion des suppressions (items supprimés sur la source)
-- [ ] Logs de sync dans le dashboard
-- [ ] Tests intégration sync job
+- [ ] Tests intégration sync job (issue #14)
+- [ ] Progression sync par item en temps réel (issue #20)
 
 ---
 

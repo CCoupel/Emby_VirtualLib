@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using VirtualLib.Connectors.Internal;
 using VirtualLib.Core;
 using VirtualLib.Core.Models;
+using PersonInfo = VirtualLib.Core.Models.PersonInfo;
 
 namespace VirtualLib.Connectors;
 
@@ -286,7 +287,10 @@ public sealed class EmbyConnector : IMediaServerConnector
         string itemId,
         CancellationToken cancellationToken = default)
     {
-        var url = $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags";
+        var userId = await GetUserIdAsync(cancellationToken);
+        var url = userId is not null
+            ? $"Users/{userId}/Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines"
+            : $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines";
         using var response = await GetWithRetryAsync(url, cancellationToken);
         response.EnsureSuccessStatusCode();
 
@@ -488,7 +492,21 @@ public sealed class EmbyConnector : IMediaServerConnector
             Genres = item.Genres?.AsReadOnly() ?? (IReadOnlyList<string>)Array.Empty<string>(),
             Studios = item.Studios?.Select(s => s.Name).ToList().AsReadOnly() ?? (IReadOnlyList<string>)Array.Empty<string>(),
             Tags = item.Tags?.AsReadOnly() ?? (IReadOnlyList<string>)Array.Empty<string>(),
-            OfficialRating = item.OfficialRating
+            OfficialRating = item.OfficialRating,
+            Cast = item.People?
+                .Where(p => string.Equals(p.Type, "Actor", StringComparison.OrdinalIgnoreCase))
+                .Select(p => new PersonInfo { Name = p.Name, Role = p.Role })
+                .ToList() ?? (IReadOnlyList<PersonInfo>)Array.Empty<PersonInfo>(),
+            Directors = item.People?
+                .Where(p => string.Equals(p.Type, "Director", StringComparison.OrdinalIgnoreCase))
+                .Select(p => p.Name)
+                .ToList() ?? (IReadOnlyList<string>)Array.Empty<string>(),
+            Writers = item.People?
+                .Where(p => string.Equals(p.Type, "Writer", StringComparison.OrdinalIgnoreCase))
+                .Select(p => p.Name)
+                .ToList() ?? (IReadOnlyList<string>)Array.Empty<string>(),
+            Tagline = item.Taglines?.FirstOrDefault(),
+            TrailerUrl = item.RemoteTrailers?.FirstOrDefault()?.Url
         };
     }
 

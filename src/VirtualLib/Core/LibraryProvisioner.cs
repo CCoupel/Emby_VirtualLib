@@ -22,39 +22,38 @@ public sealed class LibraryProvisioner
     }
 
     /// <summary>
-    /// Creates an Emby virtual folder for the given connector + library if it does not already exist.
+    /// Creates an Emby virtual folder for the given connector + library if it does not already exist,
+    /// then applies LibraryOptions based on the requested metadata mode.
     /// </summary>
     public void EnsureVirtualFolder(
         string connectorName,
         string libraryName,
         string libraryType,
-        string virtualLibRoot)
+        string virtualLibRoot,
+        MetadataMode metadataMode = MetadataMode.RemoteSync)
     {
         var virtualFolderName = BuildFolderName(connectorName, libraryName);
+        var folderPath = BuildFolderPath(virtualLibRoot, connectorName, libraryName);
+        var collectionType = MapCollectionType(libraryType);
 
         if (FolderExists(virtualFolderName))
         {
-            _logger.LogDebug("Virtual folder '{Name}' already exists — skipping", virtualFolderName);
+            _logger.LogDebug("Virtual folder '{Name}' already exists — updating options", virtualFolderName);
+            ApplyLibraryOptions(virtualFolderName, collectionType, metadataMode);
             return;
         }
 
-        var folderPath = BuildFolderPath(virtualLibRoot, connectorName, libraryName);
         Directory.CreateDirectory(folderPath);
 
-        var collectionType = MapCollectionType(libraryType);
-
         _logger.LogInformation(
-            "Creating virtual folder '{Name}' (type={Type}) → '{Path}'",
-            virtualFolderName, collectionType, folderPath);
+            "Creating virtual folder '{Name}' (type={Type}, mode={Mode}) → '{Path}'",
+            virtualFolderName, collectionType, metadataMode, folderPath);
 
         try
         {
-            // Step 1: create without PathInfos so Emby uses collectionType correctly.
-            // ContentType must also be set in LibraryOptions — the standalone parameter is not enough.
             _libraryManager.AddVirtualFolder(virtualFolderName, collectionType,
-                new LibraryOptions { ContentType = collectionType }, refreshLibrary: false);
+                BuildLibraryOptions(collectionType, metadataMode), refreshLibrary: false);
 
-            // Step 2: find the newly created folder and attach the physical path
             var created = _libraryManager.GetVirtualFolders()
                 .FirstOrDefault(f => string.Equals(f.Name, virtualFolderName, StringComparison.OrdinalIgnoreCase));
 
@@ -113,6 +112,94 @@ public sealed class LibraryProvisioner
     }
 
     // ------------------------------------------------------------------
+
+    private void ApplyLibraryOptions(string virtualFolderName, string collectionType, MetadataMode mode)
+    {
+        try
+        {
+            var folder = _libraryManager.GetVirtualFolders()
+                .FirstOrDefault(f => string.Equals(f.Name, virtualFolderName, StringComparison.OrdinalIgnoreCase));
+
+            if (folder == null || !long.TryParse(folder.ItemId, out var itemId)) return;
+            if (_libraryManager.GetItemById(itemId) is not CollectionFolder collectionFolder) return;
+
+            collectionFolder.UpdateLibraryOptions(BuildLibraryOptions(collectionType, mode));
+            _logger.LogDebug("Updated LibraryOptions for '{Name}' (mode={Mode})", virtualFolderName, mode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not update LibraryOptions for '{Name}'", virtualFolderName);
+        }
+    }
+
+    private static LibraryOptions BuildLibraryOptions(string collectionType, MetadataMode mode)
+    {
+        // Common options applied regardless of metadata mode
+        var options = new LibraryOptions
+        {
+            ContentType = collectionType,
+            CacheImages = true,
+            DownloadImagesInAdvance = true,
+            EnableChapterImageExtraction = true,
+            ExtractChapterImagesDuringLibraryScan = true,
+            AutoGenerateChapters = true,
+            AutoGenerateChapterIntervalMinutes = 5,
+            SaveLocalThumbnailSets = true,
+        };
+
+        if (mode == MetadataMode.LocalScraping)
+        {
+            // Emby's own fetchers + NFO writer handle everything
+            options.SaveLocalMetadata = true;
+            options.MetadataSavers = new[] { "Nfo" };
+
+            var movieFetchers = new[] { "TheMovieDb", "The Open Movie Database" };
+            var tvFetchers    = new[] { "TheMovieDb", "TheTVDB" };
+            var imageFetchers = new[] { "TheMovieDb", "FanArt" };
+
+            options.TypeOptions = new[]
+            {
+                new TypeOptions
+                {
+                    Type = "Movie",
+                    MetadataFetchers = movieFetchers,
+                    MetadataFetcherOrder = movieFetchers,
+                    ImageFetchers = imageFetchers,
+                    ImageFetcherOrder = imageFetchers
+                },
+                new TypeOptions
+                {
+                    Type = "Series",
+                    MetadataFetchers = tvFetchers,
+                    MetadataFetcherOrder = tvFetchers,
+                    ImageFetchers = imageFetchers,
+                    ImageFetcherOrder = imageFetchers
+                },
+                new TypeOptions
+                {
+                    Type = "Episode",
+                    MetadataFetchers = tvFetchers,
+                    MetadataFetcherOrder = tvFetchers,
+                    ImageFetchers = imageFetchers,
+                    ImageFetcherOrder = imageFetchers
+                }
+            };
+        }
+        else
+        {
+            // RemoteSync: plugin writes NFO + downloads images; disable Emby's online fetchers
+            options.SaveLocalMetadata = false;
+            options.MetadataSavers = Array.Empty<string>();
+            options.TypeOptions = new[]
+            {
+                new TypeOptions { Type = "Movie",   MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
+                new TypeOptions { Type = "Series",  MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
+                new TypeOptions { Type = "Episode", MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() }
+            };
+        }
+
+        return options;
+    }
 
     private bool FolderExists(string name) =>
         _libraryManager.GetVirtualFolders()

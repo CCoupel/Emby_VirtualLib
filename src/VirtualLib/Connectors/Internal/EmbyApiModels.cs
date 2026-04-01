@@ -93,12 +93,39 @@ internal sealed class EmbyItem
 
     [JsonPropertyName("BackdropImageTags")]
     public List<string>? BackdropImageTags { get; init; }
+
+    [JsonPropertyName("People")]
+    public List<EmbyPerson>? People { get; init; }
+
+    [JsonPropertyName("RemoteTrailers")]
+    public List<EmbyRemoteTrailer>? RemoteTrailers { get; init; }
+
+    [JsonPropertyName("Taglines")]
+    public List<string>? Taglines { get; init; }
 }
 
 internal sealed class EmbyStudio
 {
     [JsonPropertyName("Name")]
     public string Name { get; init; } = string.Empty;
+}
+
+internal sealed class EmbyPerson
+{
+    [JsonPropertyName("Name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("Role")]
+    public string? Role { get; init; }
+
+    [JsonPropertyName("Type")]
+    public string? Type { get; init; }
+}
+
+internal sealed class EmbyRemoteTrailer
+{
+    [JsonPropertyName("Url")]
+    public string? Url { get; init; }
 }
 
 internal sealed class EmbyUser

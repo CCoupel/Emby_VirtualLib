@@ -117,7 +117,7 @@ define([], function () {
                 btnSync.setAttribute('is', 'emby-button');
                 btnSync.className = 'emby-button';
                 btnSync.textContent = 'Sync All';
-                btnSync.addEventListener('click', (function (id) { return function () { syncSingleConnector(id); }; }(c.Id)));
+                btnSync.addEventListener('click', (function (id, name) { return function () { syncSingleConnector(id, name); }; }(c.Id, c.DisplayName)));
 
                 actionCell.appendChild(btnEdit);
                 actionCell.appendChild(btnDelete);
@@ -228,6 +228,7 @@ define([], function () {
             q('connectorApiKey').value = '';
             q('connectorUsername').value = '';
             q('connectorPassword').value = '';
+            q('connectorMetadataMode').value = 'RemoteSync';
             updateAuthModeVisibility();
             q('connectorFormTitle').textContent = 'Add Connector';
             clearStatus(q('testResultMsg'));
@@ -249,6 +250,7 @@ define([], function () {
                 q('connectorApiKey').value = c.ApiKey || '';
                 q('connectorUsername').value = c.Username || '';
                 q('connectorPassword').value = '';  // never pre-fill password
+                q('connectorMetadataMode').value = c.MetadataMode || 'RemoteSync';
                 updateAuthModeVisibility();
                 q('connectorFormTitle').textContent = 'Edit Connector';
                 clearStatus(q('testResultMsg'));
@@ -305,15 +307,28 @@ define([], function () {
             q('syncProgressBar').style.background = 'var(--theme-error-color, #e53935)';
         }
 
-        function syncSingleConnector(id) {
+        function syncSingleConnector(id, displayName) {
             startSyncUI();
-            q('syncProgressBar').style.width = '30%';
+            var bar = q('syncProgressBar');
+            var label = q('syncProgressLabel');
+            bar.style.width = '10%';
+            label.textContent = (displayName ? displayName + ' \u2014 ' : '') + 'Connecting\u2026';
+            // Animate bar while waiting (10% → 80% over ~2s)
+            var pct = 10;
+            var timer = setInterval(function () {
+                pct = Math.min(pct + 5, 80);
+                bar.style.width = pct + '%';
+            }, 400);
             apiPost('/virtuallib/connectors/' + encodeURIComponent(id) + '/sync')
                 .then(function (result) {
+                    clearInterval(timer);
                     finishSyncUI([result], 'Done.');
                     loadLibraryStats(id);
                 })
-                .catch(function (e) { errorSyncUI(e.message); });
+                .catch(function (e) {
+                    clearInterval(timer);
+                    errorSyncUI(e.message);
+                });
         }
 
         function refreshRemoteCounts(connectorId) {
@@ -362,6 +377,7 @@ define([], function () {
                     ApiKey: c.ApiKey,
                     Username: c.Username || '',
                     Password: '',  // empty = preserve existing on server side
+                    MetadataMode: c.MetadataMode || 'RemoteSync',
                     LibraryIds: ids,
                     Enabled: c.Enabled
                 };
@@ -509,6 +525,7 @@ define([], function () {
                 var apiKey = q('connectorApiKey').value.trim();
                 var username = q('connectorUsername').value.trim();
                 var password = q('connectorPassword').value;
+                var metadataMode = q('connectorMetadataMode').value;
 
                 if (!displayName || !serverUrl) {
                     setStatus(statusEl, 'Name and URL are required.', true);
@@ -536,6 +553,7 @@ define([], function () {
                             ApiKey: apiKey,
                             Username: username,
                             Password: password,  // empty = preserve existing on server side
+                            MetadataMode: metadataMode,
                             LibraryIds: existing ? (existing.LibraryIds || []) : [],
                             Enabled: true
                         };
@@ -558,6 +576,7 @@ define([], function () {
                         ApiKey: apiKey,
                         Username: username,
                         Password: password,
+                        MetadataMode: metadataMode,
                         LibraryIds: [],
                         Enabled: true
                     };
@@ -572,14 +591,39 @@ define([], function () {
 
             q('btnSyncAll').addEventListener('click', function () {
                 startSyncUI();
-                apiPost('/virtuallib/sync')
-                    .then(function (results) {
-                        finishSyncUI(results || [], 'Synchronisation complete.');
-                        apiGet('/virtuallib/connectors').then(function (connectors) {
-                            connectors.forEach(function (c) { loadLibraryStats(c.Id); });
-                        }).catch(function () {});
-                    })
-                    .catch(function (e) { errorSyncUI(e.message); });
+                apiGet('/virtuallib/connectors').then(function (connectors) {
+                    var enabled = (connectors || []).filter(function (c) { return c.Enabled; });
+                    if (!enabled.length) {
+                        finishSyncUI([], 'No enabled connectors.');
+                        return;
+                    }
+                    var results = [];
+                    var bar = q('syncProgressBar');
+                    var label = q('syncProgressLabel');
+
+                    function syncNext(i) {
+                        if (i >= enabled.length) {
+                            bar.style.width = '100%';
+                            finishSyncUI(results, 'Synchronisation complete.');
+                            enabled.forEach(function (c) { loadLibraryStats(c.Id); });
+                            return;
+                        }
+                        var c = enabled[i];
+                        var pct = Math.round((i / enabled.length) * 100);
+                        bar.style.width = pct + '%';
+                        label.textContent = '(' + (i + 1) + '/' + enabled.length + ') ' + c.DisplayName + '\u2026';
+                        apiPost('/virtuallib/connectors/' + encodeURIComponent(c.Id) + '/sync')
+                            .then(function (result) {
+                                results.push(result);
+                                syncNext(i + 1);
+                            })
+                            .catch(function (e) {
+                                results.push({ ConnectorName: c.DisplayName, Success: false, ErrorMessage: e.message });
+                                syncNext(i + 1);
+                            });
+                    }
+                    syncNext(0);
+                }).catch(function (e) { errorSyncUI(e.message); });
             });
         });
     };

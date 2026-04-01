@@ -4,6 +4,16 @@ namespace VirtualLib;
 
 public enum AuthMode { ApiKey, UserCredentials }
 
+public enum MetadataMode
+{
+    /// <summary>Plugin fetches metadata/images from the remote server, skips items that already have a .nfo file.</summary>
+    RemoteSync,
+    /// <summary>Emby's own fetchers handle metadata/images from online databases (TMDB, TVDB…).</summary>
+    LocalScraping,
+    /// <summary>Plugin fetches metadata/images from the remote server for all items, overwriting existing .nfo files.</summary>
+    RemoteSyncFull
+}
+
 public sealed class PluginConfiguration : BasePluginConfiguration
 {
     public List<ConnectorConfig> Connectors { get; set; } = new();
@@ -42,6 +52,7 @@ public sealed class ConnectorConfig
     /// <summary>Used when AuthMode == UserCredentials. Stored in Emby config (disk-level encryption).</summary>
     public string Password { get; set; } = string.Empty;
 
+    public MetadataMode MetadataMode { get; set; } = MetadataMode.RemoteSync;
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
     public List<KnownLibrary> KnownLibraries { get; set; } = new();
