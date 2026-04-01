@@ -48,23 +48,39 @@ Ce répertoire sera créé automatiquement par le plugin. Il doit être accessib
 
 ### Étape 3 : Ajouter un serveur source
 
-Cliquer **"Ajouter un serveur"** et remplir :
+Cliquer **"+ Add Connector"** et remplir :
 
 | Champ | Exemple | Description |
 |---|---|---|
 | Nom d'affichage | `Serveur B - Bureau` | Nom libre pour identifier la source |
 | Type de serveur | `Emby` | Emby / Jellyfin / Plex |
 | URL du serveur | `http://192.168.1.200:8096` ou `https://media.example.com/emby` | URL complète avec port **et chemin de base** Emby |
-| Clé API | `abc123def456...` | Clé API du serveur source |
+| Mode d'authentification | `User Credentials` | Voir section Authentication ci-dessous |
+| Mode de métadonnées | `Remote Sync` | Voir section Metadata Source ci-dessous |
 
 **Important — URL du serveur** : inclure le chemin de base si Emby est derrière un reverse proxy.
 Exemple : si Emby répond sur `https://media.example.com/emby/Items/...`, l'URL à configurer est `https://media.example.com/emby`.
 
-Cliquer **"Tester la connexion"** pour valider avant de sauvegarder.
+Cliquer **"Test Connection"** pour valider avant de sauvegarder.
+
+#### Authentification
+
+| Mode | Description |
+|---|---|
+| **API Key** | Accès admin complet, aucun suivi d'usage sur le serveur distant |
+| **User Credentials** | Le serveur distant voit les sessions de cet utilisateur, applique ses restrictions et enregistre l'historique de lecture |
+
+#### Metadata Source
+
+| Mode | Description |
+|---|---|
+| **Remote Sync** | Le plugin télécharge métadonnées et images depuis le serveur distant. Items avec `.nfo` existant ignorés (incrémental). |
+| **Remote Sync Full** | Identique à Remote Sync mais réécrit tous les `.nfo` et re-télécharge les images à chaque sync. |
+| **Local Scraping** | Seuls les `.strm` sont créés. Emby utilise ses propres scrapers (TMDB, TVDB, FanArt) pour enrichir la bibliothèque. Nécessite un accès internet. |
 
 ### Étape 4 : Sélectionner les bibliothèques à synchroniser
 
-Après un test de connexion réussi, la liste des bibliothèques disponibles sur le serveur source s'affiche. Cocher celles à inclure.
+Après un test de connexion réussi, la liste des bibliothèques disponibles s'affiche. Cocher celles à inclure — les dossiers virtuels Emby sont créés automatiquement.
 
 ### Étape 5 : Configurer la synchronisation automatique
 
@@ -75,17 +91,11 @@ Timeout proxy stream :          30 secondes
 
 ### Étape 6 : Lancer la première synchronisation
 
-Cliquer **"Synchroniser maintenant"** pour déclencher la première sync manuellement.
+Cliquer **"Synchronise Now"** pour déclencher la première sync manuellement. La barre de progression avance bibliothèque par bibliothèque.
 
-### Étape 7 : Ajouter la bibliothèque virtuelle dans Emby
+Les dossiers virtuels Emby sont créés automatiquement par le plugin — aucune configuration manuelle dans le Dashboard Emby n'est nécessaire.
 
-Après la sync :
-1. Dashboard → Bibliothèques → Ajouter une bibliothèque
-2. Type : Films (ou Séries selon le contenu)
-3. Dossier : `/media/virtual-libraries/Films_ServeurB`
-4. Valider
-
-Les médias du serveur B apparaissent maintenant dans l'interface d'Emby A.
+Les médias du serveur distant apparaissent dans l'interface d'Emby après le scan de bibliothèque déclenché automatiquement en fin de sync.
 
 ---
 
@@ -235,9 +245,15 @@ Normal : la terminaison TLS est faite par le reverse proxy (traefik). Le serveur
 
 ### La sync ne détecte pas les nouveaux ajouts
 
-- La sync delta compare les IDs distants avec l'index local (`.index/{connectorId}.json`)
-- Si l'index est corrompu, le supprimer pour forcer une re-sync complète
-- Vérifier l'intervalle de sync configuré
+- Les items ajoutés sur le serveur distant sont détectés automatiquement à la prochaine sync (aucun `.nfo` local → créé)
+- Vérifier l'intervalle de sync configuré (défaut : 6h)
+- Déclencher une sync manuelle depuis le dashboard plugin
+
+### Les métadonnées sont incomplètes ou manquantes
+
+- Vérifier que le mode **Remote Sync** ou **Remote Sync Full** est sélectionné (pas Local Scraping)
+- Si les métadonnées ne se mettent pas à jour malgré une sync : passer en mode **Remote Sync Full** pour forcer la réécriture des `.nfo`
+- Les items dont la récupération de métadonnées a échoué sont comptés "failed" et retentés à la prochaine sync
 
 ---
 

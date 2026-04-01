@@ -6,10 +6,12 @@ public enum AuthMode { ApiKey, UserCredentials }
 
 public enum MetadataMode
 {
-    /// <summary>Plugin fetches metadata/images from the remote server and writes .nfo files.</summary>
+    /// <summary>Plugin fetches metadata/images from the remote server, skips items that already have a .nfo file.</summary>
     RemoteSync,
     /// <summary>Emby's own fetchers handle metadata/images from online databases (TMDB, TVDB…).</summary>
-    LocalScraping
+    LocalScraping,
+    /// <summary>Plugin fetches metadata/images from the remote server for all items, overwriting existing .nfo files.</summary>
+    RemoteSyncFull
 }
 
 public sealed class PluginConfiguration : BasePluginConfiguration

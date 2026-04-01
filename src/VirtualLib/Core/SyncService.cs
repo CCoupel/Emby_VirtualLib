@@ -252,17 +252,18 @@ public sealed class SyncService
                     continue;
                 }
 
-                // RemoteSync: fetch metadata + write NFO + download artwork
+                // RemoteSync / RemoteSyncFull: fetch metadata + write NFO + download artwork
                 var nfoPath = Path.Combine(nfoDir, _strmGenerator.GetFileName(item) + ".nfo");
-                if (File.Exists(nfoPath)) { libSkipped++; continue; }
+                if (config.MetadataMode == MetadataMode.RemoteSync && File.Exists(nfoPath)) { libSkipped++; continue; }
 
                 MediaMetadata metadata;
                 try { metadata = await connector.GetMetadataAsync(item.RemoteId, ct); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to get metadata for item {RemoteId}", item.RemoteId);
-                    metadata = BuildFallbackMetadata(item);
+                    _logger.LogWarning(ex, "Failed to get metadata for item {RemoteId} '{Title}' — will retry on next sync", item.RemoteId, item.Title);
+                    libFailed++;
+                    continue; // Don't write fallback NFO — let next sync retry
                 }
 
                 _nfoGenerator.Generate(metadata, nfoDir);
@@ -324,24 +325,4 @@ public sealed class SyncService
         }
     }
 
-    private static MediaMetadata BuildFallbackMetadata(MediaItem item) =>
-        new()
-        {
-            RemoteId = item.RemoteId,
-            Title = item.Title,
-            Type = item.Type,
-            Year = item.Year,
-            SeriesId = item.SeriesId,
-            SeriesName = item.SeriesName,
-            SeasonNumber = item.SeasonNumber,
-            EpisodeNumber = item.EpisodeNumber,
-            ImdbId = item.ImdbId,
-            TmdbId = item.TmdbId,
-            TvdbId = item.TvdbId,
-            DateAdded = item.DateAdded,
-            AvailableArtwork = item.AvailableArtwork,
-            Genres = Array.Empty<string>(),
-            Studios = Array.Empty<string>(),
-            Tags = Array.Empty<string>()
-        };
 }

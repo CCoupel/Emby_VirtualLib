@@ -147,14 +147,16 @@
                 <div class="inputContainer" style="margin-top:1em">
                     <label class="inputLabel inputLabelUnfocused" for="connectorMetadataMode">Metadata Source</label>
                     <select id="connectorMetadataMode" is="emby-select" class="emby-select-withcolor emby-input">
-                        <option value="RemoteSync">Remote Sync — plugin fetches metadata &amp; images from the source server</option>
+                        <option value="RemoteSync">Remote Sync — plugin fetches metadata &amp; images (incremental)</option>
+                        <option value="RemoteSyncFull">Remote Sync Full — re-fetches all metadata &amp; images on every sync</option>
                         <option value="LocalScraping">Local Scraping — Emby fetches from TMDB/TVDB, writes NFO files locally</option>
                     </select>
                     <div class="fieldDescription">
-                        <strong>Remote Sync</strong>: actors, directors, posters and backdrops are downloaded from the remote server during sync.
-                        No internet access required from this server.<br/>
+                        <strong>Remote Sync</strong>: actors, directors, posters and backdrops are downloaded from the remote server.
+                        Items already having a .nfo are skipped (incremental).<br/>
+                        <strong>Remote Sync Full</strong>: same as Remote Sync but overwrites existing .nfo and re-downloads artwork on every sync.<br/>
                         <strong>Local Scraping</strong>: only .strm files are created; Emby uses its own scrapers (TMDB, TVDB, FanArt) to enrich
-                        the library. Requires internet access. Chapter images, video thumbnails and image pre-caching are enabled in both modes.
+                        the library. Requires internet access. Chapter images, video thumbnails and image pre-caching are enabled in all modes.
                     </div>
                 </div>
 

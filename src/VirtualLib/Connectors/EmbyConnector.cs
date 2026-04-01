@@ -287,7 +287,10 @@ public sealed class EmbyConnector : IMediaServerConnector
         string itemId,
         CancellationToken cancellationToken = default)
     {
-        var url = $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines";
+        var userId = await GetUserIdAsync(cancellationToken);
+        var url = userId is not null
+            ? $"Users/{userId}/Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines"
+            : $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines";
         using var response = await GetWithRetryAsync(url, cancellationToken);
         response.EnsureSuccessStatusCode();
 

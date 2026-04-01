@@ -117,7 +117,7 @@ define([], function () {
                 btnSync.setAttribute('is', 'emby-button');
                 btnSync.className = 'emby-button';
                 btnSync.textContent = 'Sync All';
-                btnSync.addEventListener('click', (function (id) { return function () { syncSingleConnector(id); }; }(c.Id)));
+                btnSync.addEventListener('click', (function (id, name) { return function () { syncSingleConnector(id, name); }; }(c.Id, c.DisplayName)));
 
                 actionCell.appendChild(btnEdit);
                 actionCell.appendChild(btnDelete);
@@ -307,15 +307,28 @@ define([], function () {
             q('syncProgressBar').style.background = 'var(--theme-error-color, #e53935)';
         }
 
-        function syncSingleConnector(id) {
+        function syncSingleConnector(id, displayName) {
             startSyncUI();
-            q('syncProgressBar').style.width = '30%';
+            var bar = q('syncProgressBar');
+            var label = q('syncProgressLabel');
+            bar.style.width = '10%';
+            label.textContent = (displayName ? displayName + ' \u2014 ' : '') + 'Connecting\u2026';
+            // Animate bar while waiting (10% → 80% over ~2s)
+            var pct = 10;
+            var timer = setInterval(function () {
+                pct = Math.min(pct + 5, 80);
+                bar.style.width = pct + '%';
+            }, 400);
             apiPost('/virtuallib/connectors/' + encodeURIComponent(id) + '/sync')
                 .then(function (result) {
+                    clearInterval(timer);
                     finishSyncUI([result], 'Done.');
                     loadLibraryStats(id);
                 })
-                .catch(function (e) { errorSyncUI(e.message); });
+                .catch(function (e) {
+                    clearInterval(timer);
+                    errorSyncUI(e.message);
+                });
         }
 
         function refreshRemoteCounts(connectorId) {
@@ -578,14 +591,39 @@ define([], function () {
 
             q('btnSyncAll').addEventListener('click', function () {
                 startSyncUI();
-                apiPost('/virtuallib/sync')
-                    .then(function (results) {
-                        finishSyncUI(results || [], 'Synchronisation complete.');
-                        apiGet('/virtuallib/connectors').then(function (connectors) {
-                            connectors.forEach(function (c) { loadLibraryStats(c.Id); });
-                        }).catch(function () {});
-                    })
-                    .catch(function (e) { errorSyncUI(e.message); });
+                apiGet('/virtuallib/connectors').then(function (connectors) {
+                    var enabled = (connectors || []).filter(function (c) { return c.Enabled; });
+                    if (!enabled.length) {
+                        finishSyncUI([], 'No enabled connectors.');
+                        return;
+                    }
+                    var results = [];
+                    var bar = q('syncProgressBar');
+                    var label = q('syncProgressLabel');
+
+                    function syncNext(i) {
+                        if (i >= enabled.length) {
+                            bar.style.width = '100%';
+                            finishSyncUI(results, 'Synchronisation complete.');
+                            enabled.forEach(function (c) { loadLibraryStats(c.Id); });
+                            return;
+                        }
+                        var c = enabled[i];
+                        var pct = Math.round((i / enabled.length) * 100);
+                        bar.style.width = pct + '%';
+                        label.textContent = '(' + (i + 1) + '/' + enabled.length + ') ' + c.DisplayName + '\u2026';
+                        apiPost('/virtuallib/connectors/' + encodeURIComponent(c.Id) + '/sync')
+                            .then(function (result) {
+                                results.push(result);
+                                syncNext(i + 1);
+                            })
+                            .catch(function (e) {
+                                results.push({ ConnectorName: c.DisplayName, Success: false, ErrorMessage: e.message });
+                                syncNext(i + 1);
+                            });
+                    }
+                    syncNext(0);
+                }).catch(function (e) { errorSyncUI(e.message); });
             });
         });
     };
