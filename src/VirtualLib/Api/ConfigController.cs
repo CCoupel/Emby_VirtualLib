@@ -3,6 +3,7 @@ using MediaBrowser.Controller.Api;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
+using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using VirtualLib.Core;
 using VirtualLib.Core.Models;
@@ -173,10 +174,12 @@ public sealed class ConfigController : BaseApiService
 
     private readonly LibraryProvisioner _libraryProvisioner;
     private readonly ILibraryManager _libraryManager;
+    private readonly ITaskManager _taskManager;
 
-    public ConfigController(ILibraryManager libraryManager)
+    public ConfigController(ILibraryManager libraryManager, ITaskManager taskManager)
     {
         _libraryManager = libraryManager;
+        _taskManager = taskManager;
         _libraryProvisioner = new LibraryProvisioner(libraryManager, NullLogger<LibraryProvisioner>.Instance);
     }
 
@@ -363,6 +366,21 @@ public sealed class ConfigController : BaseApiService
         config.SyncIntervalHours = request.SyncIntervalHours;
         config.ProxyTimeoutSeconds = request.ProxyTimeoutSeconds;
         Plugin.Instance.SaveConfiguration();
+
+        // Update the scheduled task trigger to reflect the new interval
+        var worker = _taskManager.ScheduledTasks
+            .FirstOrDefault(t => t.ScheduledTask is LibrarySyncJob);
+        if (worker != null)
+        {
+            worker.Triggers = new[]
+            {
+                new TaskTriggerInfo
+                {
+                    Type = TaskTriggerInfo.TriggerInterval,
+                    IntervalTicks = TimeSpan.FromHours(config.SyncIntervalHours).Ticks
+                }
+            };
+        }
 
         return ResultFactory.GetResult(Request, new GlobalSettings
         {
