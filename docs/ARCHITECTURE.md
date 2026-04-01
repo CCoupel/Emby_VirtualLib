@@ -116,10 +116,11 @@ Génère les fichiers `.strm` dans l'arborescence de la bibliothèque virtuelle.
 
 **URL dans le .strm** — pointe vers le ProxyController sur le serveur hôte :
 ```
-http://localhost:8096/virtuallib/proxy/{connectorId}/{remoteItemId}
+https://media.example.com/virtuallib/proxy/{connectorId}/{libraryId}/{remoteItemId}
 ```
 
-L'utilisation de `localhost` garantit que le stream transite par A même si B est inaccessible au client.
+Le `libraryId` est inclus pour permettre la validation côté proxy (bibliothèque active + droits utilisateur).
+L'URL est configurée via `ProxyBaseUrl` dans les paramètres du plugin.
 
 **Arborescence générée** :
 
@@ -171,18 +172,33 @@ Génère les fichiers `.nfo` au format Kodi/Emby pour éviter le re-scraping.
 Endpoint HTTP enregistré dans le pipeline ASP.NET d'Emby.
 
 ```
-GET /virtuallib/proxy/{connectorId}/{itemId}
+GET /virtuallib/proxy/{connectorId}/{libraryId}/{itemId}
 ```
 
-**Le DTO doit être marqué `[Unauthenticated]`** : ffprobe probe les STRM sans token d'authentification. Sans cet attribut, Emby retourne 401 et la lecture échoue immédiatement.
+**Le DTO doit être marqué `[Unauthenticated]`** : ffprobe probe les STRM sans token d'authentification. Sans cet attribut, Emby retourne 401 et la lecture échoue immédiatement. Le contrôle d'accès est assuré par le plugin lui-même (voir ci-dessous).
 
 **Comportement** :
-1. Résout le connector correspondant à `connectorId`
-2. Demande l'URL de stream à `connector.GetStreamUrlAsync(itemId)`
-3. Ouvre un `HttpClient` vers cette URL
-4. Copie les headers pertinents (Content-Type, Content-Length, Accept-Ranges, Content-Range)
-5. Supporte les `Range` headers pour permettre le seek
-6. Pipe le body vers la réponse client via `Stream.CopyToAsync`
+1. Valide que le connector existe et est actif
+2. Valide que `libraryId` est configurée sur le connector
+3. Si token présent → vérifie que l'utilisateur a accès à la bibliothèque virtuelle Emby (fail-closed)
+4. Si pas de token → autorisé uniquement si IP privée (RFC 1918) **et** User-Agent interne (`Lavf/*` = ffprobe, absent = Emby .NET client)
+5. Demande l'URL de stream à `connector.GetStreamUrlAsync(itemId)`
+6. Copie les headers pertinents (Content-Type, Content-Length, Accept-Ranges, Content-Range)
+7. Supporte les `Range` headers pour permettre le seek
+8. Pipe le body vers la réponse client via `Stream.CopyToAsync`
+
+**Modèle de sécurité** :
+
+| Requête | Résultat |
+|---|---|
+| Token valide + accès bibliothèque | ✅ autorisé |
+| Token valide + pas d'accès | ❌ 401 |
+| Sans token + IP privée + UA `Lavf/*` | ✅ autorisé (ffprobe) |
+| Sans token + IP privée + pas de UA | ✅ autorisé (Emby interne) |
+| Sans token + IP privée + UA navigateur | ❌ 401 |
+| Sans token + IP publique | ❌ 401 |
+
+**Note DI** : `ILogger<T>` n'est pas enregistré dans SimpleInjector pour les controllers Emby. Le controller utilise `NullLogger<ProxyController>.Instance`.
 
 **Support Range (seek)** :
 ```csharp
@@ -297,7 +313,7 @@ LibrarySyncJob
       ← JSON items[]
   → StrmGenerator.Generate(item)
       → écrit /virtual/Films_B/Inception (2010)/Inception (2010).strm
-         contenu: http://localhost:8096/virtuallib/proxy/emby-b/12345
+         contenu: https://media.example.com/virtuallib/proxy/emby-b/lib456/12345
   → NfoGenerator.Generate(metadata)
       → écrit /virtual/Films_B/Inception (2010)/Inception (2010).nfo
   → ArtworkDownloader.Download(item)
@@ -311,7 +327,7 @@ LibrarySyncJob
 Client Emby
   → browse /virtual/Films_B → Emby A sert depuis son index local
   → play Inception
-      → GET http://A:8096/virtuallib/proxy/emby-b/12345
+      → GET https://media.example.com/virtuallib/proxy/emby-b/lib456/12345
           → ProxyController
               → EmbyConnector.GetStreamUrlAsync("12345")
                   ← "http://B:8096/Videos/12345/stream?api_key=TOKEN"
@@ -326,8 +342,10 @@ Client Emby
 
 - Les API keys des serveurs sources sont stockées dans la config Emby (chiffrée sur disque)
 - Les tokens ne sont jamais exposés dans les URLs .strm (tout passe par le proxy)
-- Le ProxyController ne proxifie que les items présents dans l'index local (pas de proxy ouvert)
-- Validation de l'itemId avant proxy : doit exister dans `{connectorId}.json`
+- Le ProxyController valide connector + libraryId avant de proxifier
+- Accès navigateur sans token bloqué par filtre User-Agent
+- Accès utilisateur avec token → vérification droits sur la bibliothèque virtuelle Emby
+- Le vrai point de contrôle pour les requêtes internes (ffprobe) est Emby lui-même via `PlaybackInfo` — Emby ne transmet pas le token utilisateur aux appels ffprobe sur les URL .strm
 
 ---
 
