@@ -59,6 +59,8 @@ public sealed class NfoGenerator
         writer.WriteElementString("title", metadata.Title);
         if (metadata.Year.HasValue)
             writer.WriteElementString("year", metadata.Year.Value.ToString());
+        if (!string.IsNullOrEmpty(metadata.Tagline))
+            writer.WriteElementString("tagline", metadata.Tagline);
         if (!string.IsNullOrEmpty(metadata.Overview))
             writer.WriteElementString("plot", metadata.Overview);
         if (metadata.CommunityRating.HasValue)
@@ -67,6 +69,8 @@ public sealed class NfoGenerator
             writer.WriteElementString("runtime", metadata.RuntimeMinutes.Value.ToString());
         if (!string.IsNullOrEmpty(metadata.OfficialRating))
             writer.WriteElementString("mpaa", metadata.OfficialRating);
+        if (!string.IsNullOrEmpty(metadata.TrailerUrl))
+            writer.WriteElementString("trailer", metadata.TrailerUrl);
 
         foreach (var genre in metadata.Genres)
             writer.WriteElementString("genre", genre);
@@ -76,6 +80,12 @@ public sealed class NfoGenerator
 
         foreach (var tag in metadata.Tags)
             writer.WriteElementString("tag", tag);
+
+        foreach (var director in metadata.Directors)
+            writer.WriteElementString("director", director);
+
+        foreach (var writer_ in metadata.Writers)
+            writer.WriteElementString("credits", writer_);
 
         if (!string.IsNullOrEmpty(metadata.ImdbId))
         {
@@ -91,6 +101,15 @@ public sealed class NfoGenerator
             writer.WriteStartElement("uniqueid");
             writer.WriteAttributeString("type", "tmdb");
             writer.WriteString(metadata.TmdbId);
+            writer.WriteEndElement();
+        }
+
+        foreach (var person in metadata.Cast)
+        {
+            writer.WriteStartElement("actor");
+            writer.WriteElementString("name", person.Name);
+            if (!string.IsNullOrEmpty(person.Role))
+                writer.WriteElementString("role", person.Role);
             writer.WriteEndElement();
         }
 
@@ -129,12 +148,27 @@ public sealed class NfoGenerator
         if (metadata.RuntimeMinutes.HasValue)
             writer.WriteElementString("runtime", metadata.RuntimeMinutes.Value.ToString());
 
+        foreach (var director in metadata.Directors)
+            writer.WriteElementString("director", director);
+
+        foreach (var writer_ in metadata.Writers)
+            writer.WriteElementString("credits", writer_);
+
         if (!string.IsNullOrEmpty(metadata.TvdbId))
         {
             writer.WriteStartElement("uniqueid");
             writer.WriteAttributeString("type", "tvdb");
             writer.WriteAttributeString("default", "true");
             writer.WriteString(metadata.TvdbId);
+            writer.WriteEndElement();
+        }
+
+        foreach (var person in metadata.Cast)
+        {
+            writer.WriteStartElement("actor");
+            writer.WriteElementString("name", person.Name);
+            if (!string.IsNullOrEmpty(person.Role))
+                writer.WriteElementString("role", person.Role);
             writer.WriteEndElement();
         }
 

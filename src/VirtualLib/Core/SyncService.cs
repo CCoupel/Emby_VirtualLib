@@ -258,6 +258,7 @@ public sealed class SyncService
                 }
 
                 _nfoGenerator.Generate(metadata, nfoDir);
+                await DownloadArtworkAsync(connector, metadata, nfoDir, ct);
                 libCreated++;
             }
             catch (OperationCanceledException) { throw; }
@@ -269,6 +270,50 @@ public sealed class SyncService
         }
 
         return new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed };
+    }
+
+    private static readonly Dictionary<ArtworkType, string> _artworkFileNames = new()
+    {
+        { ArtworkType.Poster,   "poster.jpg"   },
+        { ArtworkType.Backdrop, "fanart.jpg"   },
+        { ArtworkType.Thumb,    "landscape.jpg" },
+        { ArtworkType.Logo,     "logo.png"     },
+    };
+
+    private async Task DownloadArtworkAsync(
+        IMediaServerConnector connector,
+        MediaItem item,
+        string targetDir,
+        CancellationToken ct)
+    {
+        foreach (var artworkType in item.AvailableArtwork)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (!_artworkFileNames.TryGetValue(artworkType, out var fileName)) continue;
+
+            var destPath = Path.Combine(targetDir, fileName);
+            if (File.Exists(destPath)) continue;
+
+            try
+            {
+                var stream = await connector.GetArtworkStreamAsync(item.RemoteId, artworkType, ct);
+                if (stream is null) continue;
+
+                await using (stream)
+                {
+                    await using var file = File.Create(destPath);
+                    await stream.CopyToAsync(file, ct);
+                }
+
+                _logger.LogDebug("Downloaded {ArtworkType} for item {RemoteId}", artworkType, item.RemoteId);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to download {ArtworkType} for item {RemoteId} — skipping", artworkType, item.RemoteId);
+            }
+        }
     }
 
     private static MediaMetadata BuildFallbackMetadata(MediaItem item) =>
