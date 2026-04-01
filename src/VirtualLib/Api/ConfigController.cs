@@ -319,7 +319,7 @@ public sealed class ConfigController : BaseApiService
                 _libraryProvisioner.EnsureVirtualFolder(updated.DisplayName, lib.Name, lib.Type, virtualLibRoot, updated.MetadataMode);
 
             foreach (var lib in existing.KnownLibraries.Where(l => removedIds.Contains(l.Id)))
-                _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name);
+                _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name, virtualLibRoot);
         }
 
         return ResultFactory.GetResult(Request, updated, NoHeaders);
@@ -339,9 +339,10 @@ public sealed class ConfigController : BaseApiService
         config.Connectors.Remove(existing);
         Plugin.Instance.SaveConfiguration();
 
-        // Remove all virtual folders for this connector's libraries
+        // Remove all virtual folders for this connector's libraries (including files on disk)
+        var virtualLibRoot = config.VirtualLibraryRootPath;
         foreach (var lib in existing.KnownLibraries)
-            _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name);
+            _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name, virtualLibRoot);
     }
 
     // -----------------------------------------------------------------------

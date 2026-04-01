@@ -77,37 +77,57 @@ public sealed class LibraryProvisioner
     }
 
     /// <summary>
-    /// Removes the Emby virtual folder for the given connector + library if it exists.
-    /// Does NOT delete the .strm/.nfo files on disk.
+    /// Removes the Emby virtual folder for the given connector + library if it exists,
+    /// then deletes the corresponding .strm/.nfo files from disk.
     /// </summary>
-    public void RemoveVirtualFolder(string connectorName, string libraryName)
+    public void RemoveVirtualFolder(string connectorName, string libraryName, string virtualLibRoot)
     {
         var virtualFolderName = BuildFolderName(connectorName, libraryName);
 
         var folder = _libraryManager.GetVirtualFolders()
             .FirstOrDefault(f => string.Equals(f.Name, virtualFolderName, StringComparison.OrdinalIgnoreCase));
 
-        if (folder == null)
+        if (folder != null)
         {
-            _logger.LogDebug("Virtual folder '{Name}' not found — nothing to remove", virtualFolderName);
-            return;
+            _logger.LogInformation("Removing virtual folder '{Name}' (ItemId={Id})", virtualFolderName, folder.ItemId);
+
+            if (string.IsNullOrEmpty(folder.ItemId) || !long.TryParse(folder.ItemId, out var internalId))
+            {
+                _logger.LogWarning("Virtual folder '{Name}' has unexpected ItemId '{Id}'", virtualFolderName, folder.ItemId);
+            }
+            else
+            {
+                try
+                {
+                    _libraryManager.RemoveVirtualFolder(internalId, refreshLibrary: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to remove virtual folder '{Name}'", virtualFolderName);
+                }
+            }
+        }
+        else
+        {
+            _logger.LogDebug("Virtual folder '{Name}' not found in Emby — skipping folder removal", virtualFolderName);
         }
 
-        _logger.LogInformation("Removing virtual folder '{Name}' (ItemId={Id})", virtualFolderName, folder.ItemId);
-
-        if (string.IsNullOrEmpty(folder.ItemId) || !long.TryParse(folder.ItemId, out var internalId))
+        // Delete physical files from disk regardless of whether the Emby folder existed
+        if (!string.IsNullOrEmpty(virtualLibRoot))
         {
-            _logger.LogWarning("Virtual folder '{Name}' has unexpected ItemId '{Id}'", virtualFolderName, folder.ItemId);
-            return;
-        }
-
-        try
-        {
-            _libraryManager.RemoveVirtualFolder(internalId, refreshLibrary: true);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to remove virtual folder '{Name}'", virtualFolderName);
+            var folderPath = BuildFolderPath(virtualLibRoot, connectorName, libraryName);
+            if (Directory.Exists(folderPath))
+            {
+                try
+                {
+                    Directory.Delete(folderPath, recursive: true);
+                    _logger.LogInformation("Deleted virtual library directory '{Path}'", folderPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to delete virtual library directory '{Path}'", folderPath);
+                }
+            }
         }
     }
 

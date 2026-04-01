@@ -15,6 +15,7 @@ public sealed class StrmGenerator
         MediaItem item,
         string connectorId,
         string connectorName,
+        string libraryId,
         string libraryName,
         string virtualLibRoot,
         string proxyBaseUrl = "")
@@ -23,7 +24,7 @@ public sealed class StrmGenerator
         var fileName = GetFileName(item);
         var filePath = Path.Combine(dirPath, fileName + ".strm");
         var baseUrl = string.IsNullOrEmpty(proxyBaseUrl) ? "http://localhost:8096" : proxyBaseUrl;
-        var streamUrl = $"{baseUrl.TrimEnd('/')}/virtuallib/proxy/{connectorId}/{item.RemoteId}";
+        var streamUrl = $"{baseUrl.TrimEnd('/')}/virtuallib/proxy/{connectorId}/{libraryId}/{item.RemoteId}";
 
         Directory.CreateDirectory(dirPath);
         File.WriteAllText(filePath, streamUrl);
