@@ -242,7 +242,7 @@ public sealed class SyncService
             {
                 // Always regenerate the .strm (cheap — just a URL line).
                 // Skip the expensive metadata fetch only when the .nfo already exists.
-                var strmPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryName, virtualLibRoot, proxyBaseUrl);
+                var strmPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl);
                 var nfoDir   = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
 
                 // LocalScraping: only .strm is needed — Emby handles metadata/images itself

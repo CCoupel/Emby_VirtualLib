@@ -59,6 +59,20 @@
 
 ---
 
+## Phase 2c — Sécurité proxy & nettoyage ✅ Terminé (v1.2.0)
+
+- [x] Redesign URL proxy : `/virtuallib/proxy/{connectorId}/{libraryId}/{itemId}` (ajout `libraryId`)
+- [x] Validation connecteur actif + bibliothèque activée avant de proxifier
+- [x] Contrôle d'accès token : vérification droits utilisateur sur la bibliothèque virtuelle Emby
+- [x] Blocage des requêtes navigateur sans token (filtre User-Agent : `Lavf/*` et absent = interne, `Mozilla/*` = navigateur)
+- [x] Suppression automatique des fichiers `.strm`/`.nfo` quand une bibliothèque est décochée ou un connecteur supprimé
+- [x] Fix DI : `ILogger<ProxyController>` retiré du constructeur (non enregistré dans Emby SimpleInjector)
+
+**Limites connues :**
+- Emby ne transmet pas le token utilisateur lors des appels ffprobe internes → contrôle d'accès par token impossible côté proxy pour les requêtes server-side ; délégué à Emby (`PlaybackInfo`) qui est le vrai point de contrôle
+
+---
+
 ## Phase 3 — Multi-connecteurs
 
 - [ ] `JellyfinConnector` (API proche d'Emby)
