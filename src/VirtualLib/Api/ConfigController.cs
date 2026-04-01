@@ -172,9 +172,11 @@ public sealed class ConfigController : BaseApiService
             NullLogger<SyncService>.Instance));
 
     private readonly LibraryProvisioner _libraryProvisioner;
+    private readonly ILibraryManager _libraryManager;
 
     public ConfigController(ILibraryManager libraryManager)
     {
+        _libraryManager = libraryManager;
         _libraryProvisioner = new LibraryProvisioner(libraryManager, NullLogger<LibraryProvisioner>.Instance);
     }
 
@@ -467,6 +469,9 @@ public sealed class ConfigController : BaseApiService
             progress: null,
             CancellationToken.None).GetAwaiter().GetResult();
 
+        if (result.Success && result.ItemsCreated > 0)
+            _libraryManager.QueueLibraryScan();
+
         return ResultFactory.GetResult(Request, result, NoHeaders);
     }
 
@@ -587,6 +592,9 @@ public sealed class ConfigController : BaseApiService
             results.Add(result);
         }
 
+        if (results.Any(r => r.Success && r.ItemsCreated > 0))
+            _libraryManager.QueueLibraryScan();
+
         return ResultFactory.GetResult(Request, results, NoHeaders);
     }
 
@@ -610,6 +618,9 @@ public sealed class ConfigController : BaseApiService
             ProxyBaseUrl,
             progress: null,
             CancellationToken.None).GetAwaiter().GetResult();
+
+        if (result.Success && result.ItemsCreated > 0)
+            _libraryManager.QueueLibraryScan();
 
         return ResultFactory.GetResult(Request, result, NoHeaders);
     }
