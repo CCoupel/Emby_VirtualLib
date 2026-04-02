@@ -64,146 +64,186 @@ define([], function () {
         // Connector table
         // -------------------------------------------------------------------
 
-        function renderConnectorTable(connectors) {
-            var tbody = q('connectorTableBody');
-            var table = q('connectorTable');
+        var TYPE_LABELS = { Movies: 'Movies', TvShows: 'TV Shows', Music: 'Music' };
+
+        function makeBtn(text, onClick) {
+            var btn = document.createElement('button');
+            btn.setAttribute('is', 'emby-button');
+            btn.className = 'emby-button';
+            btn.textContent = text;
+            btn.addEventListener('click', onClick);
+            return btn;
+        }
+
+        function renderConnectorTree(connectors) {
+            var tree = q('connectorTree');
             var noMsg = q('noConnectorsMsg');
 
-            while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+            while (tree.firstChild) tree.removeChild(tree.firstChild);
 
             if (!connectors || connectors.length === 0) {
-                table.style.display = 'none';
                 noMsg.style.display = '';
                 return;
             }
-
-            table.style.display = '';
             noMsg.style.display = 'none';
 
-            connectors.forEach(function (c) {
-                // --- Connector header row ---
-                var tr = document.createElement('tr');
-                tr.style.cssText = 'border-top:1px solid rgba(255,255,255,0.1)';
+            connectors.slice().sort(function (a, b) {
+                return (a.DisplayName || '').localeCompare(b.DisplayName || '');
+            }).forEach(function (c) {
+                var libs = (c.KnownLibraries || []).slice().sort(function (a, b) {
+                    return (a.Name || '').localeCompare(b.Name || '');
+                });
 
-                function td(text, style) {
-                    var cell = document.createElement('td');
-                    cell.style.cssText = 'padding:6px 8px' + (style ? ';' + style : '');
-                    cell.textContent = text;
-                    return cell;
-                }
+                // Group libraries by type, sorted alphabetically
+                var byType = {};
+                libs.forEach(function (lib) {
+                    var t = lib.Type || 'Unknown';
+                    if (!byType[t]) byType[t] = [];
+                    byType[t].push(lib);
+                });
+                var typeOrder = Object.keys(byType).sort(function (a, b) {
+                    return (TYPE_LABELS[a] || a).localeCompare(TYPE_LABELS[b] || b);
+                });
 
-                tr.appendChild(td(c.DisplayName || ''));
-                tr.appendChild(td(c.ServerType || ''));
-                tr.appendChild(td(c.ServerUrl || ''));
+                // --- Connector node ---
+                var connDiv = document.createElement('div');
+                connDiv.className = 'vl-connector vl-collapsed';
 
-                var actionCell = document.createElement('td');
-                actionCell.style.cssText = 'padding:6px 8px';
+                // Header
+                var header = document.createElement('div');
+                header.className = 'vl-connector-header';
 
-                var btnEdit = document.createElement('button');
-                btnEdit.setAttribute('is', 'emby-button');
-                btnEdit.className = 'emby-button';
-                btnEdit.textContent = 'Edit';
-                btnEdit.style.marginRight = '4px';
-                btnEdit.addEventListener('click', (function (id) { return function () { openEditConnector(id); }; }(c.Id)));
+                var caret = document.createElement('span');
+                caret.className = 'vl-caret';
+                caret.textContent = '\u25BC'; // ▼
 
-                var btnDelete = document.createElement('button');
-                btnDelete.setAttribute('is', 'emby-button');
-                btnDelete.className = 'emby-button';
-                btnDelete.textContent = 'Delete';
-                btnDelete.style.marginRight = '4px';
-                btnDelete.addEventListener('click', (function (id) { return function () { deleteConnector(id); }; }(c.Id)));
+                var nameSpan = document.createElement('span');
+                nameSpan.className = 'vl-connector-name';
+                nameSpan.textContent = c.DisplayName || '';
 
-                var btnSync = document.createElement('button');
-                btnSync.setAttribute('is', 'emby-button');
-                btnSync.className = 'emby-button';
-                btnSync.textContent = 'Sync All';
-                btnSync.addEventListener('click', (function (id, name) { return function () { syncSingleConnector(id, name); }; }(c.Id, c.DisplayName)));
+                var badge = document.createElement('span');
+                badge.className = 'vl-badge';
+                badge.textContent = c.ServerType || '';
 
-                actionCell.appendChild(btnEdit);
-                actionCell.appendChild(btnDelete);
-                actionCell.appendChild(btnSync);
-                tr.appendChild(actionCell);
-                tbody.appendChild(tr);
+                var actions = document.createElement('div');
+                actions.className = 'vl-connector-actions';
+                actions.appendChild(makeBtn('Edit',   function () { openEditConnector(c.Id); }));
+                actions.appendChild(makeBtn('Delete', function () { deleteConnector(c.Id); }));
+                actions.appendChild(makeBtn('Sync',   function () { syncSingleConnector(c.Id, c.DisplayName); }));
 
-                // --- Library sub-rows ---
-                var libs = c.KnownLibraries || [];
+                header.appendChild(caret);
+                header.appendChild(nameSpan);
+                header.appendChild(badge);
+                header.appendChild(actions);
+
+                header.addEventListener('click', function (e) {
+                    if (e.target.closest('button')) return;
+                    connDiv.classList.toggle('vl-collapsed');
+                });
+
+                connDiv.appendChild(header);
+
+                // Body
+                var body = document.createElement('div');
+                body.className = 'vl-connector-body';
+
                 if (libs.length === 0) {
-                    var trNoLib = document.createElement('tr');
-                    var tdNoLib = document.createElement('td');
-                    tdNoLib.colSpan = 4;
-                    tdNoLib.style.cssText = 'padding:4px 8px 4px 2em;opacity:0.5;font-size:0.85em';
-                    tdNoLib.textContent = 'No libraries discovered yet \u2014 click Test Connection in the Edit form.';
-                    trNoLib.appendChild(tdNoLib);
-                    tbody.appendChild(trNoLib);
+                    var noLib = document.createElement('div');
+                    noLib.style.cssText = 'padding:6px 8px;opacity:0.5;font-size:0.85em';
+                    noLib.textContent = 'No libraries discovered yet \u2014 click Test Connection in the Edit form.';
+                    body.appendChild(noLib);
                 } else {
-                    libs.forEach(function (lib) {
-                        var trLib = document.createElement('tr');
-                        var tdLib = document.createElement('td');
-                        tdLib.colSpan = 4;
-                        tdLib.style.cssText = 'padding:2px 8px 2px 2em';
+                    typeOrder.forEach(function (type) {
+                        var typeLibs = byType[type];
+                        var typeLabel = TYPE_LABELS[type] || type;
 
-                        var libEnabled = (c.LibraryIds || []).indexOf(lib.Id) !== -1;
+                        // Type group
+                        var typeGroup = document.createElement('div');
+                        typeGroup.className = 'vl-type-group vl-collapsed';
 
-                        // Create sync button first so the checkbox listener can reference it
-                        var btnLibSync = document.createElement('button');
-                        btnLibSync.setAttribute('is', 'emby-button');
-                        btnLibSync.className = 'emby-button';
-                        btnLibSync.textContent = 'Sync';
-                        btnLibSync.style.cssText = 'margin-left:8px;padding:2px 8px;font-size:0.85em';
-                        btnLibSync.disabled = !libEnabled;
-                        btnLibSync.addEventListener('click', (function (connId, libId) {
-                            return function () { syncLibrary(connId, libId); };
-                        }(c.Id, lib.Id)));
+                        var typeHeader = document.createElement('div');
+                        typeHeader.className = 'vl-type-header';
 
-                        var label = document.createElement('label');
-                        label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;cursor:pointer;min-width:200px';
+                        var typeCaret = document.createElement('span');
+                        typeCaret.className = 'vl-caret';
+                        typeCaret.textContent = '\u25BC';
 
-                        var cb = document.createElement('input');
-                        cb.type = 'checkbox';
-                        cb.checked = libEnabled;
-                        cb.addEventListener('change', (function (connId, libId, syncBtn) {
-                            return function () {
-                                syncBtn.disabled = !this.checked;
-                                toggleLibrary(connId, libId, this.checked);
-                            };
-                        }(c.Id, lib.Id, btnLibSync)));
+                        var typeTitle = document.createElement('span');
+                        typeTitle.textContent = typeLabel;
 
-                        var nameSpan = document.createElement('span');
-                        nameSpan.textContent = lib.Name;
+                        typeHeader.appendChild(typeCaret);
+                        typeHeader.appendChild(typeTitle);
+                        typeHeader.addEventListener('click', function () {
+                            typeGroup.classList.toggle('vl-collapsed');
+                        });
 
-                        var typeSpan = document.createElement('span');
-                        typeSpan.style.cssText = 'opacity:0.5;font-size:0.8em';
-                        typeSpan.textContent = '(' + lib.Type + ')';
+                        typeGroup.appendChild(typeHeader);
 
-                        label.appendChild(cb);
-                        label.appendChild(nameSpan);
-                        label.appendChild(typeSpan);
+                        var typeBody = document.createElement('div');
+                        typeBody.className = 'vl-type-body';
 
-                        var remoteCount = (lib.RemoteItemCount !== undefined && lib.RemoteItemCount >= 0)
-                            ? lib.RemoteItemCount : '?';
-                        var countSpan = document.createElement('span');
-                        countSpan.style.cssText = 'margin-left:12px;opacity:0.6;font-size:0.85em';
-                        countSpan.textContent = '\u2026 / ' + remoteCount + ' distant';
-                        countSpan.setAttribute('data-count-lib', lib.Id)
-                        countSpan.setAttribute('data-remote-count', remoteCount);
+                        typeLibs.forEach(function (lib) {
+                            var libEnabled = (c.LibraryIds || []).indexOf(lib.Id) !== -1;
 
-                        tdLib.appendChild(label);
-                        tdLib.appendChild(countSpan);
-                        tdLib.appendChild(btnLibSync);
-                        trLib.appendChild(tdLib);
-                        tbody.appendChild(trLib);
+                            var libRow = document.createElement('div');
+                            libRow.className = 'vl-library';
+
+                            var cb = document.createElement('input');
+                            cb.type = 'checkbox';
+                            cb.checked = libEnabled;
+
+                            var label = document.createElement('label');
+                            label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0';
+
+                            var libName = document.createElement('span');
+                            libName.textContent = lib.Name;
+
+                            label.appendChild(cb);
+                            label.appendChild(libName);
+
+                            var remoteCount = (lib.RemoteItemCount !== undefined && lib.RemoteItemCount >= 0)
+                                ? lib.RemoteItemCount : '?';
+                            var countSpan = document.createElement('span');
+                            countSpan.className = 'vl-lib-count';
+                            countSpan.textContent = '\u2026\u00A0/\u00A0' + remoteCount + ' distant';
+                            countSpan.setAttribute('data-count-lib', lib.Id);
+                            countSpan.setAttribute('data-remote-count', remoteCount);
+
+                            var syncBtn = makeBtn('Sync', (function (connId, libId) {
+                                return function () { syncLibrary(connId, libId); };
+                            }(c.Id, lib.Id)));
+                            syncBtn.style.cssText = 'padding:2px 8px;font-size:0.82em';
+                            syncBtn.disabled = !libEnabled;
+
+                            cb.addEventListener('change', (function (connId, libId, btn) {
+                                return function () {
+                                    btn.disabled = !this.checked;
+                                    toggleLibrary(connId, libId, this.checked);
+                                };
+                            }(c.Id, lib.Id, syncBtn)));
+
+                            libRow.appendChild(label);
+                            libRow.appendChild(countSpan);
+                            libRow.appendChild(syncBtn);
+                            typeBody.appendChild(libRow);
+                        });
+
+                        typeGroup.appendChild(typeBody);
+                        body.appendChild(typeGroup);
                     });
 
-                    // Load local entry counts, then refresh remote counts from server
                     loadLibraryStats(c.Id);
                     refreshRemoteCounts(c.Id);
                 }
+
+                connDiv.appendChild(body);
+                tree.appendChild(connDiv);
             });
         }
 
         function loadConnectors() {
             apiGet('/virtuallib/connectors').then(function (data) {
-                renderConnectorTable(Array.isArray(data) ? data : []);
+                renderConnectorTree(Array.isArray(data) ? data : []);
             }).catch(function (e) {
                 console.error('VirtualLib: failed to load connectors', e);
             });

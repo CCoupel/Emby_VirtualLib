@@ -57,6 +57,29 @@
                 </div>
             </div>
 
+            <!-- Tree styles -->
+            <style>
+                .vl-tree { margin-top: 1em; }
+                .vl-connector { margin-bottom: 6px; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+                .vl-connector-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; background: rgba(255,255,255,0.05); user-select: none; }
+                .vl-connector-header:hover { background: rgba(255,255,255,0.09); }
+                .vl-caret { font-size: 0.75em; transition: transform 0.15s; display: inline-block; opacity: 0.7; min-width: 10px; }
+                .vl-connector.vl-collapsed .vl-connector-header > .vl-caret { transform: rotate(-90deg); }
+                .vl-connector-body { padding: 4px 0 6px 28px; }
+                .vl-connector.vl-collapsed .vl-connector-body { display: none; }
+                .vl-connector-name { font-weight: bold; }
+                .vl-badge { font-size: 0.72em; padding: 1px 7px; border-radius: 10px; background: rgba(255,255,255,0.12); }
+                .vl-connector-actions { margin-left: auto; display: flex; gap: 4px; }
+                .vl-type-group { margin: 3px 0; }
+                .vl-type-header { display: flex; align-items: center; gap: 6px; padding: 3px 8px; cursor: pointer; font-size: 0.88em; opacity: 0.75; user-select: none; border-radius: 3px; }
+                .vl-type-header:hover { opacity: 1; background: rgba(255,255,255,0.05); }
+                .vl-type-group.vl-collapsed .vl-type-header > .vl-caret { transform: rotate(-90deg); }
+                .vl-type-body { padding-left: 18px; }
+                .vl-type-group.vl-collapsed .vl-type-body { display: none; }
+                .vl-library { display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 0.9em; }
+                .vl-lib-count { opacity: 0.55; font-size: 0.85em; margin-left: 4px; }
+            </style>
+
             <!-- Connector list -->
             <div class="detailSection" style="margin-top:2em">
                 <div class="detailSectionHeader">Remote Connectors</div>
@@ -65,17 +88,7 @@
                     No connectors configured. Click "Add Connector" below.
                 </p>
 
-                <table id="connectorTable" style="width:100%;border-collapse:collapse;display:none">
-                    <thead>
-                        <tr>
-                            <th style="text-align:left;padding:6px 8px">Name</th>
-                            <th style="text-align:left;padding:6px 8px">Type</th>
-                            <th style="text-align:left;padding:6px 8px">URL</th>
-                            <th style="text-align:left;padding:6px 8px">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="connectorTableBody"></tbody>
-                </table>
+                <div id="connectorTree" class="vl-tree"></div>
 
                 <div style="margin-top:1em">
                     <button id="btnAddConnector" is="emby-button" class="raised emby-button">
