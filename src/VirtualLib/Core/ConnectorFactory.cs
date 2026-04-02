@@ -25,6 +25,10 @@ public sealed class ConnectorFactory : IConnectorFactory
             config,
             _httpClientFactory,
             _loggerFactory.CreateLogger<EmbyConnector>()),
+        ServerTypes.Plex => new PlexConnector(
+            config,
+            _httpClientFactory,
+            _loggerFactory.CreateLogger<PlexConnector>()),
         _ => throw new NotSupportedException($"Server type '{config.ServerType}' is not supported")
     };
 }

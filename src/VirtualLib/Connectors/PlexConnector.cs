@@ -1,0 +1,519 @@
+using System.Net;
+using System.Xml.Linq;
+using Microsoft.Extensions.Logging;
+using VirtualLib.Core;
+using VirtualLib.Core.Models;
+
+namespace VirtualLib.Connectors;
+
+public sealed class PlexConnector : IMediaServerConnector
+{
+    private const int PageSize = 100;
+    private const string PlexTokenHeader = "X-Plex-Token";
+
+    private readonly ConnectorConfig _config;
+    private readonly HttpClient _httpClient;
+    private readonly ILogger<PlexConnector> _logger;
+
+    // Token state — populated from ApiKey or obtained via plex.tv auth
+    private string _plexToken;
+    private readonly SemaphoreSlim _authLock = new(1, 1);
+    private bool _disposed;
+
+    public string ServerType => ServerTypes.Plex;
+    public string ConnectorId => _config.Id;
+    public string DisplayName => _config.DisplayName;
+
+    public PlexConnector(
+        ConnectorConfig config,
+        IHttpClientFactory httpClientFactory,
+        ILogger<PlexConnector> logger)
+    {
+        _config = config;
+        _logger = logger;
+        _httpClient = httpClientFactory.CreateClient();
+        _httpClient.BaseAddress = new Uri(config.ServerUrl.TrimEnd('/') + "/");
+        _httpClient.Timeout = TimeSpan.FromSeconds(30);
+
+        _httpClient.DefaultRequestHeaders.Add("X-Plex-Product", "VirtualLib");
+        _httpClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", "virtuallib-plugin");
+        _httpClient.DefaultRequestHeaders.Add("X-Plex-Version", "1.0.0");
+
+        _plexToken = config.AuthMode == AuthMode.ApiKey ? config.ApiKey : string.Empty;
+        if (!string.IsNullOrEmpty(_plexToken))
+            _httpClient.DefaultRequestHeaders.Add(PlexTokenHeader, _plexToken);
+    }
+
+    // -------------------------------------------------------------------------
+    // Authentication (UserCredentials mode via plex.tv)
+    // -------------------------------------------------------------------------
+
+    private async Task EnsureAuthenticatedAsync(CancellationToken ct, bool forceRefresh = false)
+    {
+        if (_config.AuthMode != AuthMode.UserCredentials) return;
+        if (!string.IsNullOrEmpty(_plexToken) && !forceRefresh) return;
+
+        await _authLock.WaitAsync(ct);
+        try
+        {
+            if (!string.IsNullOrEmpty(_plexToken) && !forceRefresh) return;
+
+            _logger.LogInformation("Authenticating via plex.tv for connector {ConnectorId}", ConnectorId);
+
+            using var plexTvClient = new HttpClient();
+            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Product", "VirtualLib");
+            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", "virtuallib-plugin");
+            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Version", "1.0.0");
+            plexTvClient.DefaultRequestHeaders.Add("Accept", "application/xml");
+
+            var form = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("user[login]", _config.Username),
+                new KeyValuePair<string, string>("user[password]", _config.Password)
+            });
+
+            using var response = await plexTvClient.PostAsync("https://plex.tv/users/sign_in.xml", form, ct);
+            response.EnsureSuccessStatusCode();
+
+            var xml = await response.Content.ReadAsStringAsync(ct);
+            var doc = XDocument.Parse(xml);
+            var authToken = doc.Root?.Attribute("authToken")?.Value;
+
+            if (string.IsNullOrEmpty(authToken))
+                throw new InvalidOperationException("Empty authToken in plex.tv response");
+
+            _plexToken = authToken;
+
+            if (_httpClient.DefaultRequestHeaders.Contains(PlexTokenHeader))
+                _httpClient.DefaultRequestHeaders.Remove(PlexTokenHeader);
+            _httpClient.DefaultRequestHeaders.Add(PlexTokenHeader, _plexToken);
+
+            _logger.LogInformation("Authenticated via plex.tv for connector {ConnectorId}", ConnectorId);
+        }
+        finally
+        {
+            _authLock.Release();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // HTTP helpers
+    // -------------------------------------------------------------------------
+
+    private async Task<XDocument?> GetXmlAsync(string url, CancellationToken ct)
+    {
+        await EnsureAuthenticatedAsync(ct);
+        var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized
+            && _config.AuthMode == AuthMode.UserCredentials)
+        {
+            response.Dispose();
+            _logger.LogDebug("401 on {Url} — re-authenticating", url);
+            await EnsureAuthenticatedAsync(ct, forceRefresh: true);
+            response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct);
+        }
+
+        using (response)
+        {
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(ct);
+            return XDocument.Parse(content);
+        }
+    }
+
+    private async Task<HttpResponseMessage> GetStreamResponseAsync(string url, CancellationToken ct)
+    {
+        await EnsureAuthenticatedAsync(ct);
+        var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized
+            && _config.AuthMode == AuthMode.UserCredentials)
+        {
+            response.Dispose();
+            await EnsureAuthenticatedAsync(ct, forceRefresh: true);
+            response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        }
+
+        return response;
+    }
+
+    // -------------------------------------------------------------------------
+    // IMediaServerConnector
+    // -------------------------------------------------------------------------
+
+    public async Task<ConnectorTestResult> TestConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+
+            if (_config.AuthMode == AuthMode.UserCredentials)
+                await EnsureAuthenticatedAsync(cts.Token, forceRefresh: true);
+
+            // GET / returns server info including version
+            var doc = await GetXmlAsync(string.Empty, cts.Token);
+            var version = doc?.Root?.Attribute("version")?.Value ?? "unknown";
+            return ConnectorTestResult.Ok(version);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Connection test failed for connector {ConnectorId}", ConnectorId);
+            return ConnectorTestResult.Fail(ex.Message);
+        }
+    }
+
+    public async Task<IReadOnlyList<RemoteLibrary>> ListLibrariesAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var doc = await GetXmlAsync("library/sections", cancellationToken);
+            if (doc?.Root is null) return Array.Empty<RemoteLibrary>();
+
+            return doc.Root.Elements("Directory")
+                .Select(d => new RemoteLibrary
+                {
+                    Id = d.Attribute("key")?.Value ?? string.Empty,
+                    Name = d.Attribute("title")?.Value ?? string.Empty,
+                    Type = MapSectionType(d.Attribute("type")?.Value)
+                })
+                .Where(l => !string.IsNullOrEmpty(l.Id) && l.Type != LibraryType.Unknown)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list libraries for connector {ConnectorId}", ConnectorId);
+            return Array.Empty<RemoteLibrary>();
+        }
+    }
+
+    public async Task<IReadOnlyList<MediaItem>> ListItemsAsync(
+        string libraryId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var sectionType = await GetSectionTypeAsync(libraryId, cancellationToken);
+            var isShowLibrary = sectionType == "show";
+
+            // Episodes use type=4; movie libraries use the default listing
+            var typeParam = isShowLibrary ? "type=4&" : string.Empty;
+
+            var items = new List<MediaItem>();
+            var offset = 0;
+            var totalSize = int.MaxValue;
+
+            while (offset < totalSize)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var url = $"library/sections/{libraryId}/all?{typeParam}X-Plex-Container-Start={offset}&X-Plex-Container-Size={PageSize}";
+
+                try
+                {
+                    var doc = await GetXmlAsync(url, cancellationToken);
+                    if (doc?.Root is null) break;
+
+                    var totalAttr = doc.Root.Attribute("totalSize")?.Value;
+                    if (totalAttr is not null && int.TryParse(totalAttr, out var total))
+                        totalSize = total;
+
+                    var videos = doc.Root.Elements("Video").ToList();
+                    if (videos.Count == 0) break;
+
+                    foreach (var video in videos)
+                    {
+                        var item = MapVideoToItem(video);
+                        if (item is not null)
+                            items.Add(item);
+                    }
+
+                    offset += videos.Count;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error fetching page at offset={Offset} for library {LibraryId}", offset, libraryId);
+                    break;
+                }
+            }
+
+            return items;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list items for library {LibraryId} on connector {ConnectorId}", libraryId, ConnectorId);
+            return Array.Empty<MediaItem>();
+        }
+    }
+
+    public async Task<int> GetItemCountAsync(string libraryId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var sectionType = await GetSectionTypeAsync(libraryId, cancellationToken);
+            var url = sectionType == "show"
+                ? $"library/sections/{libraryId}/all?type=4&X-Plex-Container-Size=0"
+                : $"library/sections/{libraryId}/all?X-Plex-Container-Size=0";
+
+            var doc = await GetXmlAsync(url, cancellationToken);
+            var totalAttr = doc?.Root?.Attribute("totalSize")?.Value;
+            return totalAttr is not null && int.TryParse(totalAttr, out var count) ? count : 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get item count for library {LibraryId} on connector {ConnectorId}", libraryId, ConnectorId);
+            return 0;
+        }
+    }
+
+    public async Task<MediaMetadata> GetMetadataAsync(
+        string itemId,
+        CancellationToken cancellationToken = default)
+    {
+        var doc = await GetXmlAsync($"library/metadata/{itemId}", cancellationToken);
+        var video = doc?.Root?.Element("Video")
+                    ?? throw new InvalidOperationException($"No Video element in metadata response for item {itemId}");
+        return MapVideoToMetadata(video);
+    }
+
+    public async Task<string> GetStreamUrlAsync(string itemId, CancellationToken cancellationToken = default)
+    {
+        await EnsureAuthenticatedAsync(cancellationToken);
+
+        var doc = await GetXmlAsync($"library/metadata/{itemId}", cancellationToken);
+        var partKey = doc?.Root
+            ?.Element("Video")
+            ?.Element("Media")
+            ?.Element("Part")
+            ?.Attribute("key")?.Value;
+
+        if (string.IsNullOrEmpty(partKey))
+            throw new InvalidOperationException($"No Part key found in metadata for item {itemId}");
+
+        // partKey is "/library/parts/{id}/file" — build absolute URL with token
+        var baseUrl = _config.ServerUrl.TrimEnd('/');
+        return $"{baseUrl}{partKey}?X-Plex-Token={_plexToken}";
+    }
+
+    public async Task<Stream?> GetArtworkStreamAsync(
+        string itemId,
+        ArtworkType artworkType,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var doc = await GetXmlAsync($"library/metadata/{itemId}", cancellationToken);
+            var video = doc?.Root?.Element("Video");
+            if (video is null) return null;
+
+            // Plex provides thumb (poster) and art (backdrop)
+            var artPath = artworkType == ArtworkType.Backdrop
+                ? video.Attribute("art")?.Value
+                : video.Attribute("thumb")?.Value;
+
+            if (string.IsNullOrEmpty(artPath)) return null;
+
+            // artPath is a server-relative path like "/library/metadata/{id}/thumb/..."
+            var relativePath = artPath.TrimStart('/');
+            var response = await GetStreamResponseAsync(relativePath, cancellationToken);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                response.Dispose();
+                return null;
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsStreamAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get artwork {ArtworkType} for item {ItemId}", artworkType, itemId);
+            return null;
+        }
+    }
+
+    // Plex playback reporting requires full client session tracking — no-op
+    public Task ReportPlaybackStartAsync(string itemId, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public Task ReportPlaybackStoppedAsync(string itemId, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Returns the Plex section type string ("movie", "show", "artist") for a given section key.
+    /// Checks KnownLibraries first to avoid an extra API call during sync.
+    /// </summary>
+    private async Task<string> GetSectionTypeAsync(string sectionId, CancellationToken ct)
+    {
+        // Fast path: look up cached type from known libraries
+        var known = _config.KnownLibraries.FirstOrDefault(l => l.Id == sectionId);
+        if (known?.Type is not null)
+        {
+            return known.Type switch
+            {
+                "TvShows" => "show",
+                "Movies"  => "movie",
+                "Music"   => "artist",
+                _         => "movie"
+            };
+        }
+
+        // Slow path: fetch section list from Plex
+        try
+        {
+            var doc = await GetXmlAsync("library/sections", ct);
+            var section = doc?.Root?.Elements("Directory")
+                .FirstOrDefault(d => d.Attribute("key")?.Value == sectionId);
+            return section?.Attribute("type")?.Value ?? "movie";
+        }
+        catch
+        {
+            return "movie";
+        }
+    }
+
+    private MediaItem? MapVideoToItem(XElement video)
+    {
+        var type = video.Attribute("type")?.Value switch
+        {
+            "movie"   => (MediaType?)MediaType.Movie,
+            "episode" => MediaType.Episode,
+            _         => null
+        };
+
+        if (type is null)
+        {
+            _logger.LogWarning("Unknown video type '{Type}' for item {ItemId} — skipping",
+                video.Attribute("type")?.Value, video.Attribute("ratingKey")?.Value);
+            return null;
+        }
+
+        return new MediaItem
+        {
+            RemoteId        = video.Attribute("ratingKey")?.Value ?? string.Empty,
+            Title           = video.Attribute("title")?.Value ?? string.Empty,
+            Type            = type.Value,
+            Year            = ParseInt(video, "year"),
+            SeriesId        = video.Attribute("grandparentRatingKey")?.Value,
+            SeriesName      = video.Attribute("grandparentTitle")?.Value,
+            SeasonNumber    = ParseInt(video, "parentIndex"),
+            EpisodeNumber   = ParseInt(video, "index"),
+            ImdbId          = ParseGuid(video, "imdb://"),
+            TmdbId          = ParseGuid(video, "tmdb://"),
+            TvdbId          = ParseGuid(video, "tvdb://"),
+            DateAdded       = ParseUnixTimestamp(video, "addedAt"),
+            AvailableArtwork = BuildAvailableArtwork(video)
+        };
+    }
+
+    private MediaMetadata MapVideoToMetadata(XElement video)
+    {
+        var type = video.Attribute("type")?.Value switch
+        {
+            "episode" => MediaType.Episode,
+            _         => MediaType.Movie
+        };
+
+        var durationMs = long.TryParse(video.Attribute("duration")?.Value, out var d) ? d : 0L;
+        var rating = float.TryParse(
+            video.Attribute("rating")?.Value,
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var r) ? r : (float?)null;
+
+        return new MediaMetadata
+        {
+            RemoteId         = video.Attribute("ratingKey")?.Value ?? string.Empty,
+            Title            = video.Attribute("title")?.Value ?? string.Empty,
+            Type             = type,
+            Year             = ParseInt(video, "year"),
+            SeriesId         = video.Attribute("grandparentRatingKey")?.Value,
+            SeriesName       = video.Attribute("grandparentTitle")?.Value,
+            SeasonNumber     = ParseInt(video, "parentIndex"),
+            EpisodeNumber    = ParseInt(video, "index"),
+            ImdbId           = ParseGuid(video, "imdb://"),
+            TmdbId           = ParseGuid(video, "tmdb://"),
+            TvdbId           = ParseGuid(video, "tvdb://"),
+            DateAdded        = ParseUnixTimestamp(video, "addedAt"),
+            AvailableArtwork = BuildAvailableArtwork(video),
+            Overview         = video.Attribute("summary")?.Value,
+            CommunityRating  = rating,
+            RuntimeMinutes   = durationMs > 0 ? (int)(durationMs / 60_000L) : null,
+            Genres           = video.Elements("Genre")
+                                   .Select(g => g.Attribute("tag")?.Value ?? string.Empty)
+                                   .Where(g => !string.IsNullOrEmpty(g))
+                                   .ToList(),
+            Studios          = video.Attribute("studio")?.Value is { Length: > 0 } studio
+                                   ? new List<string> { studio }
+                                   : (IReadOnlyList<string>)Array.Empty<string>(),
+            Tags             = Array.Empty<string>(),
+            OfficialRating   = video.Attribute("contentRating")?.Value,
+            Cast             = video.Elements("Role")
+                                   .Select(e => new PersonInfo
+                                   {
+                                       Name = e.Attribute("tag")?.Value ?? string.Empty,
+                                       Role = e.Attribute("role")?.Value
+                                   })
+                                   .Where(p => !string.IsNullOrEmpty(p.Name))
+                                   .ToList(),
+            Directors        = video.Elements("Director")
+                                   .Select(e => e.Attribute("tag")?.Value ?? string.Empty)
+                                   .Where(s => !string.IsNullOrEmpty(s))
+                                   .ToList(),
+            Writers          = video.Elements("Writer")
+                                   .Select(e => e.Attribute("tag")?.Value ?? string.Empty)
+                                   .Where(s => !string.IsNullOrEmpty(s))
+                                   .ToList(),
+            Tagline          = video.Attribute("tagline")?.Value,
+            TrailerUrl       = null // Plex does not expose trailer URLs in metadata
+        };
+    }
+
+    private static string? ParseGuid(XElement video, string prefix) =>
+        video.Elements("Guid")
+             .Select(g => g.Attribute("id")?.Value)
+             .FirstOrDefault(id => id?.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) == true)
+             ?.Substring(prefix.Length);
+
+    private static int? ParseInt(XElement el, string attribute) =>
+        int.TryParse(el.Attribute(attribute)?.Value, out var v) ? v : null;
+
+    private static DateTime? ParseUnixTimestamp(XElement el, string attribute) =>
+        long.TryParse(el.Attribute(attribute)?.Value, out var ts)
+            ? DateTimeOffset.FromUnixTimeSeconds(ts).UtcDateTime
+            : null;
+
+    private static IReadOnlyList<ArtworkType> BuildAvailableArtwork(XElement video)
+    {
+        var result = new List<ArtworkType>();
+        if (!string.IsNullOrEmpty(video.Attribute("thumb")?.Value)) result.Add(ArtworkType.Poster);
+        if (!string.IsNullOrEmpty(video.Attribute("art")?.Value))   result.Add(ArtworkType.Backdrop);
+        return result;
+    }
+
+    private static LibraryType MapSectionType(string? type) => type switch
+    {
+        "movie"  => LibraryType.Movies,
+        "show"   => LibraryType.TvShows,
+        "artist" => LibraryType.Music,
+        _        => LibraryType.Unknown
+    };
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _authLock.Dispose();
+            _httpClient.Dispose();
+            _disposed = true;
+        }
+    }
+}
