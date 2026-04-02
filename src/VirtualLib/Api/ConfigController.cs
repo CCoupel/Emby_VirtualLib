@@ -626,12 +626,11 @@ public sealed class ConfigController : BaseApiService
             RemoteItemCount = existingCounts.GetValueOrDefault(l.Id, -1)
         }).ToList();
 
-        // Fetch remote item counts in parallel and update the cache
+        // Fetch remote item counts in parallel — reuse the same connector (already authenticated)
         try
         {
-            using var countConnector = _connectorFactory.Value.Create(connectorConfig);
             Task.WhenAll(connectorConfig.KnownLibraries
-                .Select(lib => countConnector.GetItemCountAsync(lib.Id, CancellationToken.None)
+                .Select(lib => connector.GetItemCountAsync(lib.Id, CancellationToken.None)
                     .ContinueWith(t => { if (t.IsCompletedSuccessfully) lib.RemoteItemCount = t.Result; },
                         TaskContinuationOptions.ExecuteSynchronously))
             ).GetAwaiter().GetResult();
@@ -640,11 +639,11 @@ public sealed class ConfigController : BaseApiService
 
         Plugin.Instance.SaveConfiguration();
 
-        // Provision virtual folders for all discovered libraries
+        // Provision virtual folders only for user-selected (enabled) libraries
         var virtualLibRoot = config.VirtualLibraryRootPath;
         if (!string.IsNullOrEmpty(virtualLibRoot))
         {
-            foreach (var lib in connectorConfig.KnownLibraries)
+            foreach (var lib in connectorConfig.KnownLibraries.Where(l => connectorConfig.LibraryIds.Contains(l.Id)))
                 _libraryProvisioner.EnsureVirtualFolder(
                     connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, connectorConfig.MetadataMode);
         }
@@ -677,6 +676,9 @@ public sealed class ConfigController : BaseApiService
             results.Add(result);
         }
 
+        // Persist updated RemoteItemCount values written by SyncService
+        Plugin.Instance.SaveConfiguration();
+
         if (results.Any(r => r.Success && r.ItemsCreated > 0))
             _libraryManager.QueueLibraryScan();
 
@@ -703,6 +705,9 @@ public sealed class ConfigController : BaseApiService
             ProxyBaseUrl,
             progress: null,
             CancellationToken.None).GetAwaiter().GetResult();
+
+        // Persist the updated RemoteItemCount values written by SyncService
+        Plugin.Instance.SaveConfiguration();
 
         if (result.Success && result.ItemsCreated > 0)
             _libraryManager.QueueLibraryScan();

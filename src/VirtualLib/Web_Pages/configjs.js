@@ -321,6 +321,14 @@ define([], function () {
                 var c = connectors.find(function (x) { return x.Id === id; });
                 if (!c) { Dashboard.alert('Connector not found.'); return; }
 
+                console.log('[VirtualLib] openEditConnector — connector from server:', JSON.stringify({
+                    Id: c.Id,
+                    ServerType: c.ServerType,
+                    PlexMachineIdentifier: c.PlexMachineIdentifier,
+                    AuthMode: c.AuthMode,
+                    ApiKey: c.ApiKey ? '(set)' : '(empty)'
+                }));
+
                 q('connectorId').value = c.Id;
                 q('connectorName').value = c.DisplayName || '';
                 q('connectorType').value = c.ServerType || 'Emby';
@@ -339,8 +347,10 @@ define([], function () {
                     savedOpt.value = c.PlexMachineIdentifier;
                     savedOpt.textContent = c.PlexMachineIdentifier + ' \u2014 click Load Servers to refresh';
                     sel.appendChild(savedOpt);
+                    console.log('[VirtualLib] PlexMachineIdentifier restored in picker:', c.PlexMachineIdentifier);
                 } else {
                     resetPlexServerPicker();
+                    console.log('[VirtualLib] PlexMachineIdentifier is empty — picker reset to placeholder');
                 }
                 clearStatus(q('plexServersStatus'));
 
@@ -467,6 +477,7 @@ define([], function () {
                     DisplayName: c.DisplayName,
                     ServerType: c.ServerType,
                     ServerUrl: c.ServerUrl,
+                    PlexMachineIdentifier: c.PlexMachineIdentifier || '',
                     AuthMode: c.AuthMode || 'ApiKey',
                     ApiKey: c.ApiKey,
                     Username: c.Username || '',
@@ -583,33 +594,61 @@ define([], function () {
             });
 
             q('btnTestConnection').addEventListener('click', function () {
-                var statusEl = q('testResultMsg');
+                var statusEl    = q('testResultMsg');
                 var connectorId = q('connectorId').value;
+                var connType    = q('connectorType').value;
+                var machineId   = connType === 'PlexTV' ? q('plexMachineId').value : '';
                 setStatus(statusEl, 'Testing\u2026', false);
 
-                // Always test with current form values — works before and after save
-                var connType = q('connectorType').value;
+                console.log('[VirtualLib] Test Connection clicked —', {
+                    connType: connType,
+                    connectorId: connectorId || '(new)',
+                    machineId: machineId || '(empty)',
+                    authMode: q('connectorAuthMode').value
+                });
+
+                function onSuccess(res) {
+                    console.log('[VirtualLib] Test result:', res);
+                    if (res.Success) {
+                        setStatus(statusEl, 'Connected \u2014 server v' + (res.ServerVersion || '?'), false);
+                        if (connectorId) refreshKnownLibraries(connectorId);
+                    } else {
+                        setStatus(statusEl, 'Failed: ' + (res.ErrorMessage || 'unknown error'), true);
+                    }
+                }
+                function onError(e) {
+                    console.error('[VirtualLib] Test error:', e);
+                    setStatus(statusEl, 'Error: ' + e.message, true);
+                }
+
+                // For a saved PlexTV connector where the picker is empty (e.g. first edit after save),
+                // fall back to the saved-connector test endpoint which has the full config.
+                if (connType === 'PlexTV' && !machineId && connectorId) {
+                    console.log('[VirtualLib] PlexTV + empty picker + saved connector → using /connectors/' + connectorId + '/test');
+                    apiPost('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/test')
+                        .then(onSuccess).catch(onError);
+                    return;
+                }
+
                 var params = {
-                    ServerType:           connType,
-                    ServerUrl:            connType === 'PlexTV' ? '' : q('connectorUrl').value.trim(),
-                    PlexMachineIdentifier: connType === 'PlexTV' ? q('plexMachineId').value : '',
-                    AuthMode:             q('connectorAuthMode').value,
-                    ApiKey:               q('connectorApiKey').value.trim(),
-                    Username:             q('connectorUsername').value.trim(),
-                    Password:             q('connectorPassword').value
+                    ServerType:            connType,
+                    ServerUrl:             connType === 'PlexTV' ? '' : q('connectorUrl').value.trim(),
+                    PlexMachineIdentifier: machineId,
+                    AuthMode:              q('connectorAuthMode').value,
+                    ApiKey:                q('connectorApiKey').value.trim(),
+                    Username:              q('connectorUsername').value.trim(),
+                    Password:              q('connectorPassword').value
                 };
 
+                console.log('[VirtualLib] Sending ad-hoc test with params:', JSON.stringify({
+                    ServerType: params.ServerType,
+                    PlexMachineIdentifier: params.PlexMachineIdentifier,
+                    AuthMode: params.AuthMode,
+                    ApiKey: params.ApiKey ? '(set)' : '(empty)'
+                }));
+
                 apiPost('/virtuallib/test-connection', params)
-                    .then(function (res) {
-                        if (res.Success) {
-                            setStatus(statusEl, 'Connected \u2014 server v' + (res.ServerVersion || '?'), false);
-                            // If the connector is already saved, refresh its library list
-                            if (connectorId) refreshKnownLibraries(connectorId);
-                        } else {
-                            setStatus(statusEl, 'Failed: ' + (res.ErrorMessage || 'unknown error'), true);
-                        }
-                    })
-                    .catch(function (e) { setStatus(statusEl, 'Error: ' + e.message, true); });
+                    .then(onSuccess).catch(onError);
             });
 
             q('btnSaveConnector').addEventListener('click', function () {

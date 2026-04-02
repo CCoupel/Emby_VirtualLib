@@ -55,8 +55,12 @@ public sealed class PlexTvConnector : IMediaServerConnector
         {
             if (_inner is not null) return _inner;
 
-            var token     = await GetTokenAsync(ct);
-            var serverUrl = await ResolveServerUrlAsync(token, ct);
+            var token = await GetTokenAsync(ct);
+            var (serverUrl, serverToken) = await ResolveServerUrlAsync(token, ct);
+
+            // Prefer the per-server access token (works for shared servers);
+            // fall back to the global auth token if plex.tv didn't return one.
+            var pmsToken = !string.IsNullOrEmpty(serverToken) ? serverToken : token;
 
             var innerConfig = new ConnectorConfig
             {
@@ -65,7 +69,7 @@ public sealed class PlexTvConnector : IMediaServerConnector
                 ServerType     = ServerTypes.Plex,
                 ServerUrl      = serverUrl,
                 AuthMode       = AuthMode.ApiKey,
-                ApiKey         = token,
+                ApiKey         = pmsToken,
                 MetadataMode   = _config.MetadataMode,
                 LibraryIds     = _config.LibraryIds,
                 Enabled        = _config.Enabled,
@@ -147,7 +151,7 @@ public sealed class PlexTvConnector : IMediaServerConnector
     // Server URL resolution
     // -------------------------------------------------------------------------
 
-    private async Task<string> ResolveServerUrlAsync(string token, CancellationToken ct)
+    private async Task<(string Url, string AccessToken)> ResolveServerUrlAsync(string token, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(_config.PlexMachineIdentifier))
             throw new InvalidOperationException("PlexMachineIdentifier is not configured. Select a server in the connector settings.");
@@ -162,18 +166,22 @@ public sealed class PlexTvConnector : IMediaServerConnector
                        $"No usable connection found for Plex server '{server.Name}'.");
 
         _logger.LogInformation(
-            "Resolved PlexTV server '{Name}' → {Uri} (local={Local}, relay={Relay})",
-            server.Name, best.Uri, best.Local, best.Relay);
+            "Resolved PlexTV server '{Name}' → {Uri} (local={Local}, relay={Relay}, hasServerToken={HasToken})",
+            server.Name, best.Uri, best.Local, best.Relay, !string.IsNullOrEmpty(server.AccessToken));
 
-        return best.Uri;
+        return (best.Uri, server.AccessToken);
     }
 
     private static PlexTvConnection? PickBestConnection(List<PlexTvConnection> connections) =>
         connections
+            .Where(c => !c.IPv6 && !c.Local && !string.IsNullOrEmpty(c.Uri))  // exclude LAN-local (unreachable from remote)
+            .OrderByDescending(c => c.Relay  ? 0 : 1)   // prefer plex.direct over relay
+            .ThenByDescending(c => c.Protocol == "https" ? 1 : 0)
+            .FirstOrDefault()
+        ?? connections  // fallback: try local if no remote connection available
             .Where(c => !c.IPv6 && !string.IsNullOrEmpty(c.Uri))
-            .OrderByDescending(c => c.Local  ? 2 : 1)   // prefer local
-            .ThenByDescending(c =>  c.Relay  ? 0 : 1)   // avoid relay
-            .ThenByDescending(c =>  c.Protocol == "https" ? 1 : 0)
+            .OrderByDescending(c => c.Relay  ? 0 : 1)
+            .ThenByDescending(c => c.Protocol == "https" ? 1 : 0)
             .FirstOrDefault();
 
     // -------------------------------------------------------------------------

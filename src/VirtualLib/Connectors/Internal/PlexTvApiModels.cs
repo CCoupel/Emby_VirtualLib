@@ -14,6 +14,13 @@ internal sealed class PlexTvResource
     [JsonPropertyName("provides")]
     public string Provides { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Per-server access token returned by plex.tv — use this to authenticate
+    /// with the PMS directly (differs from the global auth token for shared servers).
+    /// </summary>
+    [JsonPropertyName("accessToken")]
+    public string AccessToken { get; set; } = string.Empty;
+
     [JsonPropertyName("connections")]
     public List<PlexTvConnection> Connections { get; set; } = new();
 }

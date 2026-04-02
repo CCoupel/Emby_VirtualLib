@@ -33,7 +33,7 @@ public sealed class PlexConnector : IMediaServerConnector
         _logger = logger;
         _httpClient = httpClientFactory.CreateClient();
         _httpClient.BaseAddress = new Uri(config.ServerUrl.TrimEnd('/') + "/");
-        _httpClient.Timeout = TimeSpan.FromSeconds(30);
+        _httpClient.Timeout = TimeSpan.FromSeconds(120);
 
         _httpClient.DefaultRequestHeaders.Add("X-Plex-Product", "VirtualLib");
         _httpClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", "virtuallib-plugin");
@@ -255,8 +255,8 @@ public sealed class PlexConnector : IMediaServerConnector
         {
             var sectionType = await GetSectionTypeAsync(libraryId, cancellationToken);
             var url = sectionType == "show"
-                ? $"library/sections/{libraryId}/all?type=4&X-Plex-Container-Size=0"
-                : $"library/sections/{libraryId}/all?X-Plex-Container-Size=0";
+                ? $"library/sections/{libraryId}/all?type=4&X-Plex-Container-Start=0&X-Plex-Container-Size=0"
+                : $"library/sections/{libraryId}/all?X-Plex-Container-Start=0&X-Plex-Container-Size=0";
 
             var doc = await GetXmlAsync(url, cancellationToken);
             var totalAttr = doc?.Root?.Attribute("totalSize")?.Value;
