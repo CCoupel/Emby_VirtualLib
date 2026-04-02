@@ -136,6 +136,30 @@ public sealed class SyncService
 
         var libraryNameMap = allLibraries.ToDictionary(l => l.Id, l => l.Name);
 
+        // --- 2b. Merge newly discovered libraries into KnownLibraries ---
+        if (allLibraries.Count > 0)
+        {
+            var existingIds = new HashSet<string>(config.KnownLibraries?.Select(l => l.Id) ?? Enumerable.Empty<string>());
+            config.KnownLibraries ??= new List<KnownLibrary>();
+
+            foreach (var lib in allLibraries)
+            {
+                if (!existingIds.Contains(lib.Id))
+                {
+                    config.KnownLibraries.Add(new KnownLibrary
+                    {
+                        Id   = lib.Id,
+                        Name = lib.Name,
+                        Type = lib.Type.ToString(),
+                        RemoteItemCount = -1
+                    });
+                    _logger.LogInformation(
+                        "Connector {ConnectorId}: new library discovered — '{Name}' ({Id})",
+                        config.Id, lib.Name, lib.Id);
+                }
+            }
+        }
+
         // --- 3. Sync each configured library ---
         var libraryResults = new List<LibrarySyncResult>();
 

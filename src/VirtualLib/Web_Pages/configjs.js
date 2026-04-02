@@ -467,7 +467,7 @@ define([], function () {
                 .then(function (result) {
                     clearInterval(timer);
                     finishSyncUI([result], 'Done.');
-                    loadLibraryStats(id);
+                    loadConnectors();
                 })
                 .catch(function (e) {
                     clearInterval(timer);
@@ -794,7 +794,7 @@ define([], function () {
                         if (i >= enabled.length) {
                             bar.style.width = '100%';
                             finishSyncUI(results, 'Synchronisation complete.');
-                            enabled.forEach(function (c) { loadLibraryStats(c.Id); });
+                            loadConnectors();
                             return;
                         }
                         var c = enabled[i];
