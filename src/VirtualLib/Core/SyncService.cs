@@ -136,6 +136,30 @@ public sealed class SyncService
 
         var libraryNameMap = allLibraries.ToDictionary(l => l.Id, l => l.Name);
 
+        // --- 2b. Merge newly discovered libraries into KnownLibraries ---
+        if (allLibraries.Count > 0)
+        {
+            var existingIds = new HashSet<string>(config.KnownLibraries?.Select(l => l.Id) ?? Enumerable.Empty<string>());
+            config.KnownLibraries ??= new List<KnownLibrary>();
+
+            foreach (var lib in allLibraries)
+            {
+                if (!existingIds.Contains(lib.Id))
+                {
+                    config.KnownLibraries.Add(new KnownLibrary
+                    {
+                        Id   = lib.Id,
+                        Name = lib.Name,
+                        Type = lib.Type.ToString(),
+                        RemoteItemCount = -1
+                    });
+                    _logger.LogInformation(
+                        "Connector {ConnectorId}: new library discovered — '{Name}' ({Id})",
+                        config.Id, lib.Name, lib.Id);
+                }
+            }
+        }
+
         // --- 3. Sync each configured library ---
         var libraryResults = new List<LibrarySyncResult>();
 
@@ -156,6 +180,17 @@ public sealed class SyncService
             created += libResult.ItemsCreated;
             skipped += libResult.ItemsSkipped;
             failed += libResult.ItemsFailed;
+        }
+
+        // Update remote item counts for libraries that were NOT synced (unchecked)
+        // Synced libraries already had their count set in SyncLibraryItemsAsync.
+        var syncedIds = new HashSet<string>(config.LibraryIds);
+        foreach (var knownLib in config.KnownLibraries ?? Enumerable.Empty<KnownLibrary>())
+        {
+            if (syncedIds.Contains(knownLib.Id)) continue;
+            ct.ThrowIfCancellationRequested();
+            try { knownLib.RemoteItemCount = await connector.GetItemCountAsync(knownLib.Id, ct); }
+            catch { /* best-effort */ }
         }
 
         var duration = DateTime.UtcNow - startTime;
@@ -228,6 +263,10 @@ public sealed class SyncService
             _logger.LogError(ex, "Failed to list items for library {LibraryId}", libraryId);
             return new LibrarySyncResult { LibraryName = libraryName, ItemsFailed = 1 };
         }
+
+        // Update the cached remote item count so the config page reflects reality after sync
+        var known = config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId);
+        if (known != null) known.RemoteItemCount = items.Count;
 
         _logger.LogInformation("Found {Count} items in library '{LibraryName}'", items.Count, libraryName);
 

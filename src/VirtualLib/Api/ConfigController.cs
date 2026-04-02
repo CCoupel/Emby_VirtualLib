@@ -5,6 +5,7 @@ using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using VirtualLib.Connectors;
 using VirtualLib.Core;
 using VirtualLib.Core.Models;
 
@@ -25,6 +26,7 @@ public sealed class CreateConnector : IReturn<ConnectorConfig>
     public string DisplayName { get; set; } = string.Empty;
     public string ServerType { get; set; } = ServerTypes.Emby;
     public string ServerUrl { get; set; } = string.Empty;
+    public string PlexMachineIdentifier { get; set; } = string.Empty;
     public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
     public string ApiKey { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
@@ -42,6 +44,7 @@ public sealed class UpdateConnector : IReturn<ConnectorConfig>
     public string DisplayName { get; set; } = string.Empty;
     public string ServerType { get; set; } = ServerTypes.Emby;
     public string ServerUrl { get; set; } = string.Empty;
+    public string PlexMachineIdentifier { get; set; } = string.Empty;
     public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
     public string ApiKey { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
@@ -71,6 +74,7 @@ public sealed class TestConnectionParams : IReturn<ConnectorTestResult>
 {
     public string ServerType { get; set; } = ServerTypes.Emby;
     public string ServerUrl { get; set; } = string.Empty;
+    public string PlexMachineIdentifier { get; set; } = string.Empty;
     public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
     public string ApiKey { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
@@ -123,6 +127,28 @@ public sealed class SaveSettings : IReturn<GlobalSettings>
 [Route("/virtuallib/sync", "POST", Summary = "Sync all enabled connectors")]
 [Authenticated]
 public sealed class SyncAll : IReturn<List<SyncResult>> { }
+
+[Route("/virtuallib/plex/servers", "POST", Summary = "List Plex servers visible on plex.tv for the given credentials")]
+[Authenticated]
+public sealed class GetPlexTvServers : IReturn<PlexTvServersResult>
+{
+    public AuthMode AuthMode    { get; set; } = AuthMode.ApiKey;
+    /// <summary>Plex token (when AuthMode = ApiKey)</summary>
+    public string ApiKey        { get; set; } = string.Empty;
+    /// <summary>plex.tv username (when AuthMode = UserCredentials)</summary>
+    public string Username      { get; set; } = string.Empty;
+    /// <summary>plex.tv password (when AuthMode = UserCredentials)</summary>
+    public string Password      { get; set; } = string.Empty;
+    /// <summary>6-digit TOTP code — required when the account has 2FA enabled</summary>
+    public string TwoFactorPin  { get; set; } = string.Empty;
+}
+
+public sealed class PlexTvServersResult
+{
+    /// <summary>Resolved Plex token (long-lived). Use this as ApiKey to avoid re-authenticating.</summary>
+    public string ResolvedToken { get; set; } = string.Empty;
+    public List<PlexServerInfo> Servers { get; set; } = new();
+}
 
 [Route("/virtuallib/connectors/{Id}/sync", "POST", Summary = "Sync a single connector")]
 [Authenticated]
@@ -260,6 +286,7 @@ public sealed class ConfigController : BaseApiService
             DisplayName = request.DisplayName,
             ServerType = request.ServerType,
             ServerUrl = request.ServerUrl,
+            PlexMachineIdentifier = request.PlexMachineIdentifier,
             AuthMode = request.AuthMode,
             ApiKey = request.ApiKey,
             Username = request.Username,
@@ -294,6 +321,7 @@ public sealed class ConfigController : BaseApiService
             DisplayName = request.DisplayName,
             ServerType = request.ServerType,
             ServerUrl = request.ServerUrl,
+            PlexMachineIdentifier = request.PlexMachineIdentifier,
             AuthMode = request.AuthMode,
             ApiKey = request.ApiKey,
             Username = request.Username,
@@ -526,6 +554,7 @@ public sealed class ConfigController : BaseApiService
             DisplayName = "test",
             ServerType = request.ServerType,
             ServerUrl = request.ServerUrl,
+            PlexMachineIdentifier = request.PlexMachineIdentifier,
             AuthMode = request.AuthMode,
             ApiKey = request.ApiKey,
             Username = request.Username,
@@ -535,6 +564,38 @@ public sealed class ConfigController : BaseApiService
         using var connector = _connectorFactory.Value.Create(tempConfig);
         var result = connector.TestConnectionAsync(CancellationToken.None).GetAwaiter().GetResult();
         return ResultFactory.GetResult(Request, result, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // POST /virtuallib/plex/servers
+    // -----------------------------------------------------------------------
+    public object Post(GetPlexTvServers request)
+    {
+        var ct      = CancellationToken.None;
+        var factory = new DefaultHttpClientFactory();
+
+        string token;
+        if (request.AuthMode == AuthMode.ApiKey)
+        {
+            if (string.IsNullOrEmpty(request.ApiKey))
+                throw new ArgumentException("ApiKey (Plex token) is required.");
+            token = request.ApiKey;
+        }
+        else
+        {
+            if (string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
+                throw new ArgumentException("Username and Password are required for UserCredentials mode.");
+            token = PlexTvConnector
+                .GetTokenFromCredentialsAsync(request.Username, request.Password, factory, ct,
+                    twoFactorPin: request.TwoFactorPin)
+                .GetAwaiter().GetResult();
+        }
+
+        var servers = PlexTvConnector.ListServersAsync(token, factory, ct).GetAwaiter().GetResult();
+
+        return ResultFactory.GetResult(Request,
+            new PlexTvServersResult { ResolvedToken = token, Servers = servers },
+            NoHeaders);
     }
 
     // -----------------------------------------------------------------------
@@ -565,12 +626,11 @@ public sealed class ConfigController : BaseApiService
             RemoteItemCount = existingCounts.GetValueOrDefault(l.Id, -1)
         }).ToList();
 
-        // Fetch remote item counts in parallel and update the cache
+        // Fetch remote item counts in parallel — reuse the same connector (already authenticated)
         try
         {
-            using var countConnector = _connectorFactory.Value.Create(connectorConfig);
             Task.WhenAll(connectorConfig.KnownLibraries
-                .Select(lib => countConnector.GetItemCountAsync(lib.Id, CancellationToken.None)
+                .Select(lib => connector.GetItemCountAsync(lib.Id, CancellationToken.None)
                     .ContinueWith(t => { if (t.IsCompletedSuccessfully) lib.RemoteItemCount = t.Result; },
                         TaskContinuationOptions.ExecuteSynchronously))
             ).GetAwaiter().GetResult();
@@ -579,11 +639,11 @@ public sealed class ConfigController : BaseApiService
 
         Plugin.Instance.SaveConfiguration();
 
-        // Provision virtual folders for all discovered libraries
+        // Provision virtual folders only for user-selected (enabled) libraries
         var virtualLibRoot = config.VirtualLibraryRootPath;
         if (!string.IsNullOrEmpty(virtualLibRoot))
         {
-            foreach (var lib in connectorConfig.KnownLibraries)
+            foreach (var lib in connectorConfig.KnownLibraries.Where(l => connectorConfig.LibraryIds.Contains(l.Id)))
                 _libraryProvisioner.EnsureVirtualFolder(
                     connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, connectorConfig.MetadataMode);
         }
@@ -616,6 +676,9 @@ public sealed class ConfigController : BaseApiService
             results.Add(result);
         }
 
+        // Persist updated RemoteItemCount values written by SyncService
+        Plugin.Instance.SaveConfiguration();
+
         if (results.Any(r => r.Success && r.ItemsCreated > 0))
             _libraryManager.QueueLibraryScan();
 
@@ -642,6 +705,9 @@ public sealed class ConfigController : BaseApiService
             ProxyBaseUrl,
             progress: null,
             CancellationToken.None).GetAwaiter().GetResult();
+
+        // Persist the updated RemoteItemCount values written by SyncService
+        Plugin.Instance.SaveConfiguration();
 
         if (result.Success && result.ItemsCreated > 0)
             _libraryManager.QueueLibraryScan();

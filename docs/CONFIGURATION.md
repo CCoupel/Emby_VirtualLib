@@ -53,8 +53,8 @@ Cliquer **"+ Add Connector"** et remplir :
 | Champ | Exemple | Description |
 |---|---|---|
 | Nom d'affichage | `Serveur B - Bureau` | Nom libre pour identifier la source |
-| Type de serveur | `Emby` | Emby / Jellyfin / Plex |
-| URL du serveur | `http://192.168.1.200:8096` ou `https://media.example.com/emby` | URL complète avec port **et chemin de base** Emby |
+| Type de serveur | `Emby` | Emby / Jellyfin / Plex / Plex via plex.tv |
+| URL du serveur | `http://192.168.1.200:8096` ou `https://media.example.com/emby` | URL complète avec port **et chemin de base** Emby (non requis pour Plex via plex.tv) |
 | Mode d'authentification | `User Credentials` | Voir section Authentication ci-dessous |
 | Mode de métadonnées | `Remote Sync` | Voir section Metadata Source ci-dessous |
 
@@ -96,6 +96,30 @@ Cliquer **"Synchronise Now"** pour déclencher la première sync manuellement. L
 Les dossiers virtuels Emby sont créés automatiquement par le plugin — aucune configuration manuelle dans le Dashboard Emby n'est nécessaire.
 
 Les médias du serveur distant apparaissent dans l'interface d'Emby après le scan de bibliothèque déclenché automatiquement en fin de sync.
+
+---
+
+## Connecteur Plex
+
+### Plex (IP directe)
+
+Utiliser le type **Plex (direct IP:32400)** avec :
+- URL : `http://192.168.1.10:32400`
+- Clé API : token X-Plex-Token de votre compte Plex (Settings → Account → Token)
+
+### Plex via plex.tv
+
+Utiliser le type **Plex via plex.tv (relay / plex.direct)** :
+1. Laisser le champ URL vide
+2. Saisir votre email/mot de passe plex.tv dans les champs d'authentification
+3. Si la double authentification (2FA) est activée sur votre compte, entrer le code TOTP dans le champ prévu
+4. Cliquer **"Load Servers from plex.tv"** — la liste de vos serveurs Plex apparaît
+5. Sélectionner le serveur cible dans la liste déroulante
+
+Le plugin résout automatiquement la meilleure URL disponible (locale → plex.direct → relay).
+Le token d'accès est stocké dans la configuration du plugin et réutilisé pour les syncs suivantes.
+
+**Note relay** : les connexions relay Plex peuvent être lentes (latence 30 s+). Le timeout est configuré à 120 s.
 
 ---
 

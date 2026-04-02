@@ -73,9 +73,24 @@
 
 ---
 
-## Phase 3 — Multi-connecteurs
+## Phase 3 — Connecteur Plex ✅ Terminé (v1.3.0)
 
+- [x] `PlexConnector` : auth par API key, API XML `/library/sections`, items avec métadonnées (films + séries)
+- [x] `PlexTvConnector` : authentification via plex.tv, sélection du serveur par machineIdentifier
+- [x] Résolution automatique de la meilleure URL (locale → plex.direct → relay), exclusion des IPs LAN inaccessibles depuis Kubernetes
+- [x] Timeout 120 s sur les connexions relay (latence élevée)
+- [x] Token d'accès par serveur (`accessToken` depuis `/api/v2/resources`, distinct du token global plex.tv)
+- [x] Support 2FA (code TOTP transmis au moment du chargement des serveurs)
+- [x] Compteur d'items distants Plex : paramètre `X-Plex-Container-Start=0` requis pour obtenir `totalSize`
+- [x] Refonte UI : arbre collapsible par type de médiathèque (Movies, TvShows…), trié A→Z, replié par défaut
+- [x] Compteurs résumés sur chaque ligne connecteur et chaque groupe de type (X/Y libs · A/B items)
+- [x] Auto-découverte des nouvelles bibliothèques lors du sync (merge dans `KnownLibraries`)
+- [x] Rafraîchissement automatique de l'UI après sync (sans rechargement de page)
+- [x] Pré-remplissage du mot de passe en édition de connecteur (évite de devoir le ressaisir pour Test Connection)
+- [x] Mise à jour du compteur d'items distants pour toutes les bibliothèques (cochées et non cochées) lors du sync
+
+**Reste en backlog :**
 - [ ] `JellyfinConnector` (API proche d'Emby)
-- [ ] `PlexConnector` (API XML différente)
-- [ ] Support N serveurs configurés simultanément
-- [ ] UI multi-serveurs
+- [ ] Détection delta : index JSON local `{connectorId}.json` (issue #12)
+- [ ] Gestion des suppressions (items supprimés sur la source)
+- [ ] Progression sync par item en temps réel (issue #20)

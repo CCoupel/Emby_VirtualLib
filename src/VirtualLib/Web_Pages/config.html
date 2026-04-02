@@ -57,6 +57,29 @@
                 </div>
             </div>
 
+            <!-- Tree styles -->
+            <style>
+                .vl-tree { margin-top: 1em; }
+                .vl-connector { margin-bottom: 6px; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+                .vl-connector-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; background: rgba(255,255,255,0.05); user-select: none; }
+                .vl-connector-header:hover { background: rgba(255,255,255,0.09); }
+                .vl-caret { font-size: 0.75em; transition: transform 0.15s; display: inline-block; opacity: 0.7; min-width: 10px; }
+                .vl-connector.vl-collapsed .vl-connector-header > .vl-caret { transform: rotate(-90deg); }
+                .vl-connector-body { padding: 4px 0 6px 28px; }
+                .vl-connector.vl-collapsed .vl-connector-body { display: none; }
+                .vl-connector-name { font-weight: bold; }
+                .vl-badge { font-size: 0.72em; padding: 1px 7px; border-radius: 10px; background: rgba(255,255,255,0.12); }
+                .vl-connector-actions { margin-left: auto; display: flex; gap: 4px; }
+                .vl-type-group { margin: 3px 0; }
+                .vl-type-header { display: flex; align-items: center; gap: 6px; padding: 3px 8px; cursor: pointer; font-size: 0.88em; opacity: 0.75; user-select: none; border-radius: 3px; }
+                .vl-type-header:hover { opacity: 1; background: rgba(255,255,255,0.05); }
+                .vl-type-group.vl-collapsed .vl-type-header > .vl-caret { transform: rotate(-90deg); }
+                .vl-type-body { padding-left: 18px; }
+                .vl-type-group.vl-collapsed .vl-type-body { display: none; }
+                .vl-library { display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 0.9em; }
+                .vl-lib-count { opacity: 0.55; font-size: 0.85em; margin-left: 4px; }
+            </style>
+
             <!-- Connector list -->
             <div class="detailSection" style="margin-top:2em">
                 <div class="detailSectionHeader">Remote Connectors</div>
@@ -65,17 +88,7 @@
                     No connectors configured. Click "Add Connector" below.
                 </p>
 
-                <table id="connectorTable" style="width:100%;border-collapse:collapse;display:none">
-                    <thead>
-                        <tr>
-                            <th style="text-align:left;padding:6px 8px">Name</th>
-                            <th style="text-align:left;padding:6px 8px">Type</th>
-                            <th style="text-align:left;padding:6px 8px">URL</th>
-                            <th style="text-align:left;padding:6px 8px">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="connectorTableBody"></tbody>
-                </table>
+                <div id="connectorTree" class="vl-tree"></div>
 
                 <div style="margin-top:1em">
                     <button id="btnAddConnector" is="emby-button" class="raised emby-button">
@@ -101,14 +114,47 @@
                     <select id="connectorType" is="emby-select" class="emby-select-withcolor emby-input">
                         <option value="Emby">Emby</option>
                         <option value="Jellyfin">Jellyfin</option>
-                        <option value="Plex">Plex</option>
+                        <option value="Plex">Plex (direct IP:32400)</option>
+                        <option value="PlexTV">Plex via plex.tv (relay / plex.direct)</option>
                     </select>
                 </div>
 
-                <div class="inputContainer">
+                <!-- Shown for Emby / Jellyfin / Plex direct -->
+                <div id="serverUrlSection" class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="connectorUrl">Server URL</label>
                     <input type="url" id="connectorUrl" class="emby-input"
                            placeholder="http://192.168.1.10:8096 or https://media.example.com/emby" />
+                </div>
+
+                <!-- Shown for PlexTV only -->
+                <div id="plexTvSection" style="display:none">
+                    <div class="inputContainer" style="margin-top:0.5em">
+                        <label class="inputLabel inputLabelUnfocused" for="plexTwoFactorPin">2FA Code (if enabled)</label>
+                        <input type="text" id="plexTwoFactorPin" class="emby-input"
+                               placeholder="6-digit TOTP code — leave empty if 2FA is disabled"
+                               maxlength="6" autocomplete="one-time-code" />
+                        <div class="fieldDescription">
+                            If your plex.tv account has two-factor authentication enabled, enter your
+                            current TOTP code here before clicking Load Servers. The resolved token
+                            will be stored as an API key so future syncs do not require re-authentication.
+                        </div>
+                    </div>
+                    <div style="margin-top:0.75em">
+                        <button id="btnLoadPlexServers" is="emby-button" class="emby-button">
+                            <span>Load Servers from plex.tv</span>
+                        </button>
+                        <span id="plexServersStatus" style="margin-left:1em;font-size:0.9em"></span>
+                    </div>
+                    <div class="inputContainer" style="margin-top:0.75em">
+                        <label class="inputLabel inputLabelUnfocused" for="plexMachineId">Plex Server</label>
+                        <select id="plexMachineId" is="emby-select" class="emby-select-withcolor emby-input">
+                            <option value="">— Enter credentials above and click Load Servers —</option>
+                        </select>
+                        <div class="fieldDescription">
+                            Select the Plex server to connect to. The best available connection URL
+                            (local → plex.direct → relay) will be resolved automatically.
+                        </div>
+                    </div>
                 </div>
 
                 <div class="inputContainer">
