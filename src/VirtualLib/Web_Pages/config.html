@@ -115,6 +115,17 @@
 
                 <!-- Shown for PlexTV only -->
                 <div id="plexTvSection" style="display:none">
+                    <div class="inputContainer" style="margin-top:0.5em">
+                        <label class="inputLabel inputLabelUnfocused" for="plexTwoFactorPin">2FA Code (if enabled)</label>
+                        <input type="text" id="plexTwoFactorPin" class="emby-input"
+                               placeholder="6-digit TOTP code — leave empty if 2FA is disabled"
+                               maxlength="6" autocomplete="one-time-code" />
+                        <div class="fieldDescription">
+                            If your plex.tv account has two-factor authentication enabled, enter your
+                            current TOTP code here before clicking Load Servers. The resolved token
+                            will be stored as an API key so future syncs do not require re-authentication.
+                        </div>
+                    </div>
                     <div style="margin-top:0.75em">
                         <button id="btnLoadPlexServers" is="emby-button" class="emby-button">
                             <span>Load Servers from plex.tv</span>

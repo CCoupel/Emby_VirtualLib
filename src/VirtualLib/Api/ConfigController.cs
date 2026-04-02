@@ -129,15 +129,24 @@ public sealed class SyncAll : IReturn<List<SyncResult>> { }
 
 [Route("/virtuallib/plex/servers", "POST", Summary = "List Plex servers visible on plex.tv for the given credentials")]
 [Authenticated]
-public sealed class GetPlexTvServers : IReturn<List<PlexServerInfo>>
+public sealed class GetPlexTvServers : IReturn<PlexTvServersResult>
 {
-    public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
+    public AuthMode AuthMode    { get; set; } = AuthMode.ApiKey;
     /// <summary>Plex token (when AuthMode = ApiKey)</summary>
-    public string ApiKey    { get; set; } = string.Empty;
+    public string ApiKey        { get; set; } = string.Empty;
     /// <summary>plex.tv username (when AuthMode = UserCredentials)</summary>
-    public string Username  { get; set; } = string.Empty;
+    public string Username      { get; set; } = string.Empty;
     /// <summary>plex.tv password (when AuthMode = UserCredentials)</summary>
-    public string Password  { get; set; } = string.Empty;
+    public string Password      { get; set; } = string.Empty;
+    /// <summary>6-digit TOTP code — required when the account has 2FA enabled</summary>
+    public string TwoFactorPin  { get; set; } = string.Empty;
+}
+
+public sealed class PlexTvServersResult
+{
+    /// <summary>Resolved Plex token (long-lived). Use this as ApiKey to avoid re-authenticating.</summary>
+    public string ResolvedToken { get; set; } = string.Empty;
+    public List<PlexServerInfo> Servers { get; set; } = new();
 }
 
 [Route("/virtuallib/connectors/{Id}/sync", "POST", Summary = "Sync a single connector")]
@@ -560,7 +569,8 @@ public sealed class ConfigController : BaseApiService
     // -----------------------------------------------------------------------
     public object Post(GetPlexTvServers request)
     {
-        var ct = CancellationToken.None;
+        var ct      = CancellationToken.None;
+        var factory = new DefaultHttpClientFactory();
 
         string token;
         if (request.AuthMode == AuthMode.ApiKey)
@@ -574,15 +584,16 @@ public sealed class ConfigController : BaseApiService
             if (string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
                 throw new ArgumentException("Username and Password are required for UserCredentials mode.");
             token = PlexTvConnector
-                .GetTokenFromCredentialsAsync(request.Username, request.Password, new DefaultHttpClientFactory(), ct)
+                .GetTokenFromCredentialsAsync(request.Username, request.Password, factory, ct,
+                    twoFactorPin: request.TwoFactorPin)
                 .GetAwaiter().GetResult();
         }
 
-        var servers = PlexTvConnector
-            .ListServersAsync(token, new DefaultHttpClientFactory(), ct)
-            .GetAwaiter().GetResult();
+        var servers = PlexTvConnector.ListServersAsync(token, factory, ct).GetAwaiter().GetResult();
 
-        return ResultFactory.GetResult(Request, servers, NoHeaders);
+        return ResultFactory.GetResult(Request,
+            new PlexTvServersResult { ResolvedToken = token, Servers = servers },
+            NoHeaders);
     }
 
     // -----------------------------------------------------------------------

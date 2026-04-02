@@ -233,21 +233,23 @@ define([], function () {
 
             var authMode = q('connectorAuthMode').value;
             var payload  = {
-                AuthMode: authMode,
-                ApiKey:   authMode === 'ApiKey' ? q('connectorApiKey').value.trim() : '',
-                Username: authMode === 'UserCredentials' ? q('connectorUsername').value.trim() : '',
-                Password: authMode === 'UserCredentials' ? q('connectorPassword').value : ''
+                AuthMode:     authMode,
+                ApiKey:       authMode === 'ApiKey' ? q('connectorApiKey').value.trim() : '',
+                Username:     authMode === 'UserCredentials' ? q('connectorUsername').value.trim() : '',
+                Password:     authMode === 'UserCredentials' ? q('connectorPassword').value : '',
+                TwoFactorPin: q('plexTwoFactorPin').value.trim()
             };
 
             apiPost('/virtuallib/plex/servers', payload)
-                .then(function (servers) {
+                .then(function (result) {
+                    var servers = result.Servers || [];
                     var sel = q('plexMachineId');
                     while (sel.firstChild) sel.removeChild(sel.firstChild);
 
-                    if (!servers || servers.length === 0) {
+                    if (servers.length === 0) {
                         var opt = document.createElement('option');
                         opt.value = '';
-                        opt.textContent = '— No servers found —';
+                        opt.textContent = '\u2014 No servers found \u2014';
                         sel.appendChild(opt);
                         statusEl.textContent = 'No servers found.';
                         statusEl.style.color = 'var(--theme-error-color, #e53935)';
@@ -265,7 +267,16 @@ define([], function () {
                         sel.appendChild(opt);
                     });
 
-                    statusEl.textContent = servers.length + ' server(s) found.';
+                    // If authenticated via user/pass + 2FA, the backend resolved a long-lived token.
+                    // Store it as the ApiKey and switch to ApiKey mode so syncs never need re-2FA.
+                    if (authMode === 'UserCredentials' && result.ResolvedToken) {
+                        q('connectorAuthMode').value = 'ApiKey';
+                        q('connectorApiKey').value   = result.ResolvedToken;
+                        updateAuthModeVisibility();
+                        statusEl.textContent = servers.length + ' server(s) found. Token saved as API Key — 2FA will not be required for syncs.';
+                    } else {
+                        statusEl.textContent = servers.length + ' server(s) found.';
+                    }
                     statusEl.style.color = 'var(--theme-success-color, #43a047)';
                 })
                 .catch(function (e) {
@@ -293,6 +304,7 @@ define([], function () {
             q('connectorUsername').value = '';
             q('connectorPassword').value = '';
             q('connectorMetadataMode').value = 'RemoteSync';
+            q('plexTwoFactorPin').value = '';
             resetPlexServerPicker();
             clearStatus(q('plexServersStatus'));
             updateAuthModeVisibility();

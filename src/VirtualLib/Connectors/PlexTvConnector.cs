@@ -96,19 +96,39 @@ public sealed class PlexTvConnector : IMediaServerConnector
         return _resolvedToken;
     }
 
-    /// <summary>Authenticates on plex.tv and returns the authToken.</summary>
+    /// <summary>
+    /// Authenticates on plex.tv and returns the authToken.
+    /// Pass <paramref name="twoFactorPin"/> (6-digit TOTP code) when the account has 2FA enabled.
+    /// </summary>
     internal static async Task<string> GetTokenFromCredentialsAsync(
-        string username, string password, IHttpClientFactory httpClientFactory, CancellationToken ct)
+        string username, string password, IHttpClientFactory httpClientFactory, CancellationToken ct,
+        string? twoFactorPin = null)
     {
         using var client = CreatePlexTvClient(httpClientFactory);
 
-        var form = new FormUrlEncodedContent(new[]
+        var formFields = new List<KeyValuePair<string, string>>
         {
-            new KeyValuePair<string, string>("user[login]",    username),
-            new KeyValuePair<string, string>("user[password]", password)
-        });
+            new("user[login]",    username),
+            new("user[password]", password)
+        };
+
+        if (!string.IsNullOrWhiteSpace(twoFactorPin))
+            formFields.Add(new("user[two_factor_pin]", twoFactorPin.Trim()));
+
+        var form = new FormUrlEncodedContent(formFields);
 
         using var response = await client.PostAsync($"{PlexTvBase}/users/sign_in.json", form, ct);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            var hint = body.Contains("two_factor", StringComparison.OrdinalIgnoreCase)
+                       || string.IsNullOrWhiteSpace(twoFactorPin)
+                ? " Your account has 2FA enabled — enter your 6-digit TOTP code in the '2FA Code' field."
+                : string.Empty;
+            throw new InvalidOperationException("Authentication failed (401)." + hint);
+        }
+
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<PlexTvSignInResponse>(
