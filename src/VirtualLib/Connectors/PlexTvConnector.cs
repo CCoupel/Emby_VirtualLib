@@ -106,14 +106,17 @@ public sealed class PlexTvConnector : IMediaServerConnector
     {
         using var client = CreatePlexTvClient(httpClientFactory);
 
+        // Plex 2FA: append the TOTP code directly to the password (no separator).
+        // This is the documented approach — a separate field is not supported.
+        var effectivePassword = string.IsNullOrWhiteSpace(twoFactorPin)
+            ? password
+            : password + twoFactorPin.Trim();
+
         var formFields = new List<KeyValuePair<string, string>>
         {
             new("user[login]",    username),
-            new("user[password]", password)
+            new("user[password]", effectivePassword)
         };
-
-        if (!string.IsNullOrWhiteSpace(twoFactorPin))
-            formFields.Add(new("user[two_factor_pin]", twoFactorPin.Trim()));
 
         var form = new FormUrlEncodedContent(formFields);
 
