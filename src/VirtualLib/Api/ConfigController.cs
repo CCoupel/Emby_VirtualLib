@@ -74,6 +74,7 @@ public sealed class TestConnectionParams : IReturn<ConnectorTestResult>
 {
     public string ServerType { get; set; } = ServerTypes.Emby;
     public string ServerUrl { get; set; } = string.Empty;
+    public string PlexMachineIdentifier { get; set; } = string.Empty;
     public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
     public string ApiKey { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
@@ -553,6 +554,7 @@ public sealed class ConfigController : BaseApiService
             DisplayName = "test",
             ServerType = request.ServerType,
             ServerUrl = request.ServerUrl,
+            PlexMachineIdentifier = request.PlexMachineIdentifier,
             AuthMode = request.AuthMode,
             ApiKey = request.ApiKey,
             Username = request.Username,

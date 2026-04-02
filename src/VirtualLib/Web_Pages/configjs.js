@@ -588,13 +588,15 @@ define([], function () {
                 setStatus(statusEl, 'Testing\u2026', false);
 
                 // Always test with current form values — works before and after save
+                var connType = q('connectorType').value;
                 var params = {
-                    ServerType: q('connectorType').value,
-                    ServerUrl: q('connectorUrl').value.trim(),
-                    AuthMode: q('connectorAuthMode').value,
-                    ApiKey: q('connectorApiKey').value.trim(),
-                    Username: q('connectorUsername').value.trim(),
-                    Password: q('connectorPassword').value
+                    ServerType:           connType,
+                    ServerUrl:            connType === 'PlexTV' ? '' : q('connectorUrl').value.trim(),
+                    PlexMachineIdentifier: connType === 'PlexTV' ? q('plexMachineId').value : '',
+                    AuthMode:             q('connectorAuthMode').value,
+                    ApiKey:               q('connectorApiKey').value.trim(),
+                    Username:             q('connectorUsername').value.trim(),
+                    Password:             q('connectorPassword').value
                 };
 
                 apiPost('/virtuallib/test-connection', params)
