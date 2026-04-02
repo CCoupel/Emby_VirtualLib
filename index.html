@@ -167,6 +167,28 @@
     .pill-teal{border-color:rgba(0,224,204,.3);color:var(--teal)}
     .pill-blue{border-color:rgba(79,138,255,.3);color:var(--blue)}
 
+    /* ARCHITECTURE DIAGRAM */
+    .arch-section{background:var(--bg)}
+    .arch-wrap{position:relative;max-width:900px;margin:0 auto;padding:.5rem 0 0}
+    #arch-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+    .arch-cols{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:1.5rem;padding:1.5rem 0}
+    .arch-col{display:flex;flex-direction:column;align-items:center;gap:.85rem}
+    .arch-col-label{font-size:.62rem;font-weight:800;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:.15rem;text-align:center}
+    .arch-node{display:flex;flex-direction:column;align-items:center;gap:.25rem;padding:.65rem .9rem;background:var(--bg2);border:1px solid var(--border);border-radius:10px;min-width:90px;text-align:center;transition:border-color .25s,transform .2s}
+    .arch-node:hover{border-color:rgba(255,255,255,.25);transform:translateY(-2px)}
+    .arch-node-icon{font-size:1.35rem;line-height:1}
+    .arch-node-label{font-size:.7rem;font-weight:700;color:var(--text);white-space:nowrap}
+    .arch-hub-node{display:flex;flex-direction:column;align-items:center;gap:.3rem;padding:1.4rem 1.8rem;background:linear-gradient(135deg,var(--bg3),#182040);border:2px solid var(--gold);border-radius:16px;box-shadow:0 0 48px rgba(255,194,75,.2),inset 0 0 24px rgba(255,194,75,.04);text-align:center;min-width:145px;position:relative}
+    .arch-hub-icon{font-size:1.8rem;margin-bottom:.1rem;line-height:1}
+    .arch-hub-label{font-family:var(--fh);font-size:.95rem;font-weight:800;color:var(--gold);letter-spacing:-.01em}
+    .arch-hub-sub{font-size:.6rem;color:var(--muted);letter-spacing:.07em;text-transform:uppercase;line-height:1.6}
+    .arch-legend{display:flex;flex-wrap:wrap;gap:.55rem 1.5rem;margin-top:2rem;justify-content:center;padding:1rem 1.5rem;background:var(--bg2);border:1px solid var(--border);border-radius:10px;max-width:680px;margin-left:auto;margin-right:auto}
+    .arch-legend-title{width:100%;text-align:center;font-size:.62rem;font-weight:800;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:.1rem}
+    .arch-legend-item{display:flex;align-items:center;gap:.45rem;font-size:.73rem;color:var(--muted)}
+    .arch-legend-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+    .arch-note{text-align:center;font-size:.75rem;color:var(--muted);margin-top:1rem;font-style:italic;opacity:.7}
+    @media(max-width:720px){.arch-cols{gap:.75rem}.arch-node{min-width:72px;padding:.5rem .65rem}.arch-hub-node{min-width:110px;padding:1rem 1.2rem}#arch-canvas{display:none}}
+
     /* COMPATIBILITY */
     .compat-section{background:var(--bg)}
     .compat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem;max-width:820px}
@@ -277,6 +299,7 @@
     <li><a href="#problems"><span class="fr-only">Le problème</span><span class="en-only">The problem</span></a></li>
     <li><a href="#how"><span class="fr-only">Comment ça marche</span><span class="en-only">How it works</span></a></li>
     <li><a href="#features"><span class="fr-only">Fonctionnalités</span><span class="en-only">Features</span></a></li>
+    <li><a href="#architecture"><span class="fr-only">Architecture</span><span class="en-only">Architecture</span></a></li>
     <li><a href="#roadmap">Roadmap</a></li>
     <li><a href="#changelog">Changelog</a></li>
   </ul>
@@ -561,6 +584,93 @@
         </p>
         <span class="feat-pill pill-blue"><span class="fr-only">N serveurs simultanés</span><span class="en-only">N concurrent servers</span></span>
       </div>
+    </div>
+  </div>
+</section>
+
+<section class="section arch-section" id="architecture">
+  <div class="container">
+    <div class="sec-label"><span class="fr-only">Architecture</span><span class="en-only">Architecture</span></div>
+    <h2 class="sec-title reveal">
+      <span class="fr-only">Un hub. <em>Des flux.</em><br/>Une expérience unifiée.</span>
+      <span class="en-only">One hub. <em>Many streams.</em><br/>One unified experience.</span>
+    </h2>
+    <p class="sec-desc reveal">
+      <span class="fr-only">Chaque serveur source peut alimenter plusieurs clients simultanément. Un même client peut streamer depuis plusieurs sources. VirtualLib orchestre tout, de façon transparente.</span>
+      <span class="en-only">Each source server can feed multiple clients simultaneously. A single client can stream from multiple sources. VirtualLib orchestrates it all, transparently.</span>
+    </p>
+
+    <div class="arch-wrap reveal">
+      <canvas id="arch-canvas" aria-hidden="true"></canvas>
+      <div class="arch-cols">
+
+        <!-- Clients (left) -->
+        <div class="arch-col">
+          <div class="arch-col-label"><span class="fr-only">Clients</span><span class="en-only">Clients</span></div>
+          <div class="arch-node" id="arch-node-mobile">
+            <span class="arch-node-icon">📱</span>
+            <span class="arch-node-label">Mobile</span>
+          </div>
+          <div class="arch-node" id="arch-node-tv">
+            <span class="arch-node-icon">📺</span>
+            <span class="arch-node-label">TV App</span>
+          </div>
+          <div class="arch-node" id="arch-node-browser">
+            <span class="arch-node-icon">💻</span>
+            <span class="arch-node-label">Browser</span>
+          </div>
+          <div class="arch-node" id="arch-node-player">
+            <span class="arch-node-icon">🎮</span>
+            <span class="arch-node-label">Player</span>
+          </div>
+        </div>
+
+        <!-- Hub (center) -->
+        <div class="arch-col">
+          <div class="arch-hub-node" id="arch-hub-node">
+            <span class="arch-hub-icon">🏠</span>
+            <span class="arch-hub-label">Emby A</span>
+            <span class="arch-hub-sub">VirtualLib</span>
+            <span class="arch-hub-sub">Proxy · Sync</span>
+          </div>
+        </div>
+
+        <!-- Sources (right) -->
+        <div class="arch-col">
+          <div class="arch-col-label"><span class="fr-only">Sources</span><span class="en-only">Sources</span></div>
+          <div class="arch-node" id="arch-node-embyb">
+            <span class="arch-node-icon">🖥️</span>
+            <span class="arch-node-label">Emby B</span>
+          </div>
+          <div class="arch-node" id="arch-node-plex">
+            <span class="arch-node-icon">🟠</span>
+            <span class="arch-node-label">Plex</span>
+          </div>
+          <div class="arch-node" id="arch-node-jellyfin">
+            <span class="arch-node-icon">🐟</span>
+            <span class="arch-node-label">Jellyfin</span>
+          </div>
+          <div class="arch-node" id="arch-node-embyc">
+            <span class="arch-node-icon">🖥️</span>
+            <span class="arch-node-label">Emby C</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Legend -->
+      <div class="arch-legend">
+        <div class="arch-legend-title"><span class="fr-only">Flux média actifs</span><span class="en-only">Active media streams</span></div>
+        <div class="arch-legend-item"><span class="arch-legend-dot" style="background:#ff6b6b;box-shadow:0 0 5px #ff6b6b"></span><span class="fr-only">Emby B → Mobile</span><span class="en-only">Emby B → Mobile</span></div>
+        <div class="arch-legend-item"><span class="arch-legend-dot" style="background:#00e0cc;box-shadow:0 0 5px #00e0cc"></span><span class="fr-only">Emby B → TV <em style="font-style:normal;opacity:.6">(même source)</em></span><span class="en-only">Emby B → TV <em style="font-style:normal;opacity:.6">(same source)</em></span></div>
+        <div class="arch-legend-item"><span class="arch-legend-dot" style="background:#4f8aff;box-shadow:0 0 5px #4f8aff"></span><span>Plex → Browser</span></div>
+        <div class="arch-legend-item"><span class="arch-legend-dot" style="background:#a855f7;box-shadow:0 0 5px #a855f7"></span><span class="fr-only">Jellyfin → TV <em style="font-style:normal;opacity:.6">(2 sources → même client)</em></span><span class="en-only">Jellyfin → TV <em style="font-style:normal;opacity:.6">(2 sources → same client)</em></span></div>
+        <div class="arch-legend-item"><span class="arch-legend-dot" style="background:#ffc24b;box-shadow:0 0 5px #ffc24b"></span><span>Emby C → Player</span></div>
+      </div>
+      <p class="arch-note">
+        <span class="fr-only">Chaque point coloré = un flux média indépendant. Le hub proxy et transcodes à la volée.</span>
+        <span class="en-only">Each colored dot = one independent media stream. The hub proxies and transcodes on the fly.</span>
+      </p>
     </div>
   </div>
 </section>
@@ -1122,6 +1232,113 @@
         container.appendChild(errDiv);
       });
   }
+
+  /* ── Architecture diagram canvas animation ── */
+  (function() {
+    var canvas = document.getElementById('arch-canvas');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+
+    /* Stream definitions: source node id, client node id, color, relative speed, phase offset */
+    var STREAMS = [
+      { src: 'arch-node-embyb',    dst: 'arch-node-mobile',  color: '#ff6b6b', speed: 1.00, offset: 0.00, dots: 3 },
+      { src: 'arch-node-embyb',    dst: 'arch-node-tv',      color: '#00e0cc', speed: 0.88, offset: 0.38, dots: 3 },
+      { src: 'arch-node-plex',     dst: 'arch-node-browser', color: '#4f8aff', speed: 1.10, offset: 0.12, dots: 2 },
+      { src: 'arch-node-jellyfin', dst: 'arch-node-tv',      color: '#a855f7', speed: 0.80, offset: 0.62, dots: 2 },
+      { src: 'arch-node-embyc',    dst: 'arch-node-player',  color: '#ffc24b', speed: 0.95, offset: 0.78, dots: 3 }
+    ];
+
+    var DOT_PERIOD = 2600; /* ms for one dot to travel full path */
+    var startTime = null;
+
+    function center(id) {
+      var el = document.getElementById(id);
+      if (!el) return null;
+      var cr = canvas.getBoundingClientRect();
+      var er = el.getBoundingClientRect();
+      return { x: er.left + er.width * 0.5 - cr.left, y: er.top + er.height * 0.5 - cr.top };
+    }
+
+    function lerp(a, b, t) {
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+
+    /* Smooth step easing so dots accelerate in/decelerate out of hub */
+    function smoothstep(t) {
+      return t * t * (3 - 2 * t);
+    }
+
+    function frame(ts) {
+      if (!startTime) startTime = ts;
+      var elapsed = ts - startTime;
+
+      var dpr = window.devicePixelRatio || 1;
+      canvas.width = canvas.offsetWidth * dpr;
+      canvas.height = canvas.offsetHeight * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, canvas.offsetWidth, canvas.offsetHeight);
+
+      var hub = center('arch-hub-node');
+      if (!hub) { requestAnimationFrame(frame); return; }
+
+      /* Draw static dim rails */
+      STREAMS.forEach(function(s) {
+        var src = center(s.src);
+        var dst = center(s.dst);
+        if (!src || !dst) return;
+        ctx.beginPath();
+        ctx.moveTo(src.x, src.y);
+        ctx.lineTo(hub.x, hub.y);
+        ctx.lineTo(dst.x, dst.y);
+        ctx.strokeStyle = 'rgba(255,255,255,0.055)';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([]);
+        ctx.stroke();
+      });
+
+      /* Draw animated dots */
+      STREAMS.forEach(function(s) {
+        var src = center(s.src);
+        var dst = center(s.dst);
+        if (!src || !dst) return;
+
+        for (var d = 0; d < s.dots; d++) {
+          var phase = s.offset + d / s.dots;
+          var raw = (elapsed * s.speed / DOT_PERIOD + phase) % 1;
+
+          /* raw 0→0.5: src→hub, 0.5→1: hub→dst */
+          var pos;
+          if (raw < 0.5) {
+            pos = lerp(src, hub, smoothstep(raw * 2));
+          } else {
+            pos = lerp(hub, dst, smoothstep((raw - 0.5) * 2));
+          }
+
+          /* Glow halo */
+          var grd = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, 9);
+          grd.addColorStop(0, s.color + 'bb');
+          grd.addColorStop(1, s.color + '00');
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, 9, 0, Math.PI * 2);
+          ctx.fillStyle = grd;
+          ctx.fill();
+
+          /* Core dot */
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, 2.8, 0, Math.PI * 2);
+          ctx.fillStyle = s.color;
+          ctx.shadowColor = s.color;
+          ctx.shadowBlur = 6;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+      });
+
+      requestAnimationFrame(frame);
+    }
+
+    requestAnimationFrame(frame);
+  })();
 
   /* Init */
   setLang(currentLang);
