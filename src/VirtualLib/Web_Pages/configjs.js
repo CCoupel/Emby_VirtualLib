@@ -125,6 +125,10 @@ define([], function () {
                 badge.className = 'vl-badge';
                 badge.textContent = c.ServerType || '';
 
+                var summary = document.createElement('span');
+                summary.setAttribute('data-connector-summary', c.Id);
+                summary.style.cssText = 'font-size:0.82em;opacity:0.55;margin-left:6px';
+
                 var actions = document.createElement('div');
                 actions.className = 'vl-connector-actions';
                 actions.appendChild(makeBtn('Edit',   function () { openEditConnector(c.Id); }));
@@ -134,6 +138,7 @@ define([], function () {
                 header.appendChild(caret);
                 header.appendChild(nameSpan);
                 header.appendChild(badge);
+                header.appendChild(summary);
                 header.appendChild(actions);
 
                 header.addEventListener('click', function (e) {
@@ -171,8 +176,13 @@ define([], function () {
                         var typeTitle = document.createElement('span');
                         typeTitle.textContent = typeLabel;
 
+                        var typeSummary = document.createElement('span');
+                        typeSummary.setAttribute('data-type-summary', c.Id + '|' + type);
+                        typeSummary.style.cssText = 'font-size:0.82em;opacity:0.55;margin-left:6px';
+
                         typeHeader.appendChild(typeCaret);
                         typeHeader.appendChild(typeTitle);
+                        typeHeader.appendChild(typeSummary);
                         typeHeader.addEventListener('click', function () {
                             typeGroup.classList.toggle('vl-collapsed');
                         });
@@ -207,6 +217,9 @@ define([], function () {
                             countSpan.className = 'vl-lib-count';
                             countSpan.textContent = '\u2026\u00A0/\u00A0' + remoteCount + ' distant';
                             countSpan.setAttribute('data-count-lib', lib.Id);
+                            countSpan.setAttribute('data-connector-id', c.Id);
+                            countSpan.setAttribute('data-type-key', c.Id + '|' + type);
+                            countSpan.setAttribute('data-lib-selected', libEnabled ? '1' : '0');
                             countSpan.setAttribute('data-remote-count', remoteCount);
 
                             var syncBtn = makeBtn('Sync', (function (connId, libId) {
@@ -215,12 +228,15 @@ define([], function () {
                             syncBtn.style.cssText = 'padding:2px 8px;font-size:0.82em';
                             syncBtn.disabled = !libEnabled;
 
-                            cb.addEventListener('change', (function (connId, libId, btn) {
+                            cb.addEventListener('change', (function (connId, libId, libType, btn, cntSpan) {
                                 return function () {
                                     btn.disabled = !this.checked;
+                                    cntSpan.setAttribute('data-lib-selected', this.checked ? '1' : '0');
+                                    updateTypeSummary(connId, libType);
+                                    updateConnectorSummary(connId);
                                     toggleLibrary(connId, libId, this.checked);
                                 };
-                            }(c.Id, lib.Id, syncBtn)));
+                            }(c.Id, lib.Id, type, syncBtn, countSpan)));
 
                             libRow.appendChild(label);
                             libRow.appendChild(countSpan);
@@ -230,6 +246,7 @@ define([], function () {
 
                         typeGroup.appendChild(typeBody);
                         body.appendChild(typeGroup);
+                        updateTypeSummary(c.Id, type);
                     });
 
                     loadLibraryStats(c.Id);
@@ -238,6 +255,7 @@ define([], function () {
 
                 connDiv.appendChild(body);
                 tree.appendChild(connDiv);
+                updateConnectorSummary(c.Id);
             });
         }
 
@@ -376,7 +394,7 @@ define([], function () {
                 q('connectorAuthMode').value = c.AuthMode || 'ApiKey';
                 q('connectorApiKey').value = c.ApiKey || '';
                 q('connectorUsername').value = c.Username || '';
-                q('connectorPassword').value = '';  // never pre-fill password
+                q('connectorPassword').value = c.Password || '';
                 q('connectorMetadataMode').value = c.MetadataMode || 'RemoteSync';
 
                 // Restore PlexTV machine picker with saved identifier
@@ -475,17 +493,59 @@ define([], function () {
                 });
         }
 
+        function computeSummary(spans) {
+            var totalLibs = spans.length;
+            var selectedLibs = 0, selectedItems = 0, totalItems = 0, hasUnknown = false;
+            spans.forEach(function (s) {
+                var selected = s.getAttribute('data-lib-selected') === '1';
+                var count = parseInt(s.getAttribute('data-remote-count'), 10);
+                if (selected) selectedLibs++;
+                if (isNaN(count) || count < 0) hasUnknown = true;
+                else { totalItems += count; if (selected) selectedItems += count; }
+            });
+            var libPart = selectedLibs + '\u00A0/\u00A0' + totalLibs + '\u00A0lib' + (totalLibs !== 1 ? 's' : '');
+            var itemPart = (hasUnknown && totalItems === 0)
+                ? '\u2026'
+                : selectedItems.toLocaleString() + '\u00A0/\u00A0' + totalItems.toLocaleString() + '\u00A0items';
+            return libPart + '\u2003\u00B7\u2003' + itemPart;
+        }
+
+        function updateConnectorSummary(connectorId) {
+            var el = view.querySelector('[data-connector-summary="' + connectorId + '"]');
+            if (!el) return;
+            el.textContent = computeSummary(
+                Array.from(view.querySelectorAll('[data-connector-id="' + connectorId + '"]'))
+            );
+        }
+
+        function updateTypeSummary(connectorId, type) {
+            var key = connectorId + '|' + type;
+            var el = view.querySelector('[data-type-summary="' + key + '"]');
+            if (!el) return;
+            el.textContent = computeSummary(
+                Array.from(view.querySelectorAll('[data-type-key="' + key + '"]'))
+            );
+        }
+
         function refreshRemoteCounts(connectorId) {
             apiGet('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/item-counts')
                 .then(function (stats) {
                     if (!stats || !stats.length) return;
+                    var typeKeys = new Set();
                     stats.forEach(function (s) {
                         view.querySelectorAll('[data-count-lib="' + s.LibraryId + '"]').forEach(function (span) {
                             var local = span.getAttribute('data-local-count') || '\u2026';
                             span.textContent = local + ' / ' + s.RemoteItemCount + ' distant';
                             span.setAttribute('data-remote-count', s.RemoteItemCount);
+                            var tk = span.getAttribute('data-type-key');
+                            if (tk) typeKeys.add(tk);
                         });
                     });
+                    typeKeys.forEach(function (key) {
+                        var parts = key.split('|');
+                        updateTypeSummary(parts[0], parts[1]);
+                    });
+                    updateConnectorSummary(connectorId);
                 })
                 .catch(function () { /* silently ignore */ });
         }
@@ -661,10 +721,8 @@ define([], function () {
                     setStatus(statusEl, 'Error: ' + e.message, true);
                 }
 
-                // For a saved PlexTV connector where the picker is empty (e.g. first edit after save),
-                // fall back to the saved-connector test endpoint which has the full config.
+                // For PlexTV with no machine selected yet, fall back to the saved-config endpoint.
                 if (connType === 'PlexTV' && !machineId && connectorId) {
-                    console.log('[VirtualLib] PlexTV + empty picker + saved connector → using /connectors/' + connectorId + '/test');
                     apiPost('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/test')
                         .then(onSuccess).catch(onError);
                     return;
