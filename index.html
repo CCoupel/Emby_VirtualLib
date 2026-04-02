@@ -229,6 +229,30 @@
     .inst-code{margin-top:.6rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.6rem 1rem;font-family:monospace;font-size:.78rem;color:var(--teal);overflow-x:auto;white-space:nowrap}
     .install-cta-row{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}
 
+    /* CHANGELOG */
+    .changelog-section{background:var(--bg2)}
+    .changelog-inner{max-width:860px}
+    .release-list{display:flex;flex-direction:column;gap:1.5rem}
+    .release-card{background:var(--bg);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:border-color .2s}
+    .release-card:hover{border-color:rgba(255,194,75,.3)}
+    .release-card.latest{border-color:rgba(255,194,75,.5)}
+    .release-card.latest .release-header{background:rgba(255,194,75,.04)}
+    .release-header{display:flex;align-items:center;gap:1rem;padding:1.1rem 1.5rem;border-bottom:1px solid var(--border);flex-wrap:wrap}
+    .release-tag{font-family:monospace;font-size:.88rem;font-weight:700;color:var(--gold);background:rgba(255,194,75,.1);border:1px solid rgba(255,194,75,.25);padding:.2rem .75rem;border-radius:6px}
+    .release-latest-badge{font-size:.65rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#0a0c14;background:var(--gold);padding:.2rem .6rem;border-radius:20px}
+    .release-date{font-size:.78rem;color:var(--muted);margin-left:auto}
+    .release-dl{display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .9rem;border:1.5px solid rgba(0,224,204,.35);border-radius:6px;font-size:.75rem;font-weight:700;color:var(--teal);transition:all .2s}
+    .release-dl:hover{border-color:var(--teal);background:rgba(0,224,204,.06)}
+    .release-body{padding:1.2rem 1.5rem}
+    .release-body ul{list-style:none;display:flex;flex-direction:column;gap:.35rem}
+    .release-body li{font-size:.83rem;color:var(--muted);display:flex;align-items:flex-start;gap:.6rem;line-height:1.6}
+    .release-body li::before{content:'▸';font-size:.6rem;color:var(--gold);flex-shrink:0;margin-top:.3rem}
+    .release-body li strong{color:var(--text);font-weight:700}
+    .release-body li code{font-family:monospace;font-size:.82em;color:var(--teal);background:rgba(0,224,204,.08);padding:.1rem .35rem;border-radius:3px}
+    .changelog-loading{text-align:center;padding:3rem 2rem;color:var(--muted);font-size:.9rem}
+    .changelog-loading::before{content:'';display:block;width:32px;height:32px;border:2px solid rgba(255,194,75,.2);border-top-color:var(--gold);border-radius:50%;margin:0 auto 1rem;animation:spin-loader .8s linear infinite}
+    .changelog-error{text-align:center;padding:2rem;color:var(--muted)}
+
     /* FOOTER */
     footer{background:var(--bg2);border-top:1px solid var(--border);padding:3rem clamp(1.5rem,5vw,4rem);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1.5rem}
     .foot-brand{font-family:var(--fh);font-size:1.2rem;font-weight:800;color:#fff}
@@ -254,6 +278,7 @@
     <li><a href="#how"><span class="fr-only">Comment ça marche</span><span class="en-only">How it works</span></a></li>
     <li><a href="#features"><span class="fr-only">Fonctionnalités</span><span class="en-only">Features</span></a></li>
     <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#changelog">Changelog</a></li>
   </ul>
   <div class="nav-right">
     <div class="lang-switcher" aria-label="Langue / Language">
@@ -273,6 +298,7 @@
     <div class="hero-badge">
       <span class="fr-only">✦ Plugin Emby · Gratuit · Open Source</span>
       <span class="en-only">✦ Emby Plugin · Free · Open Source</span>
+      <a id="hero-version-badge" href="https://github.com/CCoupel/Emby_VirtualLib/releases" target="_blank" rel="noopener" style="display:none;margin-left:.75rem;padding:.15rem .65rem;border-radius:20px;background:rgba(255,194,75,.15);border:1px solid rgba(255,194,75,.4);color:var(--gold);font-size:.7em;font-weight:800;letter-spacing:.06em;text-transform:none"></a>
     </div>
     <h1>
       <span class="fr-only">Vos serveurs médias,<br/><em>enfin réunis.</em><br/><span class="dim">Dans un seul Emby.</span></span>
@@ -283,10 +309,10 @@
       <span class="en-only">VirtualLib aggregates <strong>all your remote libraries</strong> — Emby, Jellyfin, Plex — as if they were local.<br/>No file copying. Transparent proxy. Automatic sync.</span>
     </p>
     <div class="hero-btns">
-      <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" rel="noopener" class="btn-gold">
-        <span class="fr-only">Obtenir VirtualLib gratuitement</span>
-        <span class="en-only">Get VirtualLib for free</span>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      <a id="hero-dl-btn" href="https://github.com/CCoupel/Emby_VirtualLib/releases" target="_blank" rel="noopener" class="btn-gold">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 3v13M5 14l7 7 7-7M3 21h18"/></svg>
+        <span class="fr-only">Télécharger VirtualLib</span>
+        <span class="en-only">Download VirtualLib</span>
       </a>
       <a href="#how" class="btn-outline">
         <span class="fr-only">Comment ça marche →</span>
@@ -569,13 +595,13 @@
           <span class="en-only">Emby-compatible API. JellyfinConnector will be a direct derivative of EmbyConnector with minor adjustments.</span>
         </p>
       </div>
-      <div class="compat-card planned">
+      <div class="compat-card supported">
         <span class="compat-logo">🟠</span>
         <div class="compat-name">Plex</div>
-        <span class="compat-status status-soon">⏳ Phase 3</span>
+        <span class="compat-status status-ok">✓ <span class="fr-only">Supporté — Phase 3</span><span class="en-only">Supported — Phase 3</span></span>
         <p class="compat-desc">
-          <span class="fr-only">API XML différente. PlexConnector traduira les réponses XML vers les modèles normalisés VirtualLib.</span>
-          <span class="en-only">Different XML API. PlexConnector will translate XML responses into VirtualLib's normalized models.</span>
+          <span class="fr-only">API XML, auth directe ou via plex.tv (relay / plex.direct). Support 2FA, token par serveur, timeout relay 120 s.</span>
+          <span class="en-only">XML API, direct auth or via plex.tv (relay / plex.direct). 2FA support, per-server token, 120s relay timeout.</span>
         </p>
       </div>
     </div>
@@ -617,8 +643,14 @@
           <div class="inst-n">01</div>
           <div class="inst-body">
             <h4><span class="fr-only">Télécharger VirtualLib.dll</span><span class="en-only">Download VirtualLib.dll</span></h4>
-            <p><span class="fr-only">Depuis la page Releases du dépôt GitHub.</span><span class="en-only">From the Releases page of the GitHub repository.</span></p>
-            <div class="inst-code">github.com/CCoupel/Emby_VirtualLib/releases</div>
+            <p id="inst-dl-desc">
+              <span class="fr-only">Depuis la page Releases du dépôt GitHub.</span>
+              <span class="en-only">From the Releases page of the GitHub repository.</span>
+            </p>
+            <a id="inst-dl-link" href="https://github.com/CCoupel/Emby_VirtualLib/releases" target="_blank" rel="noopener" class="inst-code" style="display:inline-flex;align-items:center;gap:.5rem;text-decoration:none;color:var(--teal);transition:color .2s">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 3v13M5 14l7 7 7-7M3 21h18"/></svg>
+              <span id="inst-dl-label">github.com/CCoupel/Emby_VirtualLib/releases</span>
+            </a>
           </div>
         </div>
         <div class="inst-step">
@@ -646,13 +678,36 @@
         </div>
       </div>
       <div class="install-cta-row reveal">
-        <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" rel="noopener" class="btn-gold">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.268 2.75 1.026A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.026 2.747-1.026.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
-          <span class="fr-only">Voir sur GitHub</span><span class="en-only">View on GitHub</span>
+        <a id="cta-dl-btn" href="https://github.com/CCoupel/Emby_VirtualLib/releases" target="_blank" rel="noopener" class="btn-gold">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 3v13M5 14l7 7 7-7M3 21h18"/></svg>
+          <span id="cta-dl-label"><span class="fr-only">Télécharger</span><span class="en-only">Download</span></span>
+        </a>
+        <a href="https://github.com/CCoupel/Emby_VirtualLib" target="_blank" rel="noopener" class="btn-outline">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.17 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.268 2.75 1.026A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.026 2.747-1.026.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.167 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+          GitHub
         </a>
         <a href="https://github.com/CCoupel/Emby_VirtualLib/blob/main/docs/CONFIGURATION.md" target="_blank" rel="noopener" class="btn-outline">
-          <span class="fr-only">Documentation complète →</span><span class="en-only">Full documentation →</span>
+          <span class="fr-only">Documentation →</span><span class="en-only">Documentation →</span>
         </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section changelog-section" id="changelog">
+  <div class="container">
+    <div class="changelog-inner">
+      <div class="sec-label">Changelog</div>
+      <h2 class="sec-title reveal">
+        <span class="fr-only">Historique des <em>versions</em></span>
+        <span class="en-only">Release <em>history</em></span>
+      </h2>
+      <p class="sec-desc reveal">
+        <span class="fr-only">Toutes les versions publiées, directement depuis GitHub Releases.</span>
+        <span class="en-only">All published versions, directly from GitHub Releases.</span>
+      </p>
+      <div id="changelog-container" class="release-list">
+        <!-- Dynamically populated by JS -->
       </div>
     </div>
   </div>
@@ -733,6 +788,8 @@
       ? 'VirtualLib \u2014 Unifiez vos serveurs m\u00e9dias dans Emby'
       : 'VirtualLib \u2014 Unify your media servers in Emby';
     renderRoadmap(cachedIssues);
+    renderChangelog(cachedReleases);
+    if(cachedReleases.length > 0) updateReleaseLinks(cachedReleases[0]);
   }
 
   document.querySelectorAll('.lang-btn').forEach(function(btn){
@@ -873,9 +930,203 @@
       });
   }
 
+  /* ── Dynamic Releases from GitHub API ── */
+
+  /* Safe inline-markdown renderer: **bold** and `code` only, no innerHTML */
+  function renderInline(text, container) {
+    var parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/);
+    parts.forEach(function(part) {
+      if(/^\*\*(.+)\*\*$/.test(part)) {
+        var s = document.createElement('strong');
+        s.textContent = part.slice(2, -2);
+        container.appendChild(s);
+      } else if(/^`([^`]+)`$/.test(part)) {
+        var c = document.createElement('code');
+        c.textContent = part.slice(1, -1);
+        container.appendChild(c);
+      } else if(part) {
+        container.appendChild(document.createTextNode(part));
+      }
+    });
+  }
+
+  function parseReleaseBody(body) {
+    if(!body) return [];
+    var lines = body.split('\n');
+    var items = [];
+    for(var i = 0; i < lines.length; i++) {
+      var l = lines[i].trim();
+      if(/^#{1,3}\s/.test(l)) continue; // skip headings
+      var m = l.match(/^[-*]\s+(.+)/);
+      if(m) items.push(m[1]);
+    }
+    return items;
+  }
+
+  function formatDate(isoDate, lang) {
+    var d = new Date(isoDate);
+    return d.toLocaleDateString(lang === 'fr' ? 'fr-FR' : 'en-US', { year:'numeric', month:'long', day:'numeric' });
+  }
+
+  function findDll(assets) {
+    if(!assets) return null;
+    for(var i = 0; i < assets.length; i++) {
+      if(assets[i].name && assets[i].name.endsWith('.dll')) return assets[i];
+    }
+    return null;
+  }
+
+  function makeDlIcon() {
+    var svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('width','12'); svg.setAttribute('height','12');
+    svg.setAttribute('viewBox','0 0 24 24'); svg.setAttribute('fill','none');
+    svg.setAttribute('stroke','currentColor'); svg.setAttribute('stroke-width','2.5');
+    var path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d','M12 3v13M5 14l7 7 7-7M3 21h18');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function renderChangelog(releases) {
+    var container = document.getElementById('changelog-container');
+    if(!container) return;
+    while(container.firstChild) container.removeChild(container.firstChild);
+    var lang = currentLang;
+    if(!releases || releases.length === 0) {
+      var err = el('div', 'changelog-error');
+      err.textContent = lang === 'fr' ? 'Aucune release trouvée.' : 'No releases found.';
+      container.appendChild(err);
+      return;
+    }
+    releases.forEach(function(r, idx) {
+      var card = el('div', 'release-card' + (idx === 0 ? ' latest' : ''));
+      var header = el('div', 'release-header');
+      var tag = el('span', 'release-tag');
+      tag.textContent = r.tag_name;
+      header.appendChild(tag);
+      if(idx === 0) {
+        var badge = el('span', 'release-latest-badge');
+        badge.textContent = lang === 'fr' ? 'Dernière' : 'Latest';
+        header.appendChild(badge);
+      }
+      var date = el('span', 'release-date');
+      date.textContent = formatDate(r.published_at, lang);
+      header.appendChild(date);
+      var dll = findDll(r.assets);
+      var dlLink = el('a', 'release-dl');
+      dlLink.href = dll ? dll.browser_download_url : r.html_url;
+      dlLink.target = '_blank';
+      dlLink.rel = 'noopener';
+      dlLink.appendChild(makeDlIcon());
+      dlLink.appendChild(document.createTextNode('\u00A0' + (dll ? dll.name : (lang === 'fr' ? 'Voir la release' : 'View release'))));
+      header.appendChild(dlLink);
+      card.appendChild(header);
+      var bodyItems = parseReleaseBody(r.body);
+      if(bodyItems.length > 0) {
+        var bodyDiv = el('div', 'release-body');
+        var ul = el('ul');
+        bodyItems.forEach(function(item) {
+          var li = el('li');
+          renderInline(item, li);
+          ul.appendChild(li);
+        });
+        bodyDiv.appendChild(ul);
+        card.appendChild(bodyDiv);
+      } else if(r.body && r.body.trim()) {
+        var bodyDiv2 = el('div', 'release-body');
+        var p = el('p');
+        p.style.fontSize = '.83rem';
+        p.style.color = 'var(--muted)';
+        var raw = r.body.trim();
+        p.textContent = raw.length > 300 ? raw.substring(0, 300) + '\u2026' : raw;
+        bodyDiv2.appendChild(p);
+        card.appendChild(bodyDiv2);
+      }
+      container.appendChild(card);
+    });
+    container.querySelectorAll('.release-card').forEach(function(c, i) {
+      c.style.opacity = '0'; c.style.transform = 'translateY(14px)';
+      c.style.transition = 'opacity .4s ease, transform .4s ease';
+      c.style.transitionDelay = (i * 80) + 'ms';
+      requestAnimationFrame(function(){ requestAnimationFrame(function(){
+        c.style.opacity = '1'; c.style.transform = 'none';
+      }); });
+    });
+  }
+
+  function updateReleaseLinks(latest) {
+    if(!latest) return;
+    var lang = currentLang;
+    var dll = findDll(latest.assets);
+    var dlUrl = dll ? dll.browser_download_url : latest.html_url;
+    var dlName = dll ? dll.name : (lang === 'fr' ? 'Voir la release' : 'View release');
+    var heroBadge = document.getElementById('hero-version-badge');
+    if(heroBadge) {
+      heroBadge.textContent = latest.tag_name;
+      heroBadge.href = latest.html_url;
+      heroBadge.style.display = 'inline';
+    }
+    var heroBtn = document.getElementById('hero-dl-btn');
+    if(heroBtn) {
+      heroBtn.href = dlUrl;
+      var fr = heroBtn.querySelector('.fr-only');
+      var en = heroBtn.querySelector('.en-only');
+      if(fr) fr.textContent = 'T\u00e9l\u00e9charger ' + latest.tag_name;
+      if(en) en.textContent = 'Download ' + latest.tag_name;
+    }
+    var instLink = document.getElementById('inst-dl-link');
+    var instLabel = document.getElementById('inst-dl-label');
+    if(instLink) instLink.href = dlUrl;
+    if(instLabel) instLabel.textContent = dlName;
+    var ctaBtn = document.getElementById('cta-dl-btn');
+    var ctaLabel = document.getElementById('cta-dl-label');
+    if(ctaBtn) ctaBtn.href = dlUrl;
+    if(ctaLabel) {
+      var frSpan = ctaLabel.querySelector('.fr-only');
+      var enSpan = ctaLabel.querySelector('.en-only');
+      if(frSpan) frSpan.textContent = 'T\u00e9l\u00e9charger ' + latest.tag_name;
+      if(enSpan) enSpan.textContent = 'Download ' + latest.tag_name;
+    }
+  }
+
+  var cachedReleases = [];
+
+  function loadReleases() {
+    var container = document.getElementById('changelog-container');
+    if(container) {
+      while(container.firstChild) container.removeChild(container.firstChild);
+      var loadDiv = el('div', 'changelog-loading');
+      loadDiv.appendChild(document.createTextNode(currentLang === 'fr' ? 'Chargement des releases...' : 'Loading releases...'));
+      container.appendChild(loadDiv);
+    }
+    fetch('https://api.github.com/repos/CCoupel/Emby_VirtualLib/releases?per_page=20')
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        cachedReleases = Array.isArray(data) ? data : [];
+        if(cachedReleases.length > 0) updateReleaseLinks(cachedReleases[0]);
+        renderChangelog(cachedReleases);
+      })
+      .catch(function() {
+        if(!container) return;
+        while(container.firstChild) container.removeChild(container.firstChild);
+        var errDiv = el('div', 'changelog-error');
+        errDiv.appendChild(document.createTextNode(currentLang === 'fr'
+          ? 'Impossible de charger les releases GitHub.'
+          : 'Could not load GitHub releases.'));
+        var errLink = el('a');
+        errLink.href = 'https://github.com/CCoupel/Emby_VirtualLib/releases';
+        errLink.target = '_blank'; errLink.rel = 'noopener';
+        errLink.style.cssText = 'color:var(--gold);display:block;margin-top:.75rem';
+        errLink.textContent = currentLang === 'fr' ? 'Voir sur GitHub \u2192' : 'View on GitHub \u2192';
+        errDiv.appendChild(errLink);
+        container.appendChild(errDiv);
+      });
+  }
+
   /* Init */
   setLang(currentLang);
   loadIssues();
+  loadReleases();
 })();
 </script>
 </body>
