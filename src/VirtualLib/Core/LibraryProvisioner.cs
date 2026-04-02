@@ -202,7 +202,10 @@ public sealed class LibraryProvisioner
                     MetadataFetcherOrder = tvFetchers,
                     ImageFetchers = imageFetchers,
                     ImageFetcherOrder = imageFetchers
-                }
+                },
+                new TypeOptions { Type = "Book",      MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
+                new TypeOptions { Type = "AudioBook", MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
+                new TypeOptions { Type = "Photo",     MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() }
             };
         }
         else
@@ -212,9 +215,12 @@ public sealed class LibraryProvisioner
             options.MetadataSavers = Array.Empty<string>();
             options.TypeOptions = new[]
             {
-                new TypeOptions { Type = "Movie",   MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
-                new TypeOptions { Type = "Series",  MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
-                new TypeOptions { Type = "Episode", MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() }
+                new TypeOptions { Type = "Movie",     MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
+                new TypeOptions { Type = "Series",    MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
+                new TypeOptions { Type = "Episode",   MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
+                new TypeOptions { Type = "Book",      MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
+                new TypeOptions { Type = "AudioBook", MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() },
+                new TypeOptions { Type = "Photo",     MetadataFetchers = Array.Empty<string>(), ImageFetchers = Array.Empty<string>() }
             };
         }
 
@@ -235,9 +241,12 @@ public sealed class LibraryProvisioner
 
     private static string MapCollectionType(string libraryType) => libraryType switch
     {
-        "Movies" => "movies",
-        "TvShows" => "tvshows",
-        "Music" => "music",
-        _ => ""
+        "Movies"     => "movies",
+        "TvShows"    => "tvshows",
+        "Music"      => "music",
+        "Books"      => "books",
+        "Audiobooks" => "audiobooks",
+        "Photos"     => "photos",
+        _            => ""
     };
 }

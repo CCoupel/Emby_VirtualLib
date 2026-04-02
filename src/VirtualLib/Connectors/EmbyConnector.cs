@@ -220,7 +220,7 @@ public sealed class EmbyConnector : IMediaServerConnector
                 var url = $"Users/{userId}/Items" +
                           $"?ParentId={libraryId}" +
                           $"&Recursive=true" +
-                          $"&IncludeItemTypes=Movie,Episode" +
+                          $"&IncludeItemTypes={GetIncludeItemTypes(libraryId)}" +
                           $"&Fields=Overview,Genres,Studios,ProviderIds,DateCreated,Tags" +
                           $"&StartIndex={startIndex}" +
                           $"&Limit={PageSize}";
@@ -267,7 +267,7 @@ public sealed class EmbyConnector : IMediaServerConnector
             var url = $"Users/{userId}/Items" +
                       $"?ParentId={libraryId}" +
                       $"&Recursive=true" +
-                      $"&IncludeItemTypes=Movie,Episode" +
+                      $"&IncludeItemTypes={GetIncludeItemTypes(libraryId)}" +
                       $"&Limit=0";
 
             using var response = await GetWithRetryAsync(url, cancellationToken);
@@ -315,7 +315,73 @@ public sealed class EmbyConnector : IMediaServerConnector
             token = _config.ApiKey;
         }
 
-        return $"{baseUrl}/Videos/{itemId}/stream?api_key={token}&Static=true";
+        var itemType = await GetItemTypeStringAsync(itemId, cancellationToken);
+        return itemType switch
+        {
+            "Audio" or "AudioBook" => $"{baseUrl}/Audio/{itemId}/stream?api_key={token}&Static=true",
+            "Book"                 => $"{baseUrl}/Items/{itemId}/Download?api_key={token}",
+            _                      => $"{baseUrl}/Videos/{itemId}/stream?api_key={token}&Static=true"
+        };
+    }
+
+    public async Task<string> DownloadFileToPathAsync(string itemId, string destPathNoExt, CancellationToken ct)
+    {
+        await EnsureAuthenticatedAsync(ct);
+        var token = _config.AuthMode == AuthMode.UserCredentials ? _sessionToken! : _config.ApiKey;
+
+        // Use a dedicated HttpClient with a long timeout — ebook files can be large
+        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+        client.DefaultRequestHeaders.Add(EmbyTokenHeader, token);
+
+        var url = $"{_config.ServerUrl.TrimEnd('/')}/Items/{itemId}/File";
+        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+
+        var extension = GetFileExtensionFromResponse(response) ?? ".epub";
+        var destPath = destPathNoExt + extension;
+
+        using var contentStream = await response.Content.ReadAsStreamAsync(ct);
+        using var fileStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+        await contentStream.CopyToAsync(fileStream, ct);
+
+        _logger.LogInformation("Downloaded book file for item {ItemId} → '{Path}'", itemId, destPath);
+        return destPath;
+    }
+
+    private static string? GetFileExtensionFromResponse(HttpResponseMessage response)
+    {
+        var cd = response.Content.Headers.ContentDisposition;
+        if (cd?.FileName is { Length: > 0 } fn)
+        {
+            var ext = Path.GetExtension(fn.Trim('"'));
+            if (!string.IsNullOrEmpty(ext)) return ext;
+        }
+
+        return response.Content.Headers.ContentType?.MediaType switch
+        {
+            "application/epub+zip"             => ".epub",
+            "application/x-mobipocket-ebook"   => ".mobi",
+            "application/pdf"                  => ".pdf",
+            "application/vnd.comicbook+zip"
+            or "application/x-cbz"             => ".cbz",
+            "application/x-cbr"                => ".cbr",
+            _                                  => null
+        };
+    }
+
+    private async Task<string> GetItemTypeStringAsync(string itemId, CancellationToken ct)
+    {
+        try
+        {
+            using var response = await GetWithRetryAsync($"Items/{itemId}", ct);
+            if (!response.IsSuccessStatusCode) return "Movie";
+            var item = await response.Content.ReadFromJsonAsync<EmbyItem>(cancellationToken: ct);
+            return item?.Type ?? "Movie";
+        }
+        catch
+        {
+            return "Movie";
+        }
     }
 
     public async Task<Stream?> GetArtworkStreamAsync(
@@ -431,8 +497,12 @@ public sealed class EmbyConnector : IMediaServerConnector
     {
         var type = item.Type switch
         {
-            "Movie" => MediaType.Movie,
-            "Episode" => MediaType.Episode,
+            "Movie"    => MediaType.Movie,
+            "Episode"  => MediaType.Episode,
+            "Book"     => MediaType.Book,
+            "AudioBook" => MediaType.AudioBook,
+            "Photo"    => MediaType.Photo,
+            "Audio"    => MediaType.Music,
             _ => (MediaType?)null
         };
 
@@ -464,9 +534,13 @@ public sealed class EmbyConnector : IMediaServerConnector
     {
         var type = item.Type switch
         {
-            "Movie" => MediaType.Movie,
-            "Episode" => MediaType.Episode,
-            _ => MediaType.Movie
+            "Movie"     => MediaType.Movie,
+            "Episode"   => MediaType.Episode,
+            "Book"      => MediaType.Book,
+            "AudioBook" => MediaType.AudioBook,
+            "Photo"     => MediaType.Photo,
+            "Audio"     => MediaType.Music,
+            _           => MediaType.Movie
         };
 
         return new MediaMetadata
@@ -520,13 +594,30 @@ public sealed class EmbyConnector : IMediaServerConnector
         return result;
     }
 
+    private string GetIncludeItemTypes(string libraryId)
+    {
+        var known = _config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId);
+        return known?.Type switch
+        {
+            "Books"      => "Book",
+            "Audiobooks" => "AudioBook",
+            "Music"      => "Audio",
+            "Photos"     => "Photo,Video",
+            _            => "Movie,Episode"
+        };
+    }
+
     private static LibraryType MapCollectionType(string? collectionType) => collectionType switch
     {
-        "movies" => LibraryType.Movies,
-        "tvshows" => LibraryType.TvShows,
-        "music" => LibraryType.Music,
-        "mixed" => LibraryType.Mixed,
-        _ => LibraryType.Unknown
+        "movies"     => LibraryType.Movies,
+        "tvshows"    => LibraryType.TvShows,
+        "music"      => LibraryType.Music,
+        "mixed"      => LibraryType.Mixed,
+        "books"      => LibraryType.Books,
+        "audiobooks" => LibraryType.Audiobooks,
+        "photos"     => LibraryType.Photos,
+        "homevideos" => LibraryType.Photos,
+        _            => LibraryType.Unknown
     };
 
     private static string MapArtworkType(ArtworkType type) => type switch

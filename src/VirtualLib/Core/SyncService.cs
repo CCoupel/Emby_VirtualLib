@@ -51,17 +51,20 @@ public sealed class SyncService
 {
     private readonly IConnectorFactory _connectorFactory;
     private readonly StrmGenerator _strmGenerator;
+    private readonly EpubStubGenerator _epubStubGenerator;
     private readonly NfoGenerator _nfoGenerator;
     private readonly ILogger<SyncService> _logger;
 
     public SyncService(
         IConnectorFactory connectorFactory,
         StrmGenerator strmGenerator,
+        EpubStubGenerator epubStubGenerator,
         NfoGenerator nfoGenerator,
         ILogger<SyncService> logger)
     {
         _connectorFactory = connectorFactory;
         _strmGenerator = strmGenerator;
+        _epubStubGenerator = epubStubGenerator;
         _nfoGenerator = nfoGenerator;
         _logger = logger;
     }
@@ -279,10 +282,68 @@ public sealed class SyncService
 
             try
             {
+                // ---- Books / AudioBooks ------------------------------------------------
+                // Emby's BookResolver ignores .strm files — download the real ebook file.
+                // Fall back to an epub stub if the download fails so the item stays visible.
+                if (item.Type is MediaType.Book or MediaType.AudioBook)
+                {
+                    var bookDir      = EpubStubGenerator.GetDirectoryPath(item, config.DisplayName, libraryName, virtualLibRoot);
+                    var bookBaseName = _epubStubGenerator.GetFileName(item);
+                    var bookPathNoExt = Path.Combine(bookDir, bookBaseName);
+                    var bookNfoPath  = bookPathNoExt + ".nfo";
+
+                    // Skip when both a real book file and NFO already exist (RemoteSync)
+                    if (config.MetadataMode == MetadataMode.RemoteSync
+                        && !BookFileNeedsDownload(bookPathNoExt)
+                        && File.Exists(bookNfoPath))
+                    {
+                        libSkipped++;
+                        continue;
+                    }
+
+                    Directory.CreateDirectory(bookDir);
+
+                    // Download real file only when absent or when the existing file is a tiny stub
+                    if (BookFileNeedsDownload(bookPathNoExt))
+                    {
+                        DeleteExistingBookFiles(bookPathNoExt); // remove any previous stub
+                        try
+                        {
+                            await connector.DownloadFileToPathAsync(item.RemoteId, bookPathNoExt, ct);
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to download book '{Title}' — creating epub stub as fallback", item.Title);
+                            _epubStubGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl);
+                        }
+                    }
+
+                    if (config.MetadataMode != MetadataMode.LocalScraping
+                        && (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(bookNfoPath)))
+                    {
+                        try
+                        {
+                            var bookMeta = await connector.GetMetadataAsync(item.RemoteId, ct);
+                            _nfoGenerator.Generate(bookMeta, bookDir);
+                            await DownloadArtworkAsync(connector, bookMeta, bookDir, ct);
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to fetch metadata for book '{Title}'", item.Title);
+                        }
+                    }
+
+                    libCreated++;
+                    continue;
+                }
+                // ---- All other media types -------------------------------------------
+
                 // Always regenerate the .strm (cheap — just a URL line).
-                // Skip the expensive metadata fetch only when the .nfo already exists.
-                var strmPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl);
-                var nfoDir   = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
+                var strmPath   = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl);
+                var nfoDir     = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
+                var mediaFileName = _strmGenerator.GetFileName(item);
 
                 // LocalScraping: only .strm is needed — Emby handles metadata/images itself
                 if (config.MetadataMode == MetadataMode.LocalScraping)
@@ -292,7 +353,7 @@ public sealed class SyncService
                 }
 
                 // RemoteSync / RemoteSyncFull: fetch metadata + write NFO + download artwork
-                var nfoPath = Path.Combine(nfoDir, _strmGenerator.GetFileName(item) + ".nfo");
+                var nfoPath = Path.Combine(nfoDir, mediaFileName + ".nfo");
                 if (config.MetadataMode == MetadataMode.RemoteSync && File.Exists(nfoPath)) { libSkipped++; continue; }
 
                 MediaMetadata metadata;
@@ -318,6 +379,29 @@ public sealed class SyncService
         }
 
         return new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed };
+    }
+
+    // Returns true when no real book file exists yet, or only a tiny stub is present (<4 KB)
+    private static bool BookFileNeedsDownload(string pathNoExt)
+    {
+        var extensions = new[] { ".epub", ".mobi", ".pdf", ".azw3", ".cbz", ".cbr", ".fb2" };
+        foreach (var ext in extensions)
+        {
+            var path = pathNoExt + ext;
+            if (File.Exists(path))
+                return new FileInfo(path).Length < 4096;
+        }
+        return true;
+    }
+
+    private static void DeleteExistingBookFiles(string pathNoExt)
+    {
+        var extensions = new[] { ".epub", ".mobi", ".pdf", ".azw3", ".cbz", ".cbr", ".fb2" };
+        foreach (var ext in extensions)
+        {
+            var path = pathNoExt + ext;
+            if (File.Exists(path)) try { File.Delete(path); } catch { /* best-effort */ }
+        }
     }
 
     private static readonly Dictionary<ArtworkType, string> _artworkFileNames = new()

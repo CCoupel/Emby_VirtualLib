@@ -5,7 +5,9 @@ public enum MediaType
     Movie,
     Episode,
     Music,
-    Photo
+    Photo,
+    Book,
+    AudioBook
 }
 
 public enum ArtworkType
@@ -22,5 +24,8 @@ public enum LibraryType
     TvShows,
     Music,
     Mixed,
+    Books,
+    Audiobooks,
+    Photos,
     Unknown
 }

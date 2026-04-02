@@ -197,6 +197,7 @@ public sealed class ConfigController : BaseApiService
         new(() => new SyncService(
             _connectorFactory.Value,
             new StrmGenerator(),
+            new EpubStubGenerator(),
             new NfoGenerator(),
             NullLogger<SyncService>.Instance));
 

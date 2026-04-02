@@ -32,8 +32,16 @@ public sealed class NfoGenerator
             var seriesName = StrmGenerator.SanitizeName(metadata.SeriesName ?? metadata.Title);
             fileName = $"{seriesName} - S{s:D2}E{e:D2}.nfo";
         }
+        else if (metadata.Type is MediaType.Book or MediaType.AudioBook)
+        {
+            content = GenerateBookNfo(metadata);
+            fileName = StrmGenerator.SanitizeName(metadata.Year.HasValue
+                ? $"{metadata.Title} ({metadata.Year})"
+                : metadata.Title) + ".nfo";
+        }
         else
         {
+            // Photos and Music: no NFO needed
             return string.Empty;
         }
 
@@ -173,6 +181,62 @@ public sealed class NfoGenerator
         }
 
         writer.WriteEndElement(); // episodedetails
+        writer.WriteEndDocument();
+        writer.Flush();
+
+        return sb.ToString();
+    }
+
+    public string GenerateBookNfo(MediaMetadata metadata)
+    {
+        var sb = new StringBuilder();
+        using var writer = XmlWriter.Create(sb, new XmlWriterSettings
+        {
+            Indent = true,
+            IndentChars = "  ",
+            Encoding = Encoding.UTF8,
+            OmitXmlDeclaration = false
+        });
+
+        writer.WriteStartDocument(true);
+        writer.WriteStartElement("book");
+
+        writer.WriteElementString("title", metadata.Title);
+        if (metadata.Year.HasValue)
+            writer.WriteElementString("year", metadata.Year.Value.ToString());
+        if (!string.IsNullOrEmpty(metadata.Overview))
+            writer.WriteElementString("plot", metadata.Overview);
+        if (metadata.CommunityRating.HasValue)
+            writer.WriteElementString("rating", metadata.CommunityRating.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
+        if (!string.IsNullOrEmpty(metadata.OfficialRating))
+            writer.WriteElementString("mpaa", metadata.OfficialRating);
+
+        foreach (var genre in metadata.Genres)
+            writer.WriteElementString("genre", genre);
+
+        foreach (var studio in metadata.Studios)
+            writer.WriteElementString("studio", studio);
+
+        foreach (var tag in metadata.Tags)
+            writer.WriteElementString("tag", tag);
+
+        if (!string.IsNullOrEmpty(metadata.ImdbId))
+        {
+            writer.WriteStartElement("uniqueid");
+            writer.WriteAttributeString("type", "imdb");
+            writer.WriteString(metadata.ImdbId);
+            writer.WriteEndElement();
+        }
+
+        if (!string.IsNullOrEmpty(metadata.TmdbId))
+        {
+            writer.WriteStartElement("uniqueid");
+            writer.WriteAttributeString("type", "tmdb");
+            writer.WriteString(metadata.TmdbId);
+            writer.WriteEndElement();
+        }
+
+        writer.WriteEndElement(); // book
         writer.WriteEndDocument();
         writer.Flush();
 

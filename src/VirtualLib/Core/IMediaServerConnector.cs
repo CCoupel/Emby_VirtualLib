@@ -61,6 +61,13 @@ public interface IMediaServerConnector : IDisposable
     Task<int> GetItemCountAsync(string libraryId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Télécharge le fichier source d'un item (ebook, etc.) vers le chemin indiqué (sans extension).
+    /// Détermine l'extension réelle depuis les en-têtes HTTP ou les métadonnées de la source,
+    /// et retourne le chemin complet du fichier créé.
+    /// </summary>
+    Task<string> DownloadFileToPathAsync(string itemId, string destPathNoExt, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Notifie le serveur distant qu'une lecture vient de démarrer.
     /// No-op si le connecteur utilise un API key (pas de session utilisateur).
     /// </summary>

@@ -195,10 +195,14 @@ public sealed class PlexConnector : IMediaServerConnector
         try
         {
             var sectionType = await GetSectionTypeAsync(libraryId, cancellationToken);
-            var isShowLibrary = sectionType == "show";
 
-            // Episodes use type=4; movie libraries use the default listing
-            var typeParam = isShowLibrary ? "type=4&" : string.Empty;
+            // Episodes use type=4; music tracks use type=10; other types use default listing
+            var typeParam = sectionType switch
+            {
+                "show"   => "type=4&",
+                "artist" => "type=10&",
+                _        => string.Empty
+            };
 
             var items = new List<MediaItem>();
             var offset = 0;
@@ -219,17 +223,34 @@ public sealed class PlexConnector : IMediaServerConnector
                     if (totalAttr is not null && int.TryParse(totalAttr, out var total))
                         totalSize = total;
 
-                    var videos = doc.Root.Elements("Video").ToList();
-                    if (videos.Count == 0) break;
+                    List<MediaItem?> mapped;
+                    int elementCount;
 
-                    foreach (var video in videos)
+                    if (sectionType == "photo")
                     {
-                        var item = MapVideoToItem(video);
-                        if (item is not null)
-                            items.Add(item);
+                        var photos = doc.Root.Elements("Photo").ToList();
+                        elementCount = photos.Count;
+                        mapped = photos.Select(MapPhotoToItem).ToList();
+                    }
+                    else if (sectionType == "artist")
+                    {
+                        var tracks = doc.Root.Elements("Track").ToList();
+                        elementCount = tracks.Count;
+                        mapped = tracks.Select(MapTrackToItem).ToList();
+                    }
+                    else
+                    {
+                        var videos = doc.Root.Elements("Video").ToList();
+                        elementCount = videos.Count;
+                        mapped = videos.Select(MapVideoToItem).ToList<MediaItem?>();
                     }
 
-                    offset += videos.Count;
+                    if (elementCount == 0) break;
+
+                    foreach (var item in mapped)
+                        if (item is not null) items.Add(item);
+
+                    offset += elementCount;
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
@@ -254,9 +275,12 @@ public sealed class PlexConnector : IMediaServerConnector
         try
         {
             var sectionType = await GetSectionTypeAsync(libraryId, cancellationToken);
-            var url = sectionType == "show"
-                ? $"library/sections/{libraryId}/all?type=4&X-Plex-Container-Start=0&X-Plex-Container-Size=0"
-                : $"library/sections/{libraryId}/all?X-Plex-Container-Start=0&X-Plex-Container-Size=0";
+            var url = sectionType switch
+            {
+                "show"   => $"library/sections/{libraryId}/all?type=4&X-Plex-Container-Start=0&X-Plex-Container-Size=0",
+                "artist" => $"library/sections/{libraryId}/all?type=10&X-Plex-Container-Start=0&X-Plex-Container-Size=0",
+                _        => $"library/sections/{libraryId}/all?X-Plex-Container-Start=0&X-Plex-Container-Size=0"
+            };
 
             var doc = await GetXmlAsync(url, cancellationToken);
             var totalAttr = doc?.Root?.Attribute("totalSize")?.Value;
@@ -274,9 +298,10 @@ public sealed class PlexConnector : IMediaServerConnector
         CancellationToken cancellationToken = default)
     {
         var doc = await GetXmlAsync($"library/metadata/{itemId}", cancellationToken);
-        var video = doc?.Root?.Element("Video")
-                    ?? throw new InvalidOperationException($"No Video element in metadata response for item {itemId}");
-        return MapVideoToMetadata(video);
+        var mediaElement = doc?.Root?.Elements()
+            .FirstOrDefault(e => e.Name.LocalName is "Video" or "Track" or "Photo")
+            ?? throw new InvalidOperationException($"No media element in metadata response for item {itemId}");
+        return MapVideoToMetadata(mediaElement);
     }
 
     public async Task<string> GetStreamUrlAsync(string itemId, CancellationToken cancellationToken = default)
@@ -284,11 +309,9 @@ public sealed class PlexConnector : IMediaServerConnector
         await EnsureAuthenticatedAsync(cancellationToken);
 
         var doc = await GetXmlAsync($"library/metadata/{itemId}", cancellationToken);
-        var partKey = doc?.Root
-            ?.Element("Video")
-            ?.Element("Media")
-            ?.Element("Part")
-            ?.Attribute("key")?.Value;
+        var mediaElement = doc?.Root?.Elements()
+            .FirstOrDefault(e => e.Name.LocalName is "Video" or "Track" or "Photo");
+        var partKey = mediaElement?.Element("Media")?.Element("Part")?.Attribute("key")?.Value;
 
         if (string.IsNullOrEmpty(partKey))
             throw new InvalidOperationException($"No Part key found in metadata for item {itemId}");
@@ -362,6 +385,7 @@ public sealed class PlexConnector : IMediaServerConnector
                 "TvShows" => "show",
                 "Movies"  => "movie",
                 "Music"   => "artist",
+                "Photos"  => "photo",
                 _         => "movie"
             };
         }
@@ -499,11 +523,78 @@ public sealed class PlexConnector : IMediaServerConnector
         return result;
     }
 
+    public async Task<string> DownloadFileToPathAsync(string itemId, string destPathNoExt, CancellationToken ct)
+    {
+        await EnsureAuthenticatedAsync(ct);
+
+        var doc = await GetXmlAsync($"library/metadata/{itemId}", ct);
+        var mediaElement = doc?.Root?.Elements()
+            .FirstOrDefault(e => e.Name.LocalName is "Video" or "Track" or "Photo");
+        var part = mediaElement?.Element("Media")?.Element("Part");
+        var partKey = part?.Attribute("key")?.Value;
+        var partFile = part?.Attribute("file")?.Value;
+
+        if (string.IsNullOrEmpty(partKey))
+            throw new InvalidOperationException($"No Part key for item {itemId}");
+
+        // Prefer extension from the original filename stored on the Plex server
+        var extension = !string.IsNullOrEmpty(partFile) && Path.GetExtension(partFile) is { Length: > 1 } e
+            ? e
+            : ".epub";
+
+        var destPath = destPathNoExt + extension;
+        var relativePath = partKey.TrimStart('/');
+
+        using var response = await GetStreamResponseAsync(relativePath, ct);
+        response.EnsureSuccessStatusCode();
+
+        using var contentStream = await response.Content.ReadAsStreamAsync(ct);
+        using var fileStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+        await contentStream.CopyToAsync(fileStream, ct);
+
+        _logger.LogInformation("Downloaded book file for item {ItemId} → '{Path}'", itemId, destPath);
+        return destPath;
+    }
+
+    private MediaItem? MapPhotoToItem(XElement photo)
+    {
+        var id = photo.Attribute("ratingKey")?.Value ?? string.Empty;
+        if (string.IsNullOrEmpty(id)) return null;
+
+        return new MediaItem
+        {
+            RemoteId         = id,
+            Title            = photo.Attribute("title")?.Value ?? string.Empty,
+            Type             = MediaType.Photo,
+            Year             = ParseInt(photo, "year"),
+            DateAdded        = ParseUnixTimestamp(photo, "addedAt"),
+            AvailableArtwork = BuildAvailableArtwork(photo)
+        };
+    }
+
+    private MediaItem? MapTrackToItem(XElement track)
+    {
+        var id = track.Attribute("ratingKey")?.Value ?? string.Empty;
+        if (string.IsNullOrEmpty(id)) return null;
+
+        return new MediaItem
+        {
+            RemoteId         = id,
+            Title            = track.Attribute("title")?.Value ?? string.Empty,
+            Type             = MediaType.Music,
+            Year             = ParseInt(track, "year"),
+            SeriesName       = track.Attribute("grandparentTitle")?.Value,
+            DateAdded        = ParseUnixTimestamp(track, "addedAt"),
+            AvailableArtwork = BuildAvailableArtwork(track)
+        };
+    }
+
     private static LibraryType MapSectionType(string? type) => type switch
     {
         "movie"  => LibraryType.Movies,
         "show"   => LibraryType.TvShows,
         "artist" => LibraryType.Music,
+        "photo"  => LibraryType.Photos,
         _        => LibraryType.Unknown
     };
 

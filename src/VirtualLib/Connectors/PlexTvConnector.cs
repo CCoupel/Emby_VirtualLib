@@ -300,6 +300,12 @@ public sealed class PlexTvConnector : IMediaServerConnector
         return await inner.GetStreamUrlAsync(itemId, cancellationToken);
     }
 
+    public async Task<string> DownloadFileToPathAsync(string itemId, string destPathNoExt, CancellationToken cancellationToken = default)
+    {
+        var inner = await GetInnerAsync(cancellationToken);
+        return await inner.DownloadFileToPathAsync(itemId, destPathNoExt, cancellationToken);
+    }
+
     public async Task<Stream?> GetArtworkStreamAsync(string itemId, ArtworkType artworkType, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);

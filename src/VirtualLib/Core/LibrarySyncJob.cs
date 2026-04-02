@@ -14,6 +14,7 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
     private static readonly SyncService _syncService = new(
         new ConnectorFactory(new DefaultHttpClientFactory(), NullLoggerFactory.Instance),
         new StrmGenerator(),
+        new EpubStubGenerator(),
         new NfoGenerator(),
         NullLogger<SyncService>.Instance);
 
