@@ -101,14 +101,36 @@
                     <select id="connectorType" is="emby-select" class="emby-select-withcolor emby-input">
                         <option value="Emby">Emby</option>
                         <option value="Jellyfin">Jellyfin</option>
-                        <option value="Plex">Plex</option>
+                        <option value="Plex">Plex (direct IP:32400)</option>
+                        <option value="PlexTV">Plex via plex.tv (relay / plex.direct)</option>
                     </select>
                 </div>
 
-                <div class="inputContainer">
+                <!-- Shown for Emby / Jellyfin / Plex direct -->
+                <div id="serverUrlSection" class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="connectorUrl">Server URL</label>
                     <input type="url" id="connectorUrl" class="emby-input"
                            placeholder="http://192.168.1.10:8096 or https://media.example.com/emby" />
+                </div>
+
+                <!-- Shown for PlexTV only -->
+                <div id="plexTvSection" style="display:none">
+                    <div style="margin-top:0.75em">
+                        <button id="btnLoadPlexServers" is="emby-button" class="emby-button">
+                            <span>Load Servers from plex.tv</span>
+                        </button>
+                        <span id="plexServersStatus" style="margin-left:1em;font-size:0.9em"></span>
+                    </div>
+                    <div class="inputContainer" style="margin-top:0.75em">
+                        <label class="inputLabel inputLabelUnfocused" for="plexMachineId">Plex Server</label>
+                        <select id="plexMachineId" is="emby-select" class="emby-select-withcolor emby-input">
+                            <option value="">— Enter credentials above and click Load Servers —</option>
+                        </select>
+                        <div class="fieldDescription">
+                            Select the Plex server to connect to. The best available connection URL
+                            (local → plex.direct → relay) will be resolved automatically.
+                        </div>
+                    </div>
                 </div>
 
                 <div class="inputContainer">

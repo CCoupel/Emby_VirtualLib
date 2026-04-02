@@ -29,13 +29,19 @@ public sealed class ConnectorFactory : IConnectorFactory
             config,
             _httpClientFactory,
             _loggerFactory.CreateLogger<PlexConnector>()),
+        ServerTypes.PlexTV => new PlexTvConnector(
+            config,
+            _httpClientFactory,
+            _loggerFactory,
+            _loggerFactory.CreateLogger<PlexTvConnector>()),
         _ => throw new NotSupportedException($"Server type '{config.ServerType}' is not supported")
     };
 }
 
 public static class ServerTypes
 {
-    public const string Emby = "Emby";
+    public const string Emby     = "Emby";
     public const string Jellyfin = "Jellyfin";
-    public const string Plex = "Plex";
+    public const string Plex     = "Plex";
+    public const string PlexTV   = "PlexTV";
 }

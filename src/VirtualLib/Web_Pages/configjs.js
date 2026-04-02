@@ -219,6 +219,70 @@ define([], function () {
             q('userCredSection').style.display = mode === 'UserCredentials' ? '' : 'none';
         }
 
+        function updateServerTypeVisibility() {
+            var type = q('connectorType').value;
+            var isPlexTv = type === 'PlexTV';
+            q('serverUrlSection').style.display = isPlexTv ? 'none' : '';
+            q('plexTvSection').style.display    = isPlexTv ? '' : 'none';
+        }
+
+        function loadPlexServers() {
+            var statusEl = q('plexServersStatus');
+            statusEl.textContent = 'Loading\u2026';
+            statusEl.style.color = '';
+
+            var authMode = q('connectorAuthMode').value;
+            var payload  = {
+                AuthMode: authMode,
+                ApiKey:   authMode === 'ApiKey' ? q('connectorApiKey').value.trim() : '',
+                Username: authMode === 'UserCredentials' ? q('connectorUsername').value.trim() : '',
+                Password: authMode === 'UserCredentials' ? q('connectorPassword').value : ''
+            };
+
+            apiPost('/virtuallib/plex/servers', payload)
+                .then(function (servers) {
+                    var sel = q('plexMachineId');
+                    while (sel.firstChild) sel.removeChild(sel.firstChild);
+
+                    if (!servers || servers.length === 0) {
+                        var opt = document.createElement('option');
+                        opt.value = '';
+                        opt.textContent = '— No servers found —';
+                        sel.appendChild(opt);
+                        statusEl.textContent = 'No servers found.';
+                        statusEl.style.color = 'var(--theme-error-color, #e53935)';
+                        return;
+                    }
+
+                    servers.forEach(function (s) {
+                        var opt = document.createElement('option');
+                        opt.value = s.MachineIdentifier;
+                        var label = s.Name;
+                        if (s.IsLocal) label += ' (local)';
+                        else if (s.IsRelay) label += ' (relay)';
+                        else label += ' (plex.direct)';
+                        opt.textContent = label;
+                        sel.appendChild(opt);
+                    });
+
+                    statusEl.textContent = servers.length + ' server(s) found.';
+                    statusEl.style.color = 'var(--theme-success-color, #43a047)';
+                })
+                .catch(function (e) {
+                    statusEl.textContent = 'Error: ' + e.message;
+                    statusEl.style.color = 'var(--theme-error-color, #e53935)';
+                });
+        }
+
+        function resetPlexServerPicker() {
+            var sel = q('plexMachineId');
+            while (sel.firstChild) sel.removeChild(sel.firstChild);
+            var opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = '\u2014 Enter credentials above and click Load Servers \u2014';
+            sel.appendChild(opt);
+        }
+
         function openAddConnector() {
             q('connectorId').value = '';
             q('connectorName').value = '';
@@ -229,7 +293,10 @@ define([], function () {
             q('connectorUsername').value = '';
             q('connectorPassword').value = '';
             q('connectorMetadataMode').value = 'RemoteSync';
+            resetPlexServerPicker();
+            clearStatus(q('plexServersStatus'));
             updateAuthModeVisibility();
+            updateServerTypeVisibility();
             q('connectorFormTitle').textContent = 'Add Connector';
             clearStatus(q('testResultMsg'));
             clearStatus(q('connectorSaveStatus'));
@@ -251,7 +318,22 @@ define([], function () {
                 q('connectorUsername').value = c.Username || '';
                 q('connectorPassword').value = '';  // never pre-fill password
                 q('connectorMetadataMode').value = c.MetadataMode || 'RemoteSync';
+
+                // Restore PlexTV machine picker with saved identifier
+                var sel = q('plexMachineId');
+                while (sel.firstChild) sel.removeChild(sel.firstChild);
+                if (c.ServerType === 'PlexTV' && c.PlexMachineIdentifier) {
+                    var savedOpt = document.createElement('option');
+                    savedOpt.value = c.PlexMachineIdentifier;
+                    savedOpt.textContent = c.PlexMachineIdentifier + ' \u2014 click Load Servers to refresh';
+                    sel.appendChild(savedOpt);
+                } else {
+                    resetPlexServerPicker();
+                }
+                clearStatus(q('plexServersStatus'));
+
                 updateAuthModeVisibility();
+                updateServerTypeVisibility();
                 q('connectorFormTitle').textContent = 'Edit Connector';
                 clearStatus(q('testResultMsg'));
                 clearStatus(q('connectorSaveStatus'));
@@ -481,6 +563,8 @@ define([], function () {
 
             q('btnAddConnector').addEventListener('click', openAddConnector);
             q('connectorAuthMode').addEventListener('change', updateAuthModeVisibility);
+            q('connectorType').addEventListener('change', updateServerTypeVisibility);
+            q('btnLoadPlexServers').addEventListener('click', loadPlexServers);
 
             q('btnCancelConnector').addEventListener('click', function () {
                 q('connectorFormSection').style.display = 'none';
@@ -520,15 +604,25 @@ define([], function () {
 
                 var id = q('connectorId').value;
                 var displayName = q('connectorName').value.trim();
-                var serverUrl = q('connectorUrl').value.trim();
-                var authMode = q('connectorAuthMode').value;
-                var apiKey = q('connectorApiKey').value.trim();
-                var username = q('connectorUsername').value.trim();
-                var password = q('connectorPassword').value;
+                var serverType  = q('connectorType').value;
+                var serverUrl   = serverType === 'PlexTV' ? '' : q('connectorUrl').value.trim();
+                var plexMachineId = serverType === 'PlexTV' ? q('plexMachineId').value : '';
+                var authMode    = q('connectorAuthMode').value;
+                var apiKey      = q('connectorApiKey').value.trim();
+                var username    = q('connectorUsername').value.trim();
+                var password    = q('connectorPassword').value;
                 var metadataMode = q('connectorMetadataMode').value;
 
-                if (!displayName || !serverUrl) {
-                    setStatus(statusEl, 'Name and URL are required.', true);
+                if (!displayName) {
+                    setStatus(statusEl, 'Name is required.', true);
+                    return;
+                }
+                if (serverType !== 'PlexTV' && !serverUrl) {
+                    setStatus(statusEl, 'Server URL is required.', true);
+                    return;
+                }
+                if (serverType === 'PlexTV' && !plexMachineId) {
+                    setStatus(statusEl, 'Select a Plex server (click Load Servers first).', true);
                     return;
                 }
                 if (authMode === 'ApiKey' && !apiKey) {
@@ -547,8 +641,9 @@ define([], function () {
                         var payload = {
                             Id: id,
                             DisplayName: displayName,
-                            ServerType: q('connectorType').value,
+                            ServerType: serverType,
                             ServerUrl: serverUrl,
+                            PlexMachineIdentifier: plexMachineId,
                             AuthMode: authMode,
                             ApiKey: apiKey,
                             Username: username,
@@ -570,8 +665,9 @@ define([], function () {
                     }
                     var payload = {
                         DisplayName: displayName,
-                        ServerType: q('connectorType').value,
+                        ServerType: serverType,
                         ServerUrl: serverUrl,
+                        PlexMachineIdentifier: plexMachineId,
                         AuthMode: authMode,
                         ApiKey: apiKey,
                         Username: username,

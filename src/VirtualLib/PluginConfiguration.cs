@@ -56,4 +56,10 @@ public sealed class ConnectorConfig
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
     public List<KnownLibrary> KnownLibraries { get; set; } = new();
+
+    /// <summary>
+    /// For ServerType = "PlexTV" only.
+    /// The Plex server's unique machine identifier (clientIdentifier from plex.tv resources API).
+    /// </summary>
+    public string PlexMachineIdentifier { get; set; } = string.Empty;
 }

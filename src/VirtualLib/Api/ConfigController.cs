@@ -5,6 +5,7 @@ using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
+using VirtualLib.Connectors;
 using VirtualLib.Core;
 using VirtualLib.Core.Models;
 
@@ -25,6 +26,7 @@ public sealed class CreateConnector : IReturn<ConnectorConfig>
     public string DisplayName { get; set; } = string.Empty;
     public string ServerType { get; set; } = ServerTypes.Emby;
     public string ServerUrl { get; set; } = string.Empty;
+    public string PlexMachineIdentifier { get; set; } = string.Empty;
     public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
     public string ApiKey { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
@@ -42,6 +44,7 @@ public sealed class UpdateConnector : IReturn<ConnectorConfig>
     public string DisplayName { get; set; } = string.Empty;
     public string ServerType { get; set; } = ServerTypes.Emby;
     public string ServerUrl { get; set; } = string.Empty;
+    public string PlexMachineIdentifier { get; set; } = string.Empty;
     public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
     public string ApiKey { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
@@ -123,6 +126,19 @@ public sealed class SaveSettings : IReturn<GlobalSettings>
 [Route("/virtuallib/sync", "POST", Summary = "Sync all enabled connectors")]
 [Authenticated]
 public sealed class SyncAll : IReturn<List<SyncResult>> { }
+
+[Route("/virtuallib/plex/servers", "POST", Summary = "List Plex servers visible on plex.tv for the given credentials")]
+[Authenticated]
+public sealed class GetPlexTvServers : IReturn<List<PlexServerInfo>>
+{
+    public AuthMode AuthMode { get; set; } = AuthMode.ApiKey;
+    /// <summary>Plex token (when AuthMode = ApiKey)</summary>
+    public string ApiKey    { get; set; } = string.Empty;
+    /// <summary>plex.tv username (when AuthMode = UserCredentials)</summary>
+    public string Username  { get; set; } = string.Empty;
+    /// <summary>plex.tv password (when AuthMode = UserCredentials)</summary>
+    public string Password  { get; set; } = string.Empty;
+}
 
 [Route("/virtuallib/connectors/{Id}/sync", "POST", Summary = "Sync a single connector")]
 [Authenticated]
@@ -260,6 +276,7 @@ public sealed class ConfigController : BaseApiService
             DisplayName = request.DisplayName,
             ServerType = request.ServerType,
             ServerUrl = request.ServerUrl,
+            PlexMachineIdentifier = request.PlexMachineIdentifier,
             AuthMode = request.AuthMode,
             ApiKey = request.ApiKey,
             Username = request.Username,
@@ -294,6 +311,7 @@ public sealed class ConfigController : BaseApiService
             DisplayName = request.DisplayName,
             ServerType = request.ServerType,
             ServerUrl = request.ServerUrl,
+            PlexMachineIdentifier = request.PlexMachineIdentifier,
             AuthMode = request.AuthMode,
             ApiKey = request.ApiKey,
             Username = request.Username,
@@ -535,6 +553,36 @@ public sealed class ConfigController : BaseApiService
         using var connector = _connectorFactory.Value.Create(tempConfig);
         var result = connector.TestConnectionAsync(CancellationToken.None).GetAwaiter().GetResult();
         return ResultFactory.GetResult(Request, result, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // POST /virtuallib/plex/servers
+    // -----------------------------------------------------------------------
+    public object Post(GetPlexTvServers request)
+    {
+        var ct = CancellationToken.None;
+
+        string token;
+        if (request.AuthMode == AuthMode.ApiKey)
+        {
+            if (string.IsNullOrEmpty(request.ApiKey))
+                throw new ArgumentException("ApiKey (Plex token) is required.");
+            token = request.ApiKey;
+        }
+        else
+        {
+            if (string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
+                throw new ArgumentException("Username and Password are required for UserCredentials mode.");
+            token = PlexTvConnector
+                .GetTokenFromCredentialsAsync(request.Username, request.Password, new DefaultHttpClientFactory(), ct)
+                .GetAwaiter().GetResult();
+        }
+
+        var servers = PlexTvConnector
+            .ListServersAsync(token, new DefaultHttpClientFactory(), ct)
+            .GetAwaiter().GetResult();
+
+        return ResultFactory.GetResult(Request, servers, NoHeaders);
     }
 
     // -----------------------------------------------------------------------
