@@ -88,6 +88,16 @@ internal sealed class EmbyItem
     [JsonPropertyName("IndexNumber")]
     public int? IndexNumber { get; init; }
 
+    // Audio / AudioBook fields
+    [JsonPropertyName("Album")]
+    public string? Album { get; init; }
+
+    [JsonPropertyName("AlbumId")]
+    public string? AlbumId { get; init; }
+
+    [JsonPropertyName("AlbumArtist")]
+    public string? AlbumArtist { get; init; }
+
     [JsonPropertyName("ImageTags")]
     public Dictionary<string, string>? ImageTags { get; init; }
 

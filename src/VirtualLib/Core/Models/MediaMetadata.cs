@@ -12,6 +12,7 @@ public sealed class MediaMetadata : MediaItem
     public IReadOnlyList<PersonInfo> Cast { get; init; } = Array.Empty<PersonInfo>();
     public IReadOnlyList<string> Directors { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Writers { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> Authors { get; init; } = Array.Empty<string>();
     public string? Tagline { get; init; }
     public string? TrailerUrl { get; init; }
 }

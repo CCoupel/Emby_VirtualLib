@@ -189,18 +189,10 @@ public sealed class ConfigController : BaseApiService
 {
     private static readonly Dictionary<string, string>? NoHeaders = null;
 
-    // Services instanciés une seule fois par classe (singleton léger via lazy)
     private static readonly Lazy<IConnectorFactory> _connectorFactory =
         new(() => new ConnectorFactory(new DefaultHttpClientFactory(), NullLoggerFactory.Instance));
 
-    private static readonly Lazy<SyncService> _syncService =
-        new(() => new SyncService(
-            _connectorFactory.Value,
-            new StrmGenerator(),
-            new EpubStubGenerator(),
-            new NfoGenerator(),
-            NullLogger<SyncService>.Instance));
-
+    private readonly SyncService _syncService;
     private readonly LibraryProvisioner _libraryProvisioner;
     private readonly ILibraryManager _libraryManager;
     private readonly ITaskManager _taskManager;
@@ -210,6 +202,13 @@ public sealed class ConfigController : BaseApiService
         _libraryManager = libraryManager;
         _taskManager = taskManager;
         _libraryProvisioner = new LibraryProvisioner(libraryManager, NullLogger<LibraryProvisioner>.Instance);
+        _syncService = new SyncService(
+            _connectorFactory.Value,
+            new StrmGenerator(),
+            new EpubStubGenerator(),
+            new NfoGenerator(),
+            NullLogger<SyncService>.Instance,
+            libraryManager);
     }
 
     /// <summary>
@@ -509,7 +508,7 @@ public sealed class ConfigController : BaseApiService
 
         var virtualLibRoot = config.VirtualLibraryRootPath;
 
-        var result = _syncService.Value.SyncLibraryAsync(
+        var result = _syncService.SyncLibraryAsync(
             connectorConfig,
             request.LibraryId,
             virtualLibRoot,
@@ -661,7 +660,7 @@ public sealed class ConfigController : BaseApiService
 
         foreach (var connectorConfig in enabledConnectors)
         {
-            var result = _syncService.Value.SyncConnectorAsync(
+            var result = _syncService.SyncConnectorAsync(
                 connectorConfig,
                 virtualLibRoot,
                 ProxyBaseUrl,
@@ -693,7 +692,7 @@ public sealed class ConfigController : BaseApiService
 
         var virtualLibRoot = config.VirtualLibraryRootPath;
 
-        var result = _syncService.Value.SyncConnectorAsync(
+        var result = _syncService.SyncConnectorAsync(
             connectorConfig,
             virtualLibRoot,
             ProxyBaseUrl,

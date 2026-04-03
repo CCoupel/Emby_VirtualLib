@@ -36,16 +36,21 @@ public interface IMediaServerConnector
 ```csharp
 public class MediaItem
 {
-    public string RemoteId { get; set; }        // ID natif sur le serveur source
+    public string RemoteId { get; set; }               // ID natif sur le serveur source
     public string Title { get; set; }
-    public MediaType Type { get; set; }         // Movie | Episode | Music | Photo
+    public MediaType Type { get; set; }
     public int? Year { get; set; }
-    public string? SeriesName { get; set; }
+    public string? SeriesId { get; set; }              // AudioBook : AlbumId (container)
+    public string? SeriesName { get; set; }            // AudioBook : Album (titre du livre)
     public int? SeasonNumber { get; set; }
     public int? EpisodeNumber { get; set; }
     public string? ImdbId { get; set; }
     public string? TmdbId { get; set; }
+    public string? TvdbId { get; set; }
     public DateTime? DateAdded { get; set; }
+    public long? RuntimeTicks { get; set; }            // Durée en ticks 100 ns (= Emby RunTimeTicks)
+    public IReadOnlyList<string> AlbumArtists { get; set; } // Auteurs (livres audio)
+    public IReadOnlyList<ArtworkType> AvailableArtwork { get; set; }
 }
 
 public class MediaMetadata : MediaItem
@@ -57,8 +62,18 @@ public class MediaMetadata : MediaItem
     public int? RuntimeMinutes { get; set; }
 }
 
-public enum MediaType { Movie, Episode, Music, Photo }
-public enum ArtworkType { Poster, Backdrop, Thumb, Logo }
+public enum MediaType { Movie, Episode, Music, Photo, Book, AudioBook }
+
+public enum ArtworkType
+{
+    Poster,    // Primary / cover     → poster.jpg / folder.jpg
+    Backdrop,  // Fanart / background → fanart.jpg
+    Thumb,     // Landscape thumbnail → landscape.jpg
+    Logo,      // ClearLogo           → logo.png
+    Banner,    // Wide banner         → banner.jpg
+    Disc,      // Disc / CD art       → disc.jpg
+    Art        // ClearArt            → clearart.png
+}
 ```
 
 ---
@@ -253,24 +268,52 @@ Tâche planifiée Emby (`IScheduledTask`) qui orchestre la synchronisation.
 **Algorithme de sync** :
 ```
 Pour chaque ConnectorConfig actif :
-  1. TestConnection() — skip si KO
-  2. ListLibraries() — récupère les bibliothèques configurées
-  3. Pour chaque bibliothèque :
-     a. ListItems() — liste tous les items distants
-     b. Calcule le delta (nouveaux / supprimés / inchangés)
-     c. Pour les nouveaux : génère .strm + .nfo + télécharge artwork
-     d. Pour les supprimés : supprime les fichiers locaux
-  4. Déclenche un scan de la bibliothèque virtuelle sur Emby A
+  Phase 1 — Génération des fichiers
+    1. TestConnection() — skip si KO
+    2. ListLibraries() — récupère les bibliothèques configurées
+    3. Pour chaque bibliothèque :
+       a. ListItems() — liste tous les items distants
+       b. Génère .strm + .nfo + télécharge artwork (poster, fanart, banner, disc, clearart…)
+       c. Pour les livres audio : album.nfo + folder.jpg dans le dossier du livre
+          → collecte les chapitres dans pendingChapters[]
+  Phase 2 — Injection de métadonnées post-scan (livres audio seulement)
+    4. QueueLibraryScan() — déclenche le scan Emby des nouveaux fichiers
+    5. Boucle de polling (background, toutes les 2 s, timeout 5 min) :
+       - Pour chaque chapitre dans pendingChapters :
+         · ILibraryManager.FindByPath(strmPath) → Audio item en DB ?
+         · Si oui → injecte RunTimeTicks, Album, AlbumArtists via UpdateItem()
+                  → retire de la liste
+         · Si non → réessaie au prochain tour
+       - S'arrête quand la liste est vide ou timeout atteint
 ```
 
-**Détection de delta** :
+**Pourquoi le polling ?**
+Emby ne fait pas de ffprobe sur les fichiers `.strm` (protocole HTTP, non local). La durée
+et les champs de groupement (`Album`, `AlbumArtists`) ne sont donc jamais remplis
+automatiquement. Le polling injecte ces données directement en DB dès que le scan crée
+les items, sans attendre une seconde synchronisation.
+
+**Détection de delta** (backlog) :
 - Fichier index JSON local : `{virtualLibRoot}/.index/{connectorId}.json`
 - Contient : `{ remoteId: string, localPath: string, dateAdded: DateTime }[]`
 - Comparaison par `remoteId` entre l'index et les items distants
 
+### 7. Fournisseurs de métadonnées locaux (ILocalMetadataProvider)
+
+Emby ne lit pas les `.nfo` Kodi pour les types `Audio` (chapitres) et `Folder` dans une
+bibliothèque Audiobooks, ni pour `Book`. Trois providers custom comblent ces lacunes :
+
+| Provider | Type Emby | Fichier lu | Rôle |
+|---|---|---|---|
+| `AudioBookNfoProvider` | `Audio` | `album.nfo` (dossier parent) | Injecte `Album`, `AlbumArtists`, `ProductionYear` sur chaque chapitre |
+| `AudioBookFolderNfoProvider` | `Folder` | `album.nfo` (dans le dossier) | Injecte titre, synopsis, genres, auteurs sur le container du livre |
+| `BookNfoProvider` | `Book` | `{filename}.nfo` | Injecte les métadonnées complètes pour les ebooks |
+
+Ces providers sont auto-découverts par Emby via le plugin assembly (pas de registration manuelle).
+
 ---
 
-### 7. PluginConfiguration
+### 8. PluginConfiguration
 
 Configuration stockée par Emby dans son répertoire de données.
 

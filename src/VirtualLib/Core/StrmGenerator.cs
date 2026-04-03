@@ -43,6 +43,14 @@ public sealed class StrmGenerator
             var season = item.SeasonNumber ?? 0;
             return Path.Combine(virtualLibRoot, safeConnector, safeLibrary, seriesName, $"Season {season:D2}");
         }
+        else if (item.Type == MediaType.AudioBook && !string.IsNullOrEmpty(item.SeriesName))
+        {
+            // Chapitre de livre audio : {livre (année)}/
+            var bookFolder = item.Year.HasValue
+                ? $"{SanitizeName(item.SeriesName)} ({item.Year})"
+                : SanitizeName(item.SeriesName);
+            return Path.Combine(virtualLibRoot, safeConnector, safeLibrary, bookFolder);
+        }
         else
         {
             var folderName = item.Year.HasValue
@@ -60,6 +68,14 @@ public sealed class StrmGenerator
             var s = item.SeasonNumber ?? 0;
             var e = item.EpisodeNumber ?? 0;
             return $"{seriesName} - S{s:D2}E{e:D2}";
+        }
+        else if (item.Type == MediaType.AudioBook && !string.IsNullOrEmpty(item.SeriesName))
+        {
+            // {index:D2} - {titre du chapitre}
+            var idx = item.EpisodeNumber ?? 0;
+            return idx > 0
+                ? $"{idx:D2} - {SanitizeName(item.Title)}"
+                : SanitizeName(item.Title);
         }
         else
         {

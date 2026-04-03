@@ -221,7 +221,7 @@ public sealed class EmbyConnector : IMediaServerConnector
                           $"?ParentId={libraryId}" +
                           $"&Recursive=true" +
                           $"&IncludeItemTypes={GetIncludeItemTypes(libraryId)}" +
-                          $"&Fields=Overview,Genres,Studios,ProviderIds,DateCreated,Tags" +
+                          $"&Fields=Overview,Genres,Studios,ProviderIds,DateCreated,Tags,Album,AlbumId" +
                           $"&StartIndex={startIndex}" +
                           $"&Limit={PageSize}";
 
@@ -234,9 +234,12 @@ public sealed class EmbyConnector : IMediaServerConnector
                 totalCount = page.TotalRecordCount;
                 if (page.Items.Count == 0) break;
 
+                var isAudiobook = IsAudiobookLibrary(libraryId);
                 foreach (var embyItem in page.Items)
                 {
-                    var mapped = MapItem(embyItem);
+                    var mapped = isAudiobook
+                        ? MapAudiobookChapter(embyItem)
+                        : MapItem(embyItem);
                     if (mapped is not null)
                         items.Add(mapped);
                 }
@@ -289,8 +292,8 @@ public sealed class EmbyConnector : IMediaServerConnector
     {
         var userId = await GetUserIdAsync(cancellationToken);
         var url = userId is not null
-            ? $"Users/{userId}/Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines"
-            : $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines";
+            ? $"Users/{userId}/Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines,AlbumArtist"
+            : $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines,AlbumArtist";
         using var response = await GetWithRetryAsync(url, cancellationToken);
         response.EnsureSuccessStatusCode();
 
@@ -493,6 +496,27 @@ public sealed class EmbyConnector : IMediaServerConnector
         }
     }
 
+    // Mappe un item Audio en tant que chapitre d'un livre audio.
+    // SeriesId/SeriesName = container AudioBook (le livre), EpisodeNumber = numéro de chapitre.
+    private MediaItem? MapAudiobookChapter(EmbyItem item)
+    {
+        if (string.IsNullOrEmpty(item.Id)) return null;
+
+        return new MediaItem
+        {
+            RemoteId      = item.Id,
+            Title         = item.Name,
+            Type          = MediaType.AudioBook,
+            SeriesId      = item.AlbumId,
+            SeriesName    = item.Album ?? item.SeriesName,
+            EpisodeNumber = item.IndexNumber,
+            DateAdded     = item.DateCreated,
+            RuntimeTicks  = item.RunTimeTicks,
+            AlbumArtists  = ExtractAuthors(item),
+            AvailableArtwork = GetAvailableArtwork(item)
+        };
+    }
+
     private MediaItem? MapItem(EmbyItem item)
     {
         var type = item.Type switch
@@ -579,6 +603,7 @@ public sealed class EmbyConnector : IMediaServerConnector
                 .Where(p => string.Equals(p.Type, "Writer", StringComparison.OrdinalIgnoreCase))
                 .Select(p => p.Name)
                 .ToList() ?? (IReadOnlyList<string>)Array.Empty<string>(),
+            Authors = ExtractAuthors(item),
             Tagline = item.Taglines?.FirstOrDefault(),
             TrailerUrl = item.RemoteTrailers?.FirstOrDefault()?.Url
         };
@@ -587,10 +612,13 @@ public sealed class EmbyConnector : IMediaServerConnector
     private static IReadOnlyList<ArtworkType> GetAvailableArtwork(EmbyItem item)
     {
         var result = new List<ArtworkType>();
-        if (item.ImageTags?.ContainsKey("Primary") == true) result.Add(ArtworkType.Poster);
-        if (item.BackdropImageTags?.Count > 0) result.Add(ArtworkType.Backdrop);
-        if (item.ImageTags?.ContainsKey("Thumb") == true) result.Add(ArtworkType.Thumb);
-        if (item.ImageTags?.ContainsKey("Logo") == true) result.Add(ArtworkType.Logo);
+        if (item.ImageTags?.ContainsKey("Primary")  == true) result.Add(ArtworkType.Poster);
+        if (item.BackdropImageTags?.Count > 0)                result.Add(ArtworkType.Backdrop);
+        if (item.ImageTags?.ContainsKey("Thumb")    == true) result.Add(ArtworkType.Thumb);
+        if (item.ImageTags?.ContainsKey("Logo")     == true) result.Add(ArtworkType.Logo);
+        if (item.ImageTags?.ContainsKey("Banner")   == true) result.Add(ArtworkType.Banner);
+        if (item.ImageTags?.ContainsKey("Disc")     == true) result.Add(ArtworkType.Disc);
+        if (item.ImageTags?.ContainsKey("Art")      == true) result.Add(ArtworkType.Art);
         return result;
     }
 
@@ -600,11 +628,17 @@ public sealed class EmbyConnector : IMediaServerConnector
         return known?.Type switch
         {
             "Books"      => "Book",
-            "Audiobooks" => "AudioBook",
+            "Audiobooks" => "Audio",  // Chapitres audio — groupés par Album côté sync
             "Music"      => "Audio",
             "Photos"     => "Photo,Video",
             _            => "Movie,Episode"
         };
+    }
+
+    private bool IsAudiobookLibrary(string libraryId)
+    {
+        var known = _config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId);
+        return known?.Type == "Audiobooks";
     }
 
     private static LibraryType MapCollectionType(string? collectionType) => collectionType switch
@@ -620,13 +654,34 @@ public sealed class EmbyConnector : IMediaServerConnector
         _            => LibraryType.Unknown
     };
 
+    private static IReadOnlyList<string> ExtractAuthors(EmbyItem item)
+    {
+        // People entries with Author/BookAuthor role take priority
+        var fromPeople = item.People?
+            .Where(p => string.Equals(p.Type, "Author", StringComparison.OrdinalIgnoreCase)
+                     || string.Equals(p.Type, "BookAuthor", StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Name)
+            .ToList();
+
+        if (fromPeople is { Count: > 0 }) return fromPeople;
+
+        // Fallback: AlbumArtist field (used for audiobook containers / MusicAlbum items)
+        if (!string.IsNullOrWhiteSpace(item.AlbumArtist))
+            return item.AlbumArtist.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        return Array.Empty<string>();
+    }
+
     private static string MapArtworkType(ArtworkType type) => type switch
     {
-        ArtworkType.Poster => "Primary",
+        ArtworkType.Poster   => "Primary",
         ArtworkType.Backdrop => "Backdrop",
-        ArtworkType.Thumb => "Thumb",
-        ArtworkType.Logo => "Logo",
-        _ => "Primary"
+        ArtworkType.Thumb    => "Thumb",
+        ArtworkType.Logo     => "Logo",
+        ArtworkType.Banner   => "Banner",
+        ArtworkType.Disc     => "Disc",
+        ArtworkType.Art      => "Art",
+        _                    => "Primary"
     };
 
     public void Dispose()

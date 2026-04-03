@@ -94,3 +94,33 @@
 - [ ] Détection delta : index JSON local `{connectorId}.json` (issue #12)
 - [ ] Gestion des suppressions (items supprimés sur la source)
 - [ ] Progression sync par item en temps réel (issue #20)
+
+---
+
+## Phase 4 — Livres audio & ebooks ✅ Terminé (v1.4.0 → v1.5.0)
+
+### v1.4.0 — Support initial livres audio, ebooks, photos
+- [x] `MediaType.AudioBook` et `MediaType.Book` ajoutés
+- [x] `StrmGenerator` : arborescence `{livre}/{chapitre}.strm` pour les livres audio
+- [x] `EpubStubGenerator` : téléchargement du vrai fichier epub/pdf/mobi depuis la source
+- [x] `NfoGenerator.GenerateAudioBookNfo()` : fichier `album.nfo` au format Music/AudioBook Emby
+- [x] `LibraryProvisioner` : création automatique des dossiers virtuels Emby (`audiobooks`, `books`, `photos`)
+- [x] Support photos/homevideos dans le connector Emby
+
+### v1.5.0 — Métadonnées livres audio robustes (branche `feature/audiobook-book-nfo-provider`)
+- [x] `AudioBookNfoProvider` (`ILocalMetadataProvider<Audio>`) : lit `album.nfo` pour chaque chapitre et injecte `Album`, `AlbumArtists`, `ProductionYear`
+- [x] `AudioBookFolderNfoProvider` (`ILocalMetadataProvider<Folder>`) : lit `album.nfo` pour le container du livre
+- [x] `BookNfoProvider` (`ILocalMetadataProvider<Book>`) : lit `{filename}.nfo` pour les ebooks
+- [x] `MediaItem.RuntimeTicks` : durée en ticks 100 ns (propagée depuis `EmbyItem.RunTimeTicks`)
+- [x] `MediaItem.AlbumArtists` : auteurs propagés depuis `AlbumArtist` / `People[Author]` du serveur distant
+- [x] Injection directe en DB (`ILibraryManager.UpdateItem`) : `RunTimeTicks`, `Album`, `AlbumArtists` sur les items `Audio` — contourne le ffprobe différé d'Emby sur les `.strm`
+- [x] **Polling loop post-scan** : boucle background (2 s, timeout 5 min) qui attend que le scan Emby crée les items en DB, puis injecte les métadonnées — réduit à 1 sync unique (plus besoin de 2 syncs)
+- [x] Artwork découplé de la condition NFO : images téléchargées même quand `album.nfo` existe déjà
+- [x] Fallback artwork : si le container AudioBook n'a pas d'image, utilise l'artwork du chapitre
+- [x] `ArtworkType` étendu : `Banner`, `Disc`, `Art` (ClearArt) en plus de Poster/Backdrop/Thumb/Logo
+- [x] Images par chapitre : Primary téléchargée comme `{chapitre}.jpg` à côté du `.strm`
+- [x] Fix `AudioBookNfoProvider` : injecte `Album` (titre du livre) et non `Name` sur les chapitres
+
+**Reste en backlog :**
+- [ ] Détection delta / suppressions
+- [ ] `JellyfinConnector`
