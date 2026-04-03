@@ -6,6 +6,15 @@ namespace VirtualLib.Core;
 
 public sealed class NfoGenerator
 {
+    // UTF-8 without BOM — XmlWriter backed by a MemoryStream correctly sets encoding="utf-8"
+    private static readonly XmlWriterSettings XmlSettings = new()
+    {
+        Indent = true,
+        IndentChars = "  ",
+        Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+        OmitXmlDeclaration = false
+    };
+
     /// <summary>
     /// Génère le fichier .nfo pour un item.
     /// Retourne le chemin du fichier créé.
@@ -32,7 +41,13 @@ public sealed class NfoGenerator
             var seriesName = StrmGenerator.SanitizeName(metadata.SeriesName ?? metadata.Title);
             fileName = $"{seriesName} - S{s:D2}E{e:D2}.nfo";
         }
-        else if (metadata.Type is MediaType.Book or MediaType.AudioBook)
+        else if (metadata.Type == MediaType.AudioBook)
+        {
+            // Audiobook library: album-level NFO read by Emby's Music/AudioBook scanner
+            content = GenerateMusicAlbumNfo(metadata);
+            fileName = "album.nfo";
+        }
+        else if (metadata.Type == MediaType.Book)
         {
             content = GenerateBookNfo(metadata);
             fileName = StrmGenerator.SanitizeName(metadata.Year.HasValue
@@ -46,20 +61,14 @@ public sealed class NfoGenerator
         }
 
         var filePath = Path.Combine(nfoDirectory, fileName);
-        File.WriteAllText(filePath, content, Encoding.UTF8);
+        File.WriteAllText(filePath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         return filePath;
     }
 
     public string GenerateMovieNfo(MediaMetadata metadata)
     {
-        var sb = new StringBuilder();
-        using var writer = XmlWriter.Create(sb, new XmlWriterSettings
-        {
-            Indent = true,
-            IndentChars = "  ",
-            Encoding = Encoding.UTF8,
-            OmitXmlDeclaration = false
-        });
+        using var ms = new MemoryStream();
+        using var writer = XmlWriter.Create(ms, XmlSettings);
 
         writer.WriteStartDocument(true);
         writer.WriteStartElement("movie");
@@ -125,19 +134,13 @@ public sealed class NfoGenerator
         writer.WriteEndDocument();
         writer.Flush();
 
-        return sb.ToString();
+        return Encoding.UTF8.GetString(ms.ToArray());
     }
 
     public string GenerateEpisodeNfo(MediaMetadata metadata)
     {
-        var sb = new StringBuilder();
-        using var writer = XmlWriter.Create(sb, new XmlWriterSettings
-        {
-            Indent = true,
-            IndentChars = "  ",
-            Encoding = Encoding.UTF8,
-            OmitXmlDeclaration = false
-        });
+        using var ms = new MemoryStream();
+        using var writer = XmlWriter.Create(ms, XmlSettings);
 
         writer.WriteStartDocument(true);
         writer.WriteStartElement("episodedetails");
@@ -184,19 +187,55 @@ public sealed class NfoGenerator
         writer.WriteEndDocument();
         writer.Flush();
 
-        return sb.ToString();
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    /// <summary>
+    /// Generates an album.nfo for an audiobook.
+    /// Root element is &lt;album&gt; as written by Emby's AlbumNfoSaver.
+    /// Authors map to &lt;albumartist&gt; (primary) and &lt;artist&gt; (compat).
+    /// The library must be of type "books" (not "audiobooks") for Emby's
+    /// AudioResolver to group .strm files into AudioBook containers.
+    /// </summary>
+    public string GenerateMusicAlbumNfo(MediaMetadata metadata)
+    {
+        using var ms = new MemoryStream();
+        using var writer = XmlWriter.Create(ms, XmlSettings);
+
+        writer.WriteStartDocument(true);
+        writer.WriteStartElement("album");
+
+        writer.WriteElementString("title", metadata.Title);
+        if (metadata.Year.HasValue)
+            writer.WriteElementString("year", metadata.Year.Value.ToString());
+        if (!string.IsNullOrEmpty(metadata.Overview))
+            writer.WriteElementString("review", metadata.Overview);
+        if (metadata.CommunityRating.HasValue)
+            writer.WriteElementString("rating", metadata.CommunityRating.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
+
+        foreach (var author in metadata.Authors)
+        {
+            writer.WriteElementString("albumartist", author);
+            writer.WriteElementString("artist", author);
+        }
+
+        foreach (var genre in metadata.Genres)
+            writer.WriteElementString("genre", genre);
+
+        foreach (var tag in metadata.Tags)
+            writer.WriteElementString("tag", tag);
+
+        writer.WriteEndElement(); // album
+        writer.WriteEndDocument();
+        writer.Flush();
+
+        return Encoding.UTF8.GetString(ms.ToArray());
     }
 
     public string GenerateBookNfo(MediaMetadata metadata)
     {
-        var sb = new StringBuilder();
-        using var writer = XmlWriter.Create(sb, new XmlWriterSettings
-        {
-            Indent = true,
-            IndentChars = "  ",
-            Encoding = Encoding.UTF8,
-            OmitXmlDeclaration = false
-        });
+        using var ms = new MemoryStream();
+        using var writer = XmlWriter.Create(ms, XmlSettings);
 
         writer.WriteStartDocument(true);
         writer.WriteStartElement("book");
@@ -210,6 +249,9 @@ public sealed class NfoGenerator
             writer.WriteElementString("rating", metadata.CommunityRating.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
         if (!string.IsNullOrEmpty(metadata.OfficialRating))
             writer.WriteElementString("mpaa", metadata.OfficialRating);
+
+        foreach (var author in metadata.Authors)
+            writer.WriteElementString("author", author);
 
         foreach (var genre in metadata.Genres)
             writer.WriteElementString("genre", genre);
@@ -240,6 +282,6 @@ public sealed class NfoGenerator
         writer.WriteEndDocument();
         writer.Flush();
 
-        return sb.ToString();
+        return Encoding.UTF8.GetString(ms.ToArray());
     }
 }
