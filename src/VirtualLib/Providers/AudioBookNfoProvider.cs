@@ -44,36 +44,41 @@ public sealed class AudioBookNfoProvider : ILocalMetadataProvider<Audio>
     {
         var result = new MetadataResult<Audio> { Item = new Audio() };
 
-        // The NFO sits in the same folder as the .strm file.
-        // Audio items are always file-based, so take the parent directory.
-        var folder = Path.GetDirectoryName(info.Path);
-        if (string.IsNullOrEmpty(folder))
-            return Task.FromResult(result);
+        // Determine where to look for album.nfo:
+        // - If the path is a directory (folder-based Audio item), the NFO is inside it.
+        // - If the path is a file (.strm chapter), the NFO is in the parent directory.
+        string nfoPath;
+        if (Directory.Exists(info.Path))
+        {
+            nfoPath = Path.Combine(info.Path, "album.nfo");
+        }
+        else
+        {
+            var folder = Path.GetDirectoryName(info.Path);
+            if (string.IsNullOrEmpty(folder))
+                return Task.FromResult(result);
+            nfoPath = Path.Combine(folder, "album.nfo");
+        }
 
-        var nfoPath = Path.Combine(folder, "album.nfo");
+        _logger.LogInformation("VirtualLib AudioBookNfoProvider invoked: path='{Path}' nfo='{NfoPath}' exists={Exists}",
+            info.Path, nfoPath, File.Exists(nfoPath));
         var data = NfoXmlReader.Read(nfoPath);
         if (data is null)
             return Task.FromResult(result);
 
-        _logger.LogDebug("VirtualLib: reading AudioBook NFO '{Path}'", nfoPath);
+        _logger.LogInformation("VirtualLib: AudioBook NFO read OK — title='{Title}'", data.Title);
 
+        // For an Audio (chapter) item we only set grouping fields.
+        // Name stays as-is (filename-derived chapter title).
+        // Book-level fields (Overview, Genres, Studios…) belong on the Folder container, not here.
         result.HasMetadata = true;
-        result.Item.Name = data.Title;
-        result.Item.Overview = data.Overview;
-        result.Item.CommunityRating = data.CommunityRating;
-        result.Item.OfficialRating = data.OfficialRating;
+
+        // Album = book title → Emby uses this to group chapters into the audiobook container
+        if (!string.IsNullOrEmpty(data.Title))
+            result.Item.Album = data.Title;
 
         if (data.ProductionYear.HasValue)
             result.Item.ProductionYear = data.ProductionYear.Value;
-
-        if (data.Genres.Count > 0)
-            result.Item.Genres = data.Genres.ToArray();
-
-        if (data.Tags.Count > 0)
-            result.Item.Tags = data.Tags.ToArray();
-
-        if (data.Studios.Count > 0)
-            result.Item.Studios = data.Studios.ToArray();
 
         // Authors → AlbumArtists (primary) + Artists (compat)
         var authors = data.AlbumArtists.Count > 0 ? data.AlbumArtists : data.Artists;

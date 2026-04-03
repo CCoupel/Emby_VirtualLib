@@ -12,10 +12,13 @@ public enum MediaType
 
 public enum ArtworkType
 {
-    Poster,
-    Backdrop,
-    Thumb,
-    Logo
+    Poster,    // Primary / cover
+    Backdrop,  // Fanart / background
+    Thumb,     // Landscape thumbnail
+    Logo,      // ClearLogo
+    Banner,    // Wide banner
+    Disc,      // Disc / CD art
+    Art        // ClearArt
 }
 
 public enum LibraryType

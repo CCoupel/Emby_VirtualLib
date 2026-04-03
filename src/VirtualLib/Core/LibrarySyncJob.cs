@@ -11,18 +11,19 @@ namespace VirtualLib;
 /// </summary>
 public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
 {
-    private static readonly SyncService _syncService = new(
-        new ConnectorFactory(new DefaultHttpClientFactory(), NullLoggerFactory.Instance),
-        new StrmGenerator(),
-        new EpubStubGenerator(),
-        new NfoGenerator(),
-        NullLogger<SyncService>.Instance);
-
+    private readonly SyncService _syncService;
     private readonly ILibraryManager _libraryManager;
 
     public LibrarySyncJob(ILibraryManager libraryManager)
     {
         _libraryManager = libraryManager;
+        _syncService = new SyncService(
+            new ConnectorFactory(new DefaultHttpClientFactory(), NullLoggerFactory.Instance),
+            new StrmGenerator(),
+            new EpubStubGenerator(),
+            new NfoGenerator(),
+            NullLogger<SyncService>.Instance,
+            libraryManager);
     }
 
     // -------------------------------------------------------------------------

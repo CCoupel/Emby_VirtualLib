@@ -1,3 +1,7 @@
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
 using Microsoft.Extensions.Logging;
 using VirtualLib.Core.Models;
 
@@ -54,19 +58,22 @@ public sealed class SyncService
     private readonly EpubStubGenerator _epubStubGenerator;
     private readonly NfoGenerator _nfoGenerator;
     private readonly ILogger<SyncService> _logger;
+    private readonly ILibraryManager? _libraryManager;
 
     public SyncService(
         IConnectorFactory connectorFactory,
         StrmGenerator strmGenerator,
         EpubStubGenerator epubStubGenerator,
         NfoGenerator nfoGenerator,
-        ILogger<SyncService> logger)
+        ILogger<SyncService> logger,
+        ILibraryManager? libraryManager = null)
     {
         _connectorFactory = connectorFactory;
         _strmGenerator = strmGenerator;
         _epubStubGenerator = epubStubGenerator;
         _nfoGenerator = nfoGenerator;
         _logger = logger;
+        _libraryManager = libraryManager;
     }
 
     /// <summary>
@@ -165,6 +172,7 @@ public sealed class SyncService
 
         // --- 3. Sync each configured library ---
         var libraryResults = new List<LibrarySyncResult>();
+        var allPendingChapters = new List<(string StrmPath, MediaItem Chapter)>();
 
         foreach (var libraryId in config.LibraryIds)
         {
@@ -178,11 +186,21 @@ public sealed class SyncService
                 "Syncing library '{LibraryName}' ({LibraryId}) for connector {ConnectorId}",
                 libraryName, libraryId, config.Id);
 
-            var libResult = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, progress, ct);
+            var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, progress, ct);
             libraryResults.Add(libResult);
+            allPendingChapters.AddRange(libPending);
             created += libResult.ItemsCreated;
             skipped += libResult.ItemsSkipped;
             failed += libResult.ItemsFailed;
+        }
+
+        // --- 4. Background metadata push for audiobook chapters ---
+        // QueueLibraryScan() is called by the caller; fire a background task that polls
+        // until each chapter item appears in the Emby DB and then injects its metadata.
+        if (allPendingChapters.Count > 0 && _libraryManager is not null)
+        {
+            var pendingSnapshot = allPendingChapters;
+            _ = Task.Run(async () => await PushPendingChapterMetadataAsync(pendingSnapshot, CancellationToken.None));
         }
 
         // Update remote item counts for libraries that were NOT synced (unchecked)
@@ -233,7 +251,13 @@ public sealed class SyncService
 
         var libraryName = config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId)?.Name ?? libraryId;
 
-        var libResult = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, progress, ct);
+        var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, progress, ct);
+
+        if (libPending.Count > 0 && _libraryManager is not null)
+        {
+            var pendingSnapshot = libPending;
+            _ = Task.Run(async () => await PushPendingChapterMetadataAsync(pendingSnapshot, CancellationToken.None));
+        }
 
         var duration = DateTime.UtcNow - startTime;
         return SyncResult.Completed(config.DisplayName, libResult.ItemsCreated, libResult.ItemsSkipped, libResult.ItemsFailed, duration, new List<LibrarySyncResult> { libResult });
@@ -243,7 +267,7 @@ public sealed class SyncService
     // Private helpers
     // -----------------------------------------------------------------
 
-    private async Task<LibrarySyncResult> SyncLibraryItemsAsync(
+    private async Task<(LibrarySyncResult Result, List<(string StrmPath, MediaItem Chapter)> PendingChapters)> SyncLibraryItemsAsync(
         IMediaServerConnector connector,
         ConnectorConfig config,
         string libraryId,
@@ -255,6 +279,7 @@ public sealed class SyncService
     {
         int libCreated = 0, libSkipped = 0, libFailed = 0;
         var processedBookIds = new HashSet<string>(); // avoid re-fetching book metadata per chapter
+        var pendingChapters  = new List<(string StrmPath, MediaItem Chapter)>();
 
         IReadOnlyList<MediaItem> items;
         try
@@ -265,7 +290,7 @@ public sealed class SyncService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to list items for library {LibraryId}", libraryId);
-            return new LibrarySyncResult { LibraryName = libraryName, ItemsFailed = 1 };
+            return (new LibrarySyncResult { LibraryName = libraryName, ItemsFailed = 1 }, new List<(string, MediaItem)>());
         }
 
         // Update the cached remote item count so the config page reflects reality after sync
@@ -294,19 +319,31 @@ public sealed class SyncService
                     var bookId       = item.SeriesId ?? item.RemoteId;
 
                     // Fetch book-level metadata + artwork only once per book
-                    if (config.MetadataMode != MetadataMode.LocalScraping
-                        && !processedBookIds.Contains(bookId)
-                        && (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(bookNfoPath)))
+                    if (config.MetadataMode != MetadataMode.LocalScraping && !processedBookIds.Contains(bookId))
                     {
                         processedBookIds.Add(bookId);
                         try
                         {
                             var bookMeta = await connector.GetMetadataAsync(bookId, ct);
-                            // album.nfo — standard Emby Music/AudioBook scanner format
-                            var nfoContent = _nfoGenerator.GenerateAudioBookNfo(bookMeta);
-                            if (!string.IsNullOrEmpty(nfoContent))
-                                File.WriteAllText(bookNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
-                            await DownloadArtworkAsync(connector, bookMeta, bookDir, ct, audiobook: true);
+
+                            // NFO: write on first sync, or always in RemoteSyncFull mode
+                            if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(bookNfoPath))
+                            {
+                                var nfoContent = _nfoGenerator.GenerateAudioBookNfo(bookMeta);
+                                if (!string.IsNullOrEmpty(nfoContent))
+                                    File.WriteAllText(bookNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
+                            }
+
+                            // Artwork: always attempt (DownloadArtworkAsync skips files that already exist).
+                            // Use the book container's artwork; fall back to the chapter's artwork when the
+                            // container has no images (Emby often returns inherited cover art on Audio items).
+                            var artworkSource = bookMeta.AvailableArtwork.Count > 0
+                                ? (MediaItem)bookMeta
+                                : item;
+                            await DownloadArtworkAsync(connector, artworkSource, bookDir, ct, audiobook: true);
+
+                            // Push metadata directly to any existing Folder item (bypasses provider pipeline)
+                            PushAudioBookFolderMetadata(bookDir, bookMeta, ct);
                         }
                         catch (OperationCanceledException) { throw; }
                         catch (Exception ex)
@@ -314,10 +351,34 @@ public sealed class SyncService
                             _logger.LogWarning(ex, "Failed to fetch metadata for audiobook '{Series}'", item.SeriesName);
                         }
                     }
-                    else
+
+                    // Download chapter-specific artwork (Primary → {chapter}.jpg alongside the .strm).
+                    // Only the Primary image makes sense per-chapter; all other types belong to the book folder.
+                    if (item.AvailableArtwork.Contains(ArtworkType.Poster))
                     {
-                        processedBookIds.Add(bookId);
+                        var chapterImgPath = Path.ChangeExtension(chapterPath, ".jpg");
+                        if (!File.Exists(chapterImgPath))
+                        {
+                            try
+                            {
+                                var stream = await connector.GetArtworkStreamAsync(item.RemoteId, ArtworkType.Poster, ct);
+                                if (stream is not null)
+                                {
+                                    await using (stream)
+                                    await using (var file = File.Create(chapterImgPath))
+                                        await stream.CopyToAsync(file, ct);
+                                }
+                            }
+                            catch (OperationCanceledException) { throw; }
+                            catch (Exception ex)
+                            {
+                                _logger.LogDebug(ex, "Failed to download chapter artwork for '{Path}'", chapterPath);
+                            }
+                        }
                     }
+
+                    // Defer chapter-level metadata push until after the library scan creates the items.
+                    pendingChapters.Add((chapterPath, item));
 
                     libCreated++;
                     continue;
@@ -419,7 +480,130 @@ public sealed class SyncService
             }
         }
 
-        return new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed };
+        return (new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed }, pendingChapters);
+    }
+
+    /// <summary>
+    /// Pushes book-level metadata directly to the Emby Folder item for an audiobook,
+    /// bypassing the ILocalMetadataProvider pipeline which Emby does not invoke for
+    /// virtual library folders in Audiobooks libraries.
+    /// No-op if the item has not been scanned into Emby yet (new first-time sync).
+    /// </summary>
+    private void PushAudioBookFolderMetadata(string bookDir, MediaMetadata meta, CancellationToken ct)
+    {
+        if (_libraryManager is null) return;
+        try
+        {
+            var folder = _libraryManager.FindByPath(bookDir, true) as Folder;
+            if (folder is null)
+            {
+                _logger.LogDebug(
+                    "VirtualLib: no Folder item at '{Path}' yet — metadata will be applied on next scan via album.nfo",
+                    bookDir);
+                return;
+            }
+
+            folder.Name             = meta.Title;
+            folder.Overview         = meta.Overview;
+            folder.CommunityRating  = meta.CommunityRating;
+
+            if (meta.Year.HasValue)
+                folder.ProductionYear = meta.Year.Value;
+
+            if (meta.Genres.Count > 0)
+                folder.Genres = meta.Genres.ToArray();
+
+            if (meta.Tags.Count > 0)
+                folder.Tags = meta.Tags.ToArray();
+
+            _libraryManager.UpdateItem(folder, folder.GetParent(), ItemUpdateType.MetadataEdit, new MetadataRefreshOptions((IDirectoryService)null!));
+            _logger.LogInformation(
+                "VirtualLib: pushed audiobook metadata for '{Path}' — title='{Title}'",
+                bookDir, meta.Title);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "VirtualLib: failed to push audiobook metadata for '{Path}'", bookDir);
+        }
+    }
+
+    /// <summary>
+    /// Background polling loop: waits for each audiobook chapter item to appear in the Emby DB
+    /// (after the library scan triggered by QueueLibraryScan), then injects metadata directly.
+    /// Runs until all items are resolved or a 5-minute timeout is reached.
+    /// </summary>
+    private async Task PushPendingChapterMetadataAsync(
+        List<(string StrmPath, MediaItem Chapter)> pending,
+        CancellationToken ct)
+    {
+        if (_libraryManager is null || pending.Count == 0) return;
+
+        var remaining = new List<(string StrmPath, MediaItem Chapter)>(pending);
+        var deadline  = DateTime.UtcNow.AddMinutes(5);
+        int round     = 0;
+
+        _logger.LogInformation(
+            "VirtualLib: starting background metadata push for {Count} audiobook chapter(s)",
+            remaining.Count);
+
+        while (remaining.Count > 0 && DateTime.UtcNow < deadline)
+        {
+            if (ct.IsCancellationRequested) break;
+
+            // First round: give the scan a few seconds to start indexing.
+            await Task.Delay(round == 0 ? 5000 : 2000, ct).ConfigureAwait(false);
+            round++;
+
+            var stillPending = new List<(string StrmPath, MediaItem Chapter)>();
+            int pushed = 0;
+
+            foreach (var (strmPath, chapter) in remaining)
+            {
+                if (_libraryManager.FindByPath(strmPath, false) is not Audio audio)
+                {
+                    stillPending.Add((strmPath, chapter));
+                    continue;
+                }
+
+                if (chapter.RuntimeTicks.HasValue)
+                    audio.RunTimeTicks = chapter.RuntimeTicks.Value;
+
+                if (!string.IsNullOrEmpty(chapter.SeriesName))
+                    audio.Album = chapter.SeriesName;
+
+                if (chapter.AlbumArtists.Count > 0)
+                {
+                    audio.AlbumArtists = chapter.AlbumArtists.ToArray();
+                    audio.Artists      = chapter.AlbumArtists.ToArray();
+                }
+
+                try
+                {
+                    _libraryManager.UpdateItem(audio, audio.GetParent(), ItemUpdateType.MetadataEdit, new MetadataRefreshOptions((IDirectoryService)null!));
+                    pushed++;
+                    _logger.LogInformation(
+                        "VirtualLib: pushed chapter metadata — '{Path}' ticks={Ticks} album='{Album}'",
+                        strmPath, chapter.RuntimeTicks, audio.Album);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "VirtualLib: UpdateItem failed for '{Path}' — will retry", strmPath);
+                    stillPending.Add((strmPath, chapter));
+                }
+            }
+
+            remaining = stillPending;
+            _logger.LogInformation(
+                "VirtualLib: metadata push round {Round} — pushed={Pushed}, remaining={Remaining}",
+                round, pushed, remaining.Count);
+        }
+
+        if (remaining.Count > 0)
+            _logger.LogWarning(
+                "VirtualLib: {Count} chapter(s) still unresolved after timeout — they will get metadata on next sync",
+                remaining.Count);
+        else
+            _logger.LogInformation("VirtualLib: all audiobook chapter metadata pushed successfully");
     }
 
     private static string SanitizeFileName(string name) => StrmGenerator.SanitizeName(name);
@@ -454,15 +638,21 @@ public sealed class SyncService
         { ArtworkType.Backdrop, "fanart.jpg"    },
         { ArtworkType.Thumb,    "landscape.jpg" },
         { ArtworkType.Logo,     "logo.png"      },
+        { ArtworkType.Banner,   "banner.jpg"    },
+        { ArtworkType.Disc,     "disc.jpg"      },
+        { ArtworkType.Art,      "clearart.png"  },
     };
 
     // Artwork filenames for music/audiobook libraries — Emby expects folder.jpg for album art
     private static readonly Dictionary<ArtworkType, string> _audioArtworkFileNames = new()
     {
-        { ArtworkType.Poster,   "folder.jpg"   },
-        { ArtworkType.Backdrop, "fanart.jpg"   },
+        { ArtworkType.Poster,   "folder.jpg"    },
+        { ArtworkType.Backdrop, "fanart.jpg"    },
         { ArtworkType.Thumb,    "landscape.jpg" },
-        { ArtworkType.Logo,     "logo.png"     },
+        { ArtworkType.Logo,     "logo.png"      },
+        { ArtworkType.Banner,   "banner.jpg"    },
+        { ArtworkType.Disc,     "disc.jpg"      },
+        { ArtworkType.Art,      "clearart.png"  },
     };
 
     private async Task DownloadArtworkAsync(
