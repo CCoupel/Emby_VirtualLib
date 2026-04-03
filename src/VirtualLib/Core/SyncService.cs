@@ -254,6 +254,7 @@ public sealed class SyncService
         CancellationToken ct)
     {
         int libCreated = 0, libSkipped = 0, libFailed = 0;
+        var processedBookIds = new HashSet<string>(); // avoid re-fetching book metadata per chapter
 
         IReadOnlyList<MediaItem> items;
         try
@@ -282,10 +283,50 @@ public sealed class SyncService
 
             try
             {
-                // ---- Books / AudioBooks ------------------------------------------------
+                // ---- Audiobook chapters ------------------------------------------------
+                // Chapters (AudioBook type with SeriesName set): generate one STRM per chapter
+                // organised under the book folder, and fetch book-level NFO/artwork once.
+                if (item.Type == MediaType.AudioBook && !string.IsNullOrEmpty(item.SeriesName))
+                {
+                    var chapterPath  = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl);
+                    var bookDir      = Path.GetDirectoryName(chapterPath)!;
+                    var bookNfoPath  = Path.Combine(bookDir, "album.nfo");
+                    var bookId       = item.SeriesId ?? item.RemoteId;
+
+                    // Fetch book-level metadata + artwork only once per book
+                    if (config.MetadataMode != MetadataMode.LocalScraping
+                        && !processedBookIds.Contains(bookId)
+                        && (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(bookNfoPath)))
+                    {
+                        processedBookIds.Add(bookId);
+                        try
+                        {
+                            var bookMeta = await connector.GetMetadataAsync(bookId, ct);
+                            // album.nfo — standard Emby Music/AudioBook scanner format
+                            var nfoContent = _nfoGenerator.GenerateAudioBookNfo(bookMeta);
+                            if (!string.IsNullOrEmpty(nfoContent))
+                                File.WriteAllText(bookNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
+                            await DownloadArtworkAsync(connector, bookMeta, bookDir, ct, audiobook: true);
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to fetch metadata for audiobook '{Series}'", item.SeriesName);
+                        }
+                    }
+                    else
+                    {
+                        processedBookIds.Add(bookId);
+                    }
+
+                    libCreated++;
+                    continue;
+                }
+
+                // ---- Books (full ebook download) ---------------------------------------
                 // Emby's BookResolver ignores .strm files — download the real ebook file.
                 // Fall back to an epub stub if the download fails so the item stays visible.
-                if (item.Type is MediaType.Book or MediaType.AudioBook)
+                if (item.Type is MediaType.Book)
                 {
                     var bookDir      = EpubStubGenerator.GetDirectoryPath(item, config.DisplayName, libraryName, virtualLibRoot);
                     var bookBaseName = _epubStubGenerator.GetFileName(item);
@@ -381,6 +422,8 @@ public sealed class SyncService
         return new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed };
     }
 
+    private static string SanitizeFileName(string name) => StrmGenerator.SanitizeName(name);
+
     // Returns true when no real book file exists yet, or only a tiny stub is present (<4 KB)
     private static bool BookFileNeedsDownload(string pathNoExt)
     {
@@ -404,9 +447,19 @@ public sealed class SyncService
         }
     }
 
-    private static readonly Dictionary<ArtworkType, string> _artworkFileNames = new()
+    // Artwork filenames for video libraries (movies, TV shows)
+    private static readonly Dictionary<ArtworkType, string> _videoArtworkFileNames = new()
     {
-        { ArtworkType.Poster,   "poster.jpg"   },
+        { ArtworkType.Poster,   "poster.jpg"    },
+        { ArtworkType.Backdrop, "fanart.jpg"    },
+        { ArtworkType.Thumb,    "landscape.jpg" },
+        { ArtworkType.Logo,     "logo.png"      },
+    };
+
+    // Artwork filenames for music/audiobook libraries — Emby expects folder.jpg for album art
+    private static readonly Dictionary<ArtworkType, string> _audioArtworkFileNames = new()
+    {
+        { ArtworkType.Poster,   "folder.jpg"   },
         { ArtworkType.Backdrop, "fanart.jpg"   },
         { ArtworkType.Thumb,    "landscape.jpg" },
         { ArtworkType.Logo,     "logo.png"     },
@@ -416,13 +469,16 @@ public sealed class SyncService
         IMediaServerConnector connector,
         MediaItem item,
         string targetDir,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool audiobook = false)
     {
+        var artworkFileNames = audiobook ? _audioArtworkFileNames : _videoArtworkFileNames;
+
         foreach (var artworkType in item.AvailableArtwork)
         {
             ct.ThrowIfCancellationRequested();
 
-            if (!_artworkFileNames.TryGetValue(artworkType, out var fileName)) continue;
+            if (!artworkFileNames.TryGetValue(artworkType, out var fileName)) continue;
 
             var destPath = Path.Combine(targetDir, fileName);
             if (File.Exists(destPath)) continue;

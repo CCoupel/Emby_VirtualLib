@@ -43,8 +43,7 @@ public sealed class NfoGenerator
         }
         else if (metadata.Type == MediaType.AudioBook)
         {
-            // Audiobook library: album-level NFO read by Emby's Music/AudioBook scanner
-            content = GenerateMusicAlbumNfo(metadata);
+            content = GenerateAudioBookNfo(metadata);
             fileName = "album.nfo";
         }
         else if (metadata.Type == MediaType.Book)
@@ -191,13 +190,11 @@ public sealed class NfoGenerator
     }
 
     /// <summary>
-    /// Generates an album.nfo for an audiobook.
-    /// Root element is &lt;album&gt; as written by Emby's AlbumNfoSaver.
+    /// Generates the album.nfo sidecar for an audiobook item.
+    /// Root element: &lt;album&gt; — read back by <see cref="VirtualLib.Providers.AudioBookNfoProvider"/>.
     /// Authors map to &lt;albumartist&gt; (primary) and &lt;artist&gt; (compat).
-    /// The library must be of type "books" (not "audiobooks") for Emby's
-    /// AudioResolver to group .strm files into AudioBook containers.
     /// </summary>
-    public string GenerateMusicAlbumNfo(MediaMetadata metadata)
+    public string GenerateAudioBookNfo(MediaMetadata metadata)
     {
         using var ms = new MemoryStream();
         using var writer = XmlWriter.Create(ms, XmlSettings);
@@ -225,7 +222,7 @@ public sealed class NfoGenerator
         foreach (var tag in metadata.Tags)
             writer.WriteElementString("tag", tag);
 
-        writer.WriteEndElement(); // album
+        writer.WriteEndElement(); // album (audiobook)
         writer.WriteEndDocument();
         writer.Flush();
 
