@@ -509,10 +509,6 @@ public sealed class ConfigController : BaseApiService
 
         var virtualLibRoot = config.VirtualLibraryRootPath;
 
-        var lib = connectorConfig.KnownLibraries.FirstOrDefault(l => l.Id == request.LibraryId);
-        if (lib != null && !string.IsNullOrEmpty(virtualLibRoot))
-            _libraryProvisioner.EnsureVirtualFolder(connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot);
-
         var result = _syncService.Value.SyncLibraryAsync(
             connectorConfig,
             request.LibraryId,
@@ -665,8 +661,6 @@ public sealed class ConfigController : BaseApiService
 
         foreach (var connectorConfig in enabledConnectors)
         {
-            ProvisionEnabledLibraries(connectorConfig, virtualLibRoot);
-
             var result = _syncService.Value.SyncConnectorAsync(
                 connectorConfig,
                 virtualLibRoot,
@@ -698,7 +692,6 @@ public sealed class ConfigController : BaseApiService
             throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
 
         var virtualLibRoot = config.VirtualLibraryRootPath;
-        ProvisionEnabledLibraries(connectorConfig, virtualLibRoot);
 
         var result = _syncService.Value.SyncConnectorAsync(
             connectorConfig,

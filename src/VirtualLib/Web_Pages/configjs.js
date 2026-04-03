@@ -66,6 +66,10 @@ define([], function () {
 
         var TYPE_LABELS = { Movies: 'Movies', TvShows: 'TV Shows', Music: 'Music' };
 
+        // Local cache of connectors — updated on every loadConnectors() call.
+        // Used by toggleLibrary() to avoid a GET→PUT race condition.
+        var _connectorsCache = [];
+
         function makeBtn(text, onClick) {
             var btn = document.createElement('button');
             btn.setAttribute('is', 'emby-button');
@@ -203,13 +207,12 @@ define([], function () {
                             cb.checked = libEnabled;
 
                             var label = document.createElement('label');
-                            label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;cursor:pointer;flex:1;min-width:0';
+                            label.style.cssText = 'display:inline-flex;align-items:center;cursor:pointer;flex-shrink:0';
+                            label.appendChild(cb);
 
                             var libName = document.createElement('span');
                             libName.textContent = lib.Name;
-
-                            label.appendChild(cb);
-                            label.appendChild(libName);
+                            libName.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
 
                             var remoteCount = (lib.RemoteItemCount !== undefined && lib.RemoteItemCount >= 0)
                                 ? lib.RemoteItemCount : '?';
@@ -239,6 +242,7 @@ define([], function () {
                             }(c.Id, lib.Id, type, syncBtn, countSpan)));
 
                             libRow.appendChild(label);
+                            libRow.appendChild(libName);
                             libRow.appendChild(countSpan);
                             libRow.appendChild(syncBtn);
                             typeBody.appendChild(libRow);
@@ -261,7 +265,8 @@ define([], function () {
 
         function loadConnectors() {
             apiGet('/virtuallib/connectors').then(function (data) {
-                renderConnectorTree(Array.isArray(data) ? data : []);
+                _connectorsCache = Array.isArray(data) ? data : [];
+                renderConnectorTree(_connectorsCache);
             }).catch(function (e) {
                 console.error('VirtualLib: failed to load connectors', e);
             });
@@ -566,30 +571,31 @@ define([], function () {
         }
 
         function toggleLibrary(connectorId, libraryId, enabled) {
-            apiGet('/virtuallib/connectors').then(function (connectors) {
-                var c = connectors.find(function (x) { return x.Id === connectorId; });
-                if (!c) return;
-                var ids = (c.LibraryIds || []).slice();
-                if (enabled && ids.indexOf(libraryId) === -1) ids.push(libraryId);
-                if (!enabled) ids = ids.filter(function (id) { return id !== libraryId; });
-                var payload = {
-                    Id: c.Id,
-                    DisplayName: c.DisplayName,
-                    ServerType: c.ServerType,
-                    ServerUrl: c.ServerUrl,
-                    PlexMachineIdentifier: c.PlexMachineIdentifier || '',
-                    AuthMode: c.AuthMode || 'ApiKey',
-                    ApiKey: c.ApiKey,
-                    Username: c.Username || '',
-                    Password: '',  // empty = preserve existing on server side
-                    MetadataMode: c.MetadataMode || 'RemoteSync',
-                    LibraryIds: ids,
-                    Enabled: c.Enabled
-                };
-                return apiPut('/virtuallib/connectors/' + encodeURIComponent(connectorId), payload);
-            }).catch(function (e) {
-                console.error('VirtualLib: failed to toggle library', e);
-            });
+            var c = _connectorsCache.find(function (x) { return x.Id === connectorId; });
+            if (!c) return;
+            var ids = (c.LibraryIds || []).slice();
+            if (enabled && ids.indexOf(libraryId) === -1) ids.push(libraryId);
+            if (!enabled) ids = ids.filter(function (id) { return id !== libraryId; });
+            // Update cache immediately so rapid successive toggles don't race
+            c.LibraryIds = ids;
+            var payload = {
+                Id: c.Id,
+                DisplayName: c.DisplayName,
+                ServerType: c.ServerType,
+                ServerUrl: c.ServerUrl,
+                PlexMachineIdentifier: c.PlexMachineIdentifier || '',
+                AuthMode: c.AuthMode || 'ApiKey',
+                ApiKey: c.ApiKey,
+                Username: c.Username || '',
+                Password: '',  // empty = preserve existing on server side
+                MetadataMode: c.MetadataMode || 'RemoteSync',
+                LibraryIds: ids,
+                Enabled: c.Enabled
+            };
+            apiPut('/virtuallib/connectors/' + encodeURIComponent(connectorId), payload)
+                .catch(function (e) {
+                    console.error('VirtualLib: failed to toggle library', e);
+                });
         }
 
         function syncLibrary(connectorId, libraryId) {

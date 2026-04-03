@@ -36,14 +36,20 @@ public sealed class LibraryProvisioner
         var folderPath = BuildFolderPath(virtualLibRoot, connectorName, libraryName);
         var collectionType = MapCollectionType(libraryType);
 
-        if (FolderExists(virtualFolderName))
+        Directory.CreateDirectory(folderPath);
+
+        var existing = _libraryManager.GetVirtualFolders()
+            .FirstOrDefault(f => string.Equals(f.Name, virtualFolderName, StringComparison.OrdinalIgnoreCase));
+
+        if (existing != null)
         {
-            _logger.LogDebug("Virtual folder '{Name}' already exists — updating options", virtualFolderName);
+            // Folder already registered in Emby — ensure the physical path is associated.
+            // (AddVirtualFolder may have succeeded previously but AddMediaPaths may have failed,
+            // leaving a folder with an empty path that Emby cannot scan.)
             ApplyLibraryOptions(virtualFolderName, collectionType, metadataMode);
+            EnsureMediaPath(existing, virtualFolderName, folderPath);
             return;
         }
-
-        Directory.CreateDirectory(folderPath);
 
         _logger.LogInformation(
             "Creating virtual folder '{Name}' (type={Type}, mode={Mode}) → '{Path}'",
@@ -57,23 +63,41 @@ public sealed class LibraryProvisioner
             var created = _libraryManager.GetVirtualFolders()
                 .FirstOrDefault(f => string.Equals(f.Name, virtualFolderName, StringComparison.OrdinalIgnoreCase));
 
-            if (created != null && long.TryParse(created.ItemId, out var itemId) &&
-                _libraryManager.GetItemById(itemId) is CollectionFolder collectionFolder)
-            {
-                _libraryManager.AddMediaPaths(
-                    collectionFolder,
-                    new[] { new MediaPathInfo { Path = folderPath } },
-                    refreshLibrary: true);
-            }
-            else
-            {
-                _logger.LogWarning("Could not resolve CollectionFolder for '{Name}' to add media path", virtualFolderName);
-            }
+            EnsureMediaPath(created, virtualFolderName, folderPath);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to create virtual folder '{Name}'", virtualFolderName);
         }
+    }
+
+    private void EnsureMediaPath(MediaBrowser.Model.Entities.VirtualFolderInfo? folder, string virtualFolderName, string folderPath)
+    {
+        if (folder == null)
+        {
+            _logger.LogWarning("Could not resolve virtual folder '{Name}' to add media path", virtualFolderName);
+            return;
+        }
+
+        // Already has this path registered — nothing to do.
+        if (folder.Locations != null && folder.Locations.Any(l =>
+                string.Equals(l, folderPath, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        if (!long.TryParse(folder.ItemId, out var itemId) ||
+            _libraryManager.GetItemById(itemId) is not CollectionFolder collectionFolder)
+        {
+            _logger.LogWarning(
+                "Could not resolve CollectionFolder for '{Name}' (ItemId={Id}) to add media path",
+                virtualFolderName, folder.ItemId);
+            return;
+        }
+
+        _logger.LogInformation("Adding media path '{Path}' to virtual folder '{Name}'", folderPath, virtualFolderName);
+        _libraryManager.AddMediaPaths(
+            collectionFolder,
+            new[] { new MediaPathInfo { Path = folderPath } },
+            refreshLibrary: true);
     }
 
     /// <summary>
