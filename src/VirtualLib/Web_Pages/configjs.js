@@ -137,7 +137,9 @@ define([], function () {
                 actions.className = 'vl-connector-actions';
                 actions.appendChild(makeBtn('Edit',   function () { openEditConnector(c.Id); }));
                 actions.appendChild(makeBtn('Delete', function () { deleteConnector(c.Id); }));
-                actions.appendChild(makeBtn('Sync',   function () { syncSingleConnector(c.Id, c.DisplayName); }));
+                var connSyncBtn = makeBtn('Sync', function () { syncSingleConnector(c.Id); });
+                connSyncBtn.setAttribute('data-sync-btn', '1');
+                actions.appendChild(connSyncBtn);
 
                 header.appendChild(caret);
                 header.appendChild(nameSpan);
@@ -229,10 +231,13 @@ define([], function () {
                                 return function () { syncLibrary(connId, libId); };
                             }(c.Id, lib.Id)));
                             syncBtn.style.cssText = 'padding:2px 8px;font-size:0.82em';
+                            syncBtn.setAttribute('data-sync-btn', '1');
+                            syncBtn.setAttribute('data-lib-enabled', libEnabled ? 'true' : 'false');
                             syncBtn.disabled = !libEnabled;
 
                             cb.addEventListener('change', (function (connId, libId, libType, btn, cntSpan) {
                                 return function () {
+                                    btn.setAttribute('data-lib-enabled', this.checked ? 'true' : 'false');
                                     btn.disabled = !this.checked;
                                     cntSpan.setAttribute('data-lib-selected', this.checked ? '1' : '0');
                                     updateTypeSummary(connId, libType);
@@ -451,51 +456,165 @@ define([], function () {
         }
 
         // -------------------------------------------------------------------
-        // Synchronisation
+        // Synchronisation — state + polling
         // -------------------------------------------------------------------
 
-        function startSyncUI() {
+        var _syncPollTimer = null;
+
+        function setSyncMode(active) {
+            q('btnSyncAll').disabled = active;
+            view.querySelectorAll('[data-sync-btn]').forEach(function (btn) {
+                if (active) {
+                    btn.disabled = true;
+                } else {
+                    // Re-enable only if the library checkbox is checked (or it's a connector-level btn)
+                    var libEnabled = btn.getAttribute('data-lib-enabled');
+                    btn.disabled = libEnabled === 'false';
+                }
+            });
+        }
+
+        function stopSyncPoll() {
+            if (_syncPollTimer) { clearTimeout(_syncPollTimer); _syncPollTimer = null; }
+        }
+
+        function pct(done, total) {
+            return total > 0 ? Math.round(done / total * 100) : 0;
+        }
+
+        var PHASE1_COLOR = 'var(--accent-color,#00a4dc)';
+        var PHASE2_COLOR = '#4caf50';
+
+        function setBar(barId, labelId, pct, leftText, color) {
+            var bar = q(barId);
+            bar.style.width = pct + '%';
+            bar.style.background = color;
+            var lbl = q(labelId);
+            lbl.textContent = '';
+            var left = document.createElement('span');
+            left.textContent = leftText;
+            var right = document.createElement('span');
+            right.textContent = pct + '%';
+            lbl.appendChild(left);
+            lbl.appendChild(right);
+        }
+
+        function updateProgressBars(status) {
+            var isPhase2 = status.Phase === 2;
+            var color = isPhase2 ? PHASE2_COLOR : PHASE1_COLOR;
+
+            // Phase label
+            var phaseLabel = q('syncPhaseLabel');
+            phaseLabel.style.color = color;
+            phaseLabel.textContent = isPhase2
+                ? '\u25cf Phase 2/2 \u2014 Metadata injection'
+                : '\u25cf Phase 1/2 \u2014 File synchronisation';
+
+            // Item bar: direct fraction
+            var itemFraction = (status.TotalItems > 0) ? status.DoneItems / status.TotalItems : 0;
+            var itemPct = Math.round(itemFraction * 100);
+            var itemText = status.TotalItems > 0
+                ? 'Items: ' + status.DoneItems + ' / ' + status.TotalItems + (status.CurrentItem ? ' \u2014 ' + status.CurrentItem : '')
+                : (status.Message || 'Synchronising\u2026');
+            setBar('syncBarItems', 'syncProgressLabel', itemPct, itemText, color);
+
+            // Library bar: done libs + fractional progress of current lib
+            var libDone = status.DoneLibraries + itemFraction;
+            var libPct = status.TotalLibraries > 0 ? Math.round(libDone / status.TotalLibraries * 100) : 0;
+            var libCurrent = (status.TotalLibraries > 0 && status.DoneLibraries < status.TotalLibraries)
+                ? status.DoneLibraries + 1 : status.DoneLibraries;
+            var libText = status.TotalLibraries > 0
+                ? 'Libraries: ' + libCurrent + ' / ' + status.TotalLibraries
+                  + (status.CurrentLibrary ? ' \u2014 ' + status.CurrentLibrary : '')
+                : '';
+            setBar('syncBarLibraries', 'syncLabelLibraries', libPct, libText, color);
+
+            // Connector bar: done connectors + fractional progress of current connector
+            var libFraction = (status.TotalLibraries > 0) ? libDone / status.TotalLibraries : 0;
+            var connDone = status.DoneConnectors + libFraction;
+            var connPct = status.TotalConnectors > 0 ? Math.round(connDone / status.TotalConnectors * 100) : 0;
+            var connCurrent = (status.TotalConnectors > 0 && status.DoneConnectors < status.TotalConnectors)
+                ? status.DoneConnectors + 1 : status.DoneConnectors;
+            var connText = status.TotalConnectors > 1
+                ? 'Connectors: ' + connCurrent + ' / ' + status.TotalConnectors
+                : (status.CurrentConnector || '');
+            setBar('syncBarConnectors', 'syncLabelConnectors', connPct, connText, color);
+        }
+
+        function resetProgressBars() {
+            ['syncBarConnectors', 'syncBarLibraries', 'syncBarItems'].forEach(function (id) {
+                q(id).style.width = '0%';
+                q(id).style.background = PHASE1_COLOR;
+            });
+            q('syncLabelConnectors').textContent = '';
+            q('syncLabelLibraries').textContent = '';
+            var phaseLabel = q('syncPhaseLabel');
+            phaseLabel.style.color = PHASE1_COLOR;
+            phaseLabel.textContent = '\u25cf Phase 1/2 \u2014 File synchronisation';
+        }
+
+        function finishProgressBars() {
+            var color = PHASE2_COLOR;
+            setBar('syncBarConnectors', 'syncLabelConnectors', 100, '', color);
+            setBar('syncBarLibraries', 'syncLabelLibraries', 100, '', color);
+            setBar('syncBarItems', 'syncProgressLabel', 100, 'Done', color);
+            var phaseLabel = q('syncPhaseLabel');
+            phaseLabel.style.color = color;
+            phaseLabel.textContent = '\u2713 Synchronisation complete';
+        }
+
+        // Called repeatedly while a sync is in progress.
+        // Also called once on page load to detect an already-running sync.
+        function pollSyncStatus() {
+            apiGet('/virtuallib/sync/status').then(function (status) {
+                if (status.IsSyncing) {
+                    q('syncProgressContainer').style.display = '';
+                    q('syncResultContainer').style.display = 'none';
+                    updateProgressBars(status);
+                    setSyncMode(true);
+                    _syncPollTimer = setTimeout(pollSyncStatus, 2000);
+                } else {
+                    stopSyncPoll();
+                    setSyncMode(false);
+                    // If progress was visible (tracking a sync), show completion
+                    if (q('syncProgressContainer').style.display !== 'none') {
+                        finishProgressBars();
+                        if (status.LastResults && status.LastResults.length > 0)
+                            displaySyncResults(status.LastResults, q('syncResultLog'), q('syncResultContainer'));
+                        loadConnectors();
+                    }
+                }
+            }).catch(function () {
+                stopSyncPoll();
+                setSyncMode(false);
+            });
+        }
+
+        // Start a sync from the UI: POST endpoint (returns immediately), then poll
+        function startSync(url) {
             q('syncProgressContainer').style.display = '';
-            q('syncProgressBar').style.width = '0%';
-            q('syncProgressBar').style.background = 'var(--accent-color, #00a4dc)';
-            q('syncProgressLabel').textContent = 'Synchronising\u2026';
+            resetProgressBars();
+            q('syncProgressLabel').textContent = 'Starting\u2026';
             q('syncResultContainer').style.display = 'none';
             q('syncResultLog').textContent = '';
+            setSyncMode(true);
+
+            apiPost(url).then(function (res) {
+                if (res && res.AlreadyRunning) {
+                    q('syncProgressLabel').textContent = 'A sync is already in progress.';
+                    setSyncMode(true); // buttons stay disabled; polling will re-enable when done
+                }
+                // Whether AlreadyRunning or just started, start polling to track progress
+                _syncPollTimer = setTimeout(pollSyncStatus, 1000);
+            }).catch(function (e) {
+                q('syncProgressLabel').textContent = 'Error: ' + e.message;
+                q('syncBarItems').style.background = 'var(--theme-error-color, #e53935)';
+                setSyncMode(false);
+            });
         }
 
-        function finishSyncUI(results, msg) {
-            q('syncProgressBar').style.width = '100%';
-            q('syncProgressLabel').textContent = msg || 'Done.';
-            displaySyncResults(results, q('syncResultLog'), q('syncResultContainer'));
-        }
-
-        function errorSyncUI(message) {
-            q('syncProgressLabel').textContent = 'Error: ' + message;
-            q('syncProgressBar').style.background = 'var(--theme-error-color, #e53935)';
-        }
-
-        function syncSingleConnector(id, displayName) {
-            startSyncUI();
-            var bar = q('syncProgressBar');
-            var label = q('syncProgressLabel');
-            bar.style.width = '10%';
-            label.textContent = (displayName ? displayName + ' \u2014 ' : '') + 'Connecting\u2026';
-            // Animate bar while waiting (10% → 80% over ~2s)
-            var pct = 10;
-            var timer = setInterval(function () {
-                pct = Math.min(pct + 5, 80);
-                bar.style.width = pct + '%';
-            }, 400);
-            apiPost('/virtuallib/connectors/' + encodeURIComponent(id) + '/sync')
-                .then(function (result) {
-                    clearInterval(timer);
-                    finishSyncUI([result], 'Done.');
-                    loadConnectors();
-                })
-                .catch(function (e) {
-                    clearInterval(timer);
-                    errorSyncUI(e.message);
-                });
+        function syncSingleConnector(id) {
+            startSync('/virtuallib/connectors/' + encodeURIComponent(id) + '/sync');
         }
 
         function computeSummary(spans) {
@@ -599,13 +718,7 @@ define([], function () {
         }
 
         function syncLibrary(connectorId, libraryId) {
-            startSyncUI();
-            apiPost('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/libraries/' + encodeURIComponent(libraryId) + '/sync')
-                .then(function (result) {
-                    finishSyncUI([result], 'Done.');
-                    loadLibraryStats(connectorId);
-                })
-                .catch(function (e) { errorSyncUI(e.message); });
+            startSync('/virtuallib/connectors/' + encodeURIComponent(connectorId) + '/libraries/' + encodeURIComponent(libraryId) + '/sync');
         }
 
         function displaySyncResults(results, logEl, containerEl) {
@@ -673,9 +786,14 @@ define([], function () {
         // Init — called by Emby when the view is shown
         // -------------------------------------------------------------------
 
+        view.addEventListener('viewhide', function () {
+            stopSyncPoll();
+        });
+
         view.addEventListener('viewshow', function () {
             loadGlobalSettings();
             loadConnectors();
+            pollSyncStatus(); // Check if a sync was already in progress (e.g. after page refresh)
 
             q('btnSaveGlobal').addEventListener('click', function () {
                 var statusEl = q('globalSaveStatus');
@@ -843,40 +961,7 @@ define([], function () {
             });
 
             q('btnSyncAll').addEventListener('click', function () {
-                startSyncUI();
-                apiGet('/virtuallib/connectors').then(function (connectors) {
-                    var enabled = (connectors || []).filter(function (c) { return c.Enabled; });
-                    if (!enabled.length) {
-                        finishSyncUI([], 'No enabled connectors.');
-                        return;
-                    }
-                    var results = [];
-                    var bar = q('syncProgressBar');
-                    var label = q('syncProgressLabel');
-
-                    function syncNext(i) {
-                        if (i >= enabled.length) {
-                            bar.style.width = '100%';
-                            finishSyncUI(results, 'Synchronisation complete.');
-                            loadConnectors();
-                            return;
-                        }
-                        var c = enabled[i];
-                        var pct = Math.round((i / enabled.length) * 100);
-                        bar.style.width = pct + '%';
-                        label.textContent = '(' + (i + 1) + '/' + enabled.length + ') ' + c.DisplayName + '\u2026';
-                        apiPost('/virtuallib/connectors/' + encodeURIComponent(c.Id) + '/sync')
-                            .then(function (result) {
-                                results.push(result);
-                                syncNext(i + 1);
-                            })
-                            .catch(function (e) {
-                                results.push({ ConnectorName: c.DisplayName, Success: false, ErrorMessage: e.message });
-                                syncNext(i + 1);
-                            });
-                    }
-                    syncNext(0);
-                }).catch(function (e) { errorSyncUI(e.message); });
+                startSync('/virtuallib/sync');
             });
         });
     };

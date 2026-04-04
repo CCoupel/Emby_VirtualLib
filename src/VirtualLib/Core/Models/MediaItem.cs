@@ -27,4 +27,25 @@ public class MediaItem
     public IReadOnlyList<string> AlbumArtists { get; init; } = Array.Empty<string>();
 
     public IReadOnlyList<ArtworkType> AvailableArtwork { get; init; } = Array.Empty<ArtworkType>();
+
+    /// <summary>Technical stream info fetched from the remote server's MediaSources.</summary>
+    public TechnicalInfo? Technical { get; init; }
+}
+
+/// <summary>
+/// Technical metadata from the remote server's MediaSources (already probed by the source).
+/// Injected directly into Emby DB items via the polling loop, bypassing the deferred ffprobe
+/// that Emby would otherwise run only at first playback for .strm files.
+/// </summary>
+public sealed class TechnicalInfo
+{
+    public long?   Size            { get; init; }  // File size in bytes
+    public int?    Bitrate         { get; init; }  // Total bitrate in bps
+    public string? Container       { get; init; }  // Container format (mkv, mp4, avi…)
+    public int?    Width           { get; init; }  // Video width in pixels
+    public int?    Height          { get; init; }  // Video height in pixels
+    public string? VideoCodec      { get; init; }  // Video codec (h264, hevc…)
+    public string? AudioCodec      { get; init; }  // Primary audio codec (ac3, aac…)
+    public int?    AudioChannels   { get; init; }  // Audio channel count
+    public int?    AudioSampleRate { get; init; }  // Audio sample rate in Hz
 }

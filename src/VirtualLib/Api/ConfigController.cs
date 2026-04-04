@@ -128,6 +128,10 @@ public sealed class SaveSettings : IReturn<GlobalSettings>
 [Authenticated]
 public sealed class SyncAll : IReturn<List<SyncResult>> { }
 
+[Route("/virtuallib/sync/status", "GET", Summary = "Get current sync status")]
+[Authenticated]
+public sealed class GetSyncStatus : IReturn<SyncStatusResult> { }
+
 [Route("/virtuallib/plex/servers", "POST", Summary = "List Plex servers visible on plex.tv for the given credentials")]
 [Authenticated]
 public sealed class GetPlexTvServers : IReturn<PlexTvServersResult>
@@ -160,6 +164,35 @@ public sealed class SyncConnector : IReturn<SyncResult>
 // ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
+
+public sealed class SyncStatusResult
+{
+    public bool              IsSyncing    { get; set; }
+    public string            Message      { get; set; } = string.Empty;
+    public DateTime?         StartedAt    { get; set; }
+    public List<SyncResult>? LastResults  { get; set; }
+
+    // Connector-level
+    public string CurrentConnector  { get; set; } = string.Empty;
+    public int    TotalConnectors   { get; set; }
+    public int    DoneConnectors    { get; set; }
+
+    // Library-level (within current connector)
+    public string CurrentLibrary    { get; set; } = string.Empty;
+    public int    TotalLibraries    { get; set; }
+    public int    DoneLibraries     { get; set; }
+
+    // Item-level (within current library)
+    public int    TotalItems        { get; set; }
+    public int    DoneItems         { get; set; }
+
+    public int    Phase             { get; set; } = 1;
+}
+
+public sealed class SyncStartResult
+{
+    public bool AlreadyRunning { get; set; }
+}
 
 public sealed class GlobalSettings
 {
@@ -195,11 +228,13 @@ public sealed class ConfigController : BaseApiService
     private readonly SyncService _syncService;
     private readonly LibraryProvisioner _libraryProvisioner;
     private readonly ILibraryManager _libraryManager;
+    private readonly ILibraryMonitor _libraryMonitor;
     private readonly ITaskManager _taskManager;
 
-    public ConfigController(ILibraryManager libraryManager, ITaskManager taskManager)
+    public ConfigController(ILibraryManager libraryManager, ILibraryMonitor libraryMonitor, ITaskManager taskManager)
     {
         _libraryManager = libraryManager;
+        _libraryMonitor = libraryMonitor;
         _taskManager = taskManager;
         _libraryProvisioner = new LibraryProvisioner(libraryManager, NullLogger<LibraryProvisioner>.Instance);
         _syncService = new SyncService(
@@ -389,6 +424,29 @@ public sealed class ConfigController : BaseApiService
     }
 
     // -----------------------------------------------------------------------
+    // GET /virtuallib/sync/status
+    // -----------------------------------------------------------------------
+    public object Get(GetSyncStatus request)
+    {
+        return ResultFactory.GetResult(Request, new SyncStatusResult
+        {
+            IsSyncing        = SyncState.IsSyncing,
+            Message          = SyncState.Message,
+            StartedAt        = SyncState.StartedAt,
+            LastResults      = SyncState.LastResults,
+            CurrentConnector = SyncState.CurrentConnectorName,
+            TotalConnectors  = SyncState.TotalConnectors,
+            DoneConnectors   = SyncState.DoneConnectors,
+            CurrentLibrary   = SyncState.CurrentLibraryName,
+            TotalLibraries   = SyncState.TotalLibraries,
+            DoneLibraries    = SyncState.DoneLibraries,
+            TotalItems       = SyncState.TotalItems,
+            DoneItems        = SyncState.DoneItems,
+            Phase            = SyncState.Phase
+        }, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
     // PUT /virtuallib/settings
     // -----------------------------------------------------------------------
     public object Put(SaveSettings request)
@@ -506,20 +564,53 @@ public sealed class ConfigController : BaseApiService
         if (connectorConfig is null)
             throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
 
-        var virtualLibRoot = config.VirtualLibraryRootPath;
+        if (!SyncState.TryStart($"Syncing {connectorConfig.DisplayName}…", totalConnectors: 1))
+            return ResultFactory.GetResult(Request, new SyncStartResult { AlreadyRunning = true }, NoHeaders);
 
-        var result = _syncService.SyncLibraryAsync(
-            connectorConfig,
-            request.LibraryId,
-            virtualLibRoot,
-            ProxyBaseUrl,
-            progress: null,
-            CancellationToken.None).GetAwaiter().GetResult();
+        // Capture before Task.Run (Request may be disposed after response is sent)
+        var syncSvc    = _syncService;
+        var libMon     = _libraryMonitor;
+        var root       = config.VirtualLibraryRootPath;
+        var proxyUrl   = ProxyBaseUrl;
+        var conn       = connectorConfig;
+        var libraryId  = request.LibraryId;
 
-        if (result.Success && result.ItemsCreated > 0)
-            _libraryManager.QueueLibraryScan();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // ── Phase 1 ─────────────────────────────────────────────────
+                SyncState.ConnectorStarted(conn.DisplayName, 1);
+                var prog = new Progress<SyncProgress>(p => SyncState.ReportItemProgress(p));
+                var (result, pending) = await syncSvc.SyncLibraryAsync(conn, libraryId, root, proxyUrl, prog, CancellationToken.None);
+                SyncState.ConnectorCompleted();
 
-        return ResultFactory.GetResult(Request, result, NoHeaders);
+                var lp = pending.FirstOrDefault();
+                if (lp is not null && Directory.Exists(lp.LibraryFolderPath))
+                    libMon.ReportFileSystemChanged(lp.LibraryFolderPath);
+
+                // ── Phase 2 ─────────────────────────────────────────────────
+                if (lp is not null && lp.Items.Count > 0)
+                {
+                    SyncState.StartPhase2(1, 1);
+                    SyncState.ConnectorStarted(conn.DisplayName, 1);
+                    var prog2 = new Progress<SyncProgress>(p => SyncState.ReportItemProgress(p));
+                    await syncSvc.PushMetadataAsync(lp.Items, lp.LibraryName, prog2, CancellationToken.None);
+                    SyncState.ConnectorCompleted();
+                }
+
+                SyncState.Finish(new List<SyncResult> { result });
+            }
+            catch (Exception ex)
+            {
+                SyncState.Finish(new List<SyncResult>
+                {
+                    SyncResult.Failure(conn.DisplayName, ex.Message, TimeSpan.Zero)
+                });
+            }
+        });
+
+        return ResultFactory.GetResult(Request, new SyncStartResult { AlreadyRunning = false }, NoHeaders);
     }
 
     // -----------------------------------------------------------------------
@@ -654,29 +745,74 @@ public sealed class ConfigController : BaseApiService
     {
         var config = Plugin.Instance!.Configuration;
         var enabledConnectors = config.Connectors.Where(c => c.Enabled).ToList();
-        var virtualLibRoot = config.VirtualLibraryRootPath;
 
-        var results = new List<SyncResult>(enabledConnectors.Count);
+        if (!SyncState.TryStart(
+                enabledConnectors.Count == 1
+                    ? $"Syncing {enabledConnectors[0].DisplayName}…"
+                    : "Syncing all connectors…",
+                totalConnectors: enabledConnectors.Count))
+            return ResultFactory.GetResult(Request, new SyncStartResult { AlreadyRunning = true }, NoHeaders);
 
-        foreach (var connectorConfig in enabledConnectors)
+        // Capture before Task.Run
+        var syncSvc  = _syncService;
+        var libMon   = _libraryMonitor;
+        var root     = config.VirtualLibraryRootPath;
+        var proxyUrl = ProxyBaseUrl;
+        var conns    = enabledConnectors;
+
+        _ = Task.Run(async () =>
         {
-            var result = _syncService.SyncConnectorAsync(
-                connectorConfig,
-                virtualLibRoot,
-                ProxyBaseUrl,
-                progress: null,
-                CancellationToken.None).GetAwaiter().GetResult();
+            var results    = new List<SyncResult>(conns.Count);
+            var allPending = new List<LibraryPendingMetadata>();
+            try
+            {
+                // ── Phase 1 : file sync (blue) ──────────────────────────────
+                foreach (var conn in conns)
+                {
+                    SyncState.ConnectorStarted(conn.DisplayName, conn.LibraryIds.Count);
+                    var prog = new Progress<SyncProgress>(p => SyncState.ReportItemProgress(p));
+                    var (result, pending) = await syncSvc.SyncConnectorAsync(conn, root, proxyUrl, prog, CancellationToken.None);
+                    results.Add(result);
 
-            results.Add(result);
-        }
+                    // Targeted per-library scan (no global scan)
+                    foreach (var lp in pending)
+                        if (Directory.Exists(lp.LibraryFolderPath))
+                            libMon.ReportFileSystemChanged(lp.LibraryFolderPath);
 
-        // Persist updated RemoteItemCount values written by SyncService
-        Plugin.Instance.SaveConfiguration();
+                    allPending.AddRange(pending);
+                    SyncState.ConnectorCompleted();
+                }
+                Plugin.Instance?.SaveConfiguration();
 
-        if (results.Any(r => r.Success && r.ItemsCreated > 0))
-            _libraryManager.QueueLibraryScan();
+                // ── Phase 2 : metadata injection (green) ────────────────────
+                var pendingWithItems = allPending.Where(p => p.Items.Count > 0).ToList();
+                if (pendingWithItems.Count > 0)
+                {
+                    var byConnector = pendingWithItems.GroupBy(p => p.ConnectorName).ToList();
+                    SyncState.StartPhase2(byConnector.Count, pendingWithItems.Count);
 
-        return ResultFactory.GetResult(Request, results, NoHeaders);
+                    foreach (var connGroup in byConnector)
+                    {
+                        var libs = connGroup.ToList();
+                        SyncState.ConnectorStarted(connGroup.Key, libs.Count);
+                        var prog2 = new Progress<SyncProgress>(p => SyncState.ReportItemProgress(p));
+                        foreach (var lp in libs)
+                            await syncSvc.PushMetadataAsync(lp.Items, lp.LibraryName, prog2, CancellationToken.None);
+                        SyncState.ConnectorCompleted();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                results.Add(SyncResult.Failure("Unknown", ex.Message, TimeSpan.Zero));
+            }
+            finally
+            {
+                SyncState.Finish(results);
+            }
+        });
+
+        return ResultFactory.GetResult(Request, new SyncStartResult { AlreadyRunning = false }, NoHeaders);
     }
 
     // -----------------------------------------------------------------------
@@ -690,22 +826,55 @@ public sealed class ConfigController : BaseApiService
         if (connectorConfig is null)
             throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
 
-        var virtualLibRoot = config.VirtualLibraryRootPath;
+        if (!SyncState.TryStart($"Syncing {connectorConfig.DisplayName}…", totalConnectors: 1))
+            return ResultFactory.GetResult(Request, new SyncStartResult { AlreadyRunning = true }, NoHeaders);
 
-        var result = _syncService.SyncConnectorAsync(
-            connectorConfig,
-            virtualLibRoot,
-            ProxyBaseUrl,
-            progress: null,
-            CancellationToken.None).GetAwaiter().GetResult();
+        // Capture before Task.Run
+        var syncSvc  = _syncService;
+        var libMon   = _libraryMonitor;
+        var root     = config.VirtualLibraryRootPath;
+        var proxyUrl = ProxyBaseUrl;
+        var conn     = connectorConfig;
 
-        // Persist the updated RemoteItemCount values written by SyncService
-        Plugin.Instance.SaveConfiguration();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // ── Phase 1 ─────────────────────────────────────────────────
+                SyncState.ConnectorStarted(conn.DisplayName, conn.LibraryIds.Count);
+                var prog = new Progress<SyncProgress>(p => SyncState.ReportItemProgress(p));
+                var (result, pending) = await syncSvc.SyncConnectorAsync(conn, root, proxyUrl, prog, CancellationToken.None);
+                SyncState.ConnectorCompleted();
+                Plugin.Instance?.SaveConfiguration();
 
-        if (result.Success && result.ItemsCreated > 0)
-            _libraryManager.QueueLibraryScan();
+                foreach (var lp in pending)
+                    if (Directory.Exists(lp.LibraryFolderPath))
+                        libMon.ReportFileSystemChanged(lp.LibraryFolderPath);
 
-        return ResultFactory.GetResult(Request, result, NoHeaders);
+                // ── Phase 2 ─────────────────────────────────────────────────
+                var pendingWithItems = pending.Where(p => p.Items.Count > 0).ToList();
+                if (pendingWithItems.Count > 0)
+                {
+                    SyncState.StartPhase2(1, pendingWithItems.Count);
+                    SyncState.ConnectorStarted(conn.DisplayName, pendingWithItems.Count);
+                    var prog2 = new Progress<SyncProgress>(p => SyncState.ReportItemProgress(p));
+                    foreach (var lp in pendingWithItems)
+                        await syncSvc.PushMetadataAsync(lp.Items, lp.LibraryName, prog2, CancellationToken.None);
+                    SyncState.ConnectorCompleted();
+                }
+
+                SyncState.Finish(new List<SyncResult> { result });
+            }
+            catch (Exception ex)
+            {
+                SyncState.Finish(new List<SyncResult>
+                {
+                    SyncResult.Failure(conn.DisplayName, ex.Message, TimeSpan.Zero)
+                });
+            }
+        });
+
+        return ResultFactory.GetResult(Request, new SyncStartResult { AlreadyRunning = false }, NoHeaders);
     }
 
     // -----------------------------------------------------------------------

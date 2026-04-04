@@ -58,6 +58,7 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
 
         int totalCreated = 0;
         double step = 100.0 / enabledConnectors.Count;
+        var allPending = new List<LibraryPendingMetadata>();
 
         for (var i = 0; i < enabledConnectors.Count; i++)
         {
@@ -71,7 +72,7 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
                 progress.Report(pct);
             });
 
-            var result = await _syncService.SyncConnectorAsync(
+            var (result, pending) = await _syncService.SyncConnectorAsync(
                 connectorConfig,
                 virtualLibRoot,
                 proxyBaseUrl,
@@ -79,11 +80,21 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
                 cancellationToken);
 
             totalCreated += result.ItemsCreated;
+            allPending.AddRange(pending);
             progress.Report((i + 1) * step);
         }
 
         if (totalCreated > 0)
+        {
             _libraryManager.QueueLibraryScan();
+            // Fire-and-forget metadata push (phase 2) for the scheduled task
+            var snapshot = allPending;
+            _ = Task.Run(async () =>
+            {
+                foreach (var g in snapshot)
+                    await _syncService.PushMetadataAsync(g.Items, g.LibraryName, null, CancellationToken.None);
+            });
+        }
 
         progress.Report(100);
     }

@@ -1,5 +1,7 @@
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using Microsoft.Extensions.Logging;
@@ -24,6 +26,17 @@ public sealed class LibrarySyncResult
     public int ItemsCreated { get; init; }
     public int ItemsSkipped { get; init; }
     public int ItemsFailed { get; init; }
+}
+
+/// <summary>
+/// Items created for one library that still need metadata injection (phase 2).
+/// </summary>
+public sealed class LibraryPendingMetadata
+{
+    public string ConnectorName     { get; init; } = string.Empty;
+    public string LibraryName       { get; init; } = string.Empty;
+    public string LibraryFolderPath { get; init; } = string.Empty;
+    public List<(string StrmPath, MediaItem Item)> Items { get; init; } = new();
 }
 
 /// <summary>
@@ -80,7 +93,7 @@ public sealed class SyncService
     /// Synchronises one connector: tests the connection, then iterates over each
     /// configured library and generates .strm + .nfo files for every item found.
     /// </summary>
-    public async Task<SyncResult> SyncConnectorAsync(
+    public async Task<(SyncResult Result, List<LibraryPendingMetadata> Pending)> SyncConnectorAsync(
         ConnectorConfig config,
         string virtualLibRoot,
         string proxyBaseUrl,
@@ -111,7 +124,7 @@ public sealed class SyncService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Connection test threw an exception for connector {ConnectorId}", config.Id);
-            return SyncResult.Failure(config.DisplayName, $"Connection test failed: {ex.Message}", DateTime.UtcNow - startTime);
+            return (SyncResult.Failure(config.DisplayName, $"Connection test failed: {ex.Message}", DateTime.UtcNow - startTime), new List<LibraryPendingMetadata>());
         }
 
         if (!testResult.Success)
@@ -119,10 +132,10 @@ public sealed class SyncService
             _logger.LogWarning(
                 "Connection test failed for connector {ConnectorId}: {Error}",
                 config.Id, testResult.ErrorMessage);
-            return SyncResult.Failure(
+            return (SyncResult.Failure(
                 config.DisplayName,
                 $"Connection test failed: {testResult.ErrorMessage}",
-                DateTime.UtcNow - startTime);
+                DateTime.UtcNow - startTime), new List<LibraryPendingMetadata>());
         }
 
         _logger.LogInformation(
@@ -171,8 +184,8 @@ public sealed class SyncService
         }
 
         // --- 3. Sync each configured library ---
-        var libraryResults = new List<LibrarySyncResult>();
-        var allPendingChapters = new List<(string StrmPath, MediaItem Chapter)>();
+        var libraryResults  = new List<LibrarySyncResult>();
+        var pendingByLibrary = new List<LibraryPendingMetadata>();
 
         foreach (var libraryId in config.LibraryIds)
         {
@@ -188,20 +201,26 @@ public sealed class SyncService
 
             var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, progress, ct);
             libraryResults.Add(libResult);
-            allPendingChapters.AddRange(libPending);
             created += libResult.ItemsCreated;
             skipped += libResult.ItemsSkipped;
             failed += libResult.ItemsFailed;
+
+            // Compute the folder path for this library (used by caller for targeted scan)
+            var libFolderPath = Path.Combine(
+                virtualLibRoot,
+                StrmGenerator.SanitizeName(config.DisplayName),
+                StrmGenerator.SanitizeName(libraryName));
+
+            pendingByLibrary.Add(new LibraryPendingMetadata
+            {
+                ConnectorName     = config.DisplayName,
+                LibraryName       = libraryName,
+                LibraryFolderPath = libFolderPath,
+                Items             = libPending
+            });
         }
 
-        // --- 4. Background metadata push for audiobook chapters ---
-        // QueueLibraryScan() is called by the caller; fire a background task that polls
-        // until each chapter item appears in the Emby DB and then injects its metadata.
-        if (allPendingChapters.Count > 0 && _libraryManager is not null)
-        {
-            var pendingSnapshot = allPendingChapters;
-            _ = Task.Run(async () => await PushPendingChapterMetadataAsync(pendingSnapshot, CancellationToken.None));
-        }
+        // Metadata push is now handled by the caller (phase 2).
 
         // Update remote item counts for libraries that were NOT synced (unchecked)
         // Synced libraries already had their count set in SyncLibraryItemsAsync.
@@ -219,7 +238,7 @@ public sealed class SyncService
             "Sync complete for connector '{DisplayName}': {Created} created, {Skipped} skipped, {Failed} failed in {Duration}",
             config.DisplayName, created, skipped, failed, duration);
 
-        return SyncResult.Completed(config.DisplayName, created, skipped, failed, duration, libraryResults);
+        return (SyncResult.Completed(config.DisplayName, created, skipped, failed, duration, libraryResults), pendingByLibrary);
     }
 
     // -----------------------------------------------------------------
@@ -227,7 +246,7 @@ public sealed class SyncService
     // -----------------------------------------------------------------
 
     /// <summary>Synchronises a single library within a connector.</summary>
-    public async Task<SyncResult> SyncLibraryAsync(
+    public async Task<(SyncResult Result, List<LibraryPendingMetadata> Pending)> SyncLibraryAsync(
         ConnectorConfig config,
         string libraryId,
         string virtualLibRoot,
@@ -243,31 +262,41 @@ public sealed class SyncService
         try { testResult = await connector.TestConnectionAsync(ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return SyncResult.Failure(config.DisplayName, $"Connection test failed: {ex.Message}", DateTime.UtcNow - startTime);
+            return (SyncResult.Failure(config.DisplayName, $"Connection test failed: {ex.Message}", DateTime.UtcNow - startTime), new List<LibraryPendingMetadata>());
         }
 
         if (!testResult.Success)
-            return SyncResult.Failure(config.DisplayName, $"Connection test failed: {testResult.ErrorMessage}", DateTime.UtcNow - startTime);
+            return (SyncResult.Failure(config.DisplayName, $"Connection test failed: {testResult.ErrorMessage}", DateTime.UtcNow - startTime), new List<LibraryPendingMetadata>());
 
         var libraryName = config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId)?.Name ?? libraryId;
 
         var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, progress, ct);
 
-        if (libPending.Count > 0 && _libraryManager is not null)
+        var libFolderPath = Path.Combine(
+            virtualLibRoot,
+            StrmGenerator.SanitizeName(config.DisplayName),
+            StrmGenerator.SanitizeName(libraryName));
+
+        var pending = new List<LibraryPendingMetadata>
         {
-            var pendingSnapshot = libPending;
-            _ = Task.Run(async () => await PushPendingChapterMetadataAsync(pendingSnapshot, CancellationToken.None));
-        }
+            new LibraryPendingMetadata
+            {
+                ConnectorName     = config.DisplayName,
+                LibraryName       = libraryName,
+                LibraryFolderPath = libFolderPath,
+                Items             = libPending
+            }
+        };
 
         var duration = DateTime.UtcNow - startTime;
-        return SyncResult.Completed(config.DisplayName, libResult.ItemsCreated, libResult.ItemsSkipped, libResult.ItemsFailed, duration, new List<LibrarySyncResult> { libResult });
+        return (SyncResult.Completed(config.DisplayName, libResult.ItemsCreated, libResult.ItemsSkipped, libResult.ItemsFailed, duration, new List<LibrarySyncResult> { libResult }), pending);
     }
 
     // -----------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------
 
-    private async Task<(LibrarySyncResult Result, List<(string StrmPath, MediaItem Chapter)> PendingChapters)> SyncLibraryItemsAsync(
+    private async Task<(LibrarySyncResult Result, List<(string StrmPath, MediaItem Item)> PendingStrms)> SyncLibraryItemsAsync(
         IMediaServerConnector connector,
         ConnectorConfig config,
         string libraryId,
@@ -279,7 +308,7 @@ public sealed class SyncService
     {
         int libCreated = 0, libSkipped = 0, libFailed = 0;
         var processedBookIds = new HashSet<string>(); // avoid re-fetching book metadata per chapter
-        var pendingChapters  = new List<(string StrmPath, MediaItem Chapter)>();
+        var pendingStrms     = new List<(string StrmPath, MediaItem Item)>();
 
         IReadOnlyList<MediaItem> items;
         try
@@ -290,7 +319,7 @@ public sealed class SyncService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to list items for library {LibraryId}", libraryId);
-            return (new LibrarySyncResult { LibraryName = libraryName, ItemsFailed = 1 }, new List<(string, MediaItem)>());
+            return (new LibrarySyncResult { LibraryName = libraryName, ItemsFailed = 1 }, new List<(string StrmPath, MediaItem Item)>());
         }
 
         // Update the cached remote item count so the config page reflects reality after sync
@@ -378,7 +407,7 @@ public sealed class SyncService
                     }
 
                     // Defer chapter-level metadata push until after the library scan creates the items.
-                    pendingChapters.Add((chapterPath, item));
+                    pendingStrms.Add((chapterPath, item));
 
                     libCreated++;
                     continue;
@@ -447,16 +476,26 @@ public sealed class SyncService
                 var nfoDir     = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
                 var mediaFileName = _strmGenerator.GetFileName(item);
 
-                // LocalScraping: only .strm is needed — Emby handles metadata/images itself
+                // LocalScraping: only .strm is needed — Emby handles metadata/images itself.
+                // Queue for polling with list-level item (Technical may be incomplete).
                 if (config.MetadataMode == MetadataMode.LocalScraping)
                 {
+                    if (item.RuntimeTicks.HasValue || item.Technical is not null)
+                        pendingStrms.Add((strmPath, item));
                     libCreated++;
                     continue;
                 }
 
-                // RemoteSync / RemoteSyncFull: fetch metadata + write NFO + download artwork
+                // RemoteSync / RemoteSyncFull: fetch metadata + write NFO + download artwork.
                 var nfoPath = Path.Combine(nfoDir, mediaFileName + ".nfo");
-                if (config.MetadataMode == MetadataMode.RemoteSync && File.Exists(nfoPath)) { libSkipped++; continue; }
+                if (config.MetadataMode == MetadataMode.RemoteSync && File.Exists(nfoPath))
+                {
+                    // NFO already exists — use item from list for polling (best-effort Technical).
+                    if (item.RuntimeTicks.HasValue || item.Technical is not null)
+                        pendingStrms.Add((strmPath, item));
+                    libSkipped++;
+                    continue;
+                }
 
                 MediaMetadata metadata;
                 try { metadata = await connector.GetMetadataAsync(item.RemoteId, ct); }
@@ -470,6 +509,10 @@ public sealed class SyncService
 
                 _nfoGenerator.Generate(metadata, nfoDir);
                 await DownloadArtworkAsync(connector, metadata, nfoDir, ct);
+
+                // Use metadata (individual item call) — contains full Technical from MediaSources.
+                if (metadata.RuntimeTicks.HasValue || metadata.Technical is not null)
+                    pendingStrms.Add((strmPath, metadata));
                 libCreated++;
             }
             catch (OperationCanceledException) { throw; }
@@ -480,7 +523,7 @@ public sealed class SyncService
             }
         }
 
-        return (new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed }, pendingChapters);
+        return (new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed }, pendingStrms);
     }
 
     /// <summary>
@@ -528,23 +571,33 @@ public sealed class SyncService
     }
 
     /// <summary>
-    /// Background polling loop: waits for each audiobook chapter item to appear in the Emby DB
-    /// (after the library scan triggered by QueueLibraryScan), then injects metadata directly.
+    /// Phase-2 metadata injection: polls until each .strm item appears in the Emby DB
+    /// (after the per-library targeted scan), then injects metadata directly.
+    /// Reports progress via <paramref name="progress"/> as items are resolved.
     /// Runs until all items are resolved or a 5-minute timeout is reached.
     /// </summary>
-    private async Task PushPendingChapterMetadataAsync(
-        List<(string StrmPath, MediaItem Chapter)> pending,
+    public async Task PushMetadataAsync(
+        List<(string StrmPath, MediaItem Item)> pending,
+        string libraryName,
+        IProgress<SyncProgress>? progress,
         CancellationToken ct)
     {
         if (_libraryManager is null || pending.Count == 0) return;
 
-        var remaining = new List<(string StrmPath, MediaItem Chapter)>(pending);
-        var deadline  = DateTime.UtcNow.AddMinutes(5);
-        int round     = 0;
+        var remaining  = new List<(string StrmPath, MediaItem Item)>(pending);
+        var deadline   = DateTime.UtcNow.AddMinutes(5);
+        int round      = 0;
+        int totalItems = pending.Count;
+        int totalPushed = 0;
+
+        // Report total immediately (Current=1 = "starting") so the library bar
+        // knows the total before the initial scan delay.
+        if (totalItems > 0)
+            progress?.Report(new SyncProgress { LibraryName = libraryName, Current = 1, Total = totalItems });
 
         _logger.LogInformation(
-            "VirtualLib: starting background metadata push for {Count} audiobook chapter(s)",
-            remaining.Count);
+            "VirtualLib: starting metadata push for {Count} .strm item(s) in '{Library}'",
+            remaining.Count, libraryName);
 
         while (remaining.Count > 0 && DateTime.UtcNow < deadline)
         {
@@ -554,41 +607,65 @@ public sealed class SyncService
             await Task.Delay(round == 0 ? 5000 : 2000, ct).ConfigureAwait(false);
             round++;
 
-            var stillPending = new List<(string StrmPath, MediaItem Chapter)>();
+            var stillPending = new List<(string StrmPath, MediaItem Item)>();
             int pushed = 0;
 
-            foreach (var (strmPath, chapter) in remaining)
+            foreach (var (strmPath, item) in remaining)
             {
-                if (_libraryManager.FindByPath(strmPath, false) is not Audio audio)
+                var baseItem = _libraryManager.FindByPath(strmPath, false);
+                if (baseItem is null)
                 {
-                    stillPending.Add((strmPath, chapter));
+                    stillPending.Add((strmPath, item));
                     continue;
                 }
 
-                if (chapter.RuntimeTicks.HasValue)
-                    audio.RunTimeTicks = chapter.RuntimeTicks.Value;
+                // RunTimeTicks — injected for every item type (ffprobe is never run on .strm)
+                if (item.RuntimeTicks.HasValue)
+                    baseItem.RunTimeTicks = item.RuntimeTicks.Value;
 
-                if (!string.IsNullOrEmpty(chapter.SeriesName))
-                    audio.Album = chapter.SeriesName;
-
-                if (chapter.AlbumArtists.Count > 0)
+                // Technical metadata (size, resolution, codecs…) from the remote MediaSources
+                if (item.Technical is { } tech)
                 {
-                    audio.AlbumArtists = chapter.AlbumArtists.ToArray();
-                    audio.Artists      = chapter.AlbumArtists.ToArray();
+                    if (tech.Size.HasValue)
+                        baseItem.Size = tech.Size.Value;
+
+                    if (baseItem is Video video)
+                    {
+                        if (tech.Width.HasValue)         video.Width        = tech.Width.Value;
+                        if (tech.Height.HasValue)        video.Height       = tech.Height.Value;
+                        if (tech.Bitrate.HasValue)       video.TotalBitrate = tech.Bitrate.Value;
+                        if (!string.IsNullOrEmpty(tech.Container))
+                            video.Container = tech.Container;
+                    }
+                }
+
+                // Audiobook chapter — also inject grouping fields
+                if (baseItem is Audio audio)
+                {
+                    if (!string.IsNullOrEmpty(item.SeriesName))
+                        audio.Album = item.SeriesName;
+
+                    if (item.AlbumArtists.Count > 0)
+                    {
+                        audio.AlbumArtists = item.AlbumArtists.ToArray();
+                        audio.Artists      = item.AlbumArtists.ToArray();
+                    }
                 }
 
                 try
                 {
-                    _libraryManager.UpdateItem(audio, audio.GetParent(), ItemUpdateType.MetadataEdit, new MetadataRefreshOptions((IDirectoryService)null!));
+                    totalPushed++;
+                    progress?.Report(new SyncProgress { LibraryName = libraryName, Current = totalPushed, Total = totalItems });
+                    _libraryManager.UpdateItem(baseItem, baseItem.GetParent(), ItemUpdateType.MetadataEdit, new MetadataRefreshOptions((IDirectoryService)null!));
                     pushed++;
                     _logger.LogInformation(
-                        "VirtualLib: pushed chapter metadata — '{Path}' ticks={Ticks} album='{Album}'",
-                        strmPath, chapter.RuntimeTicks, audio.Album);
+                        "VirtualLib: pushed metadata — '{Path}' type={Type} ticks={Ticks}",
+                        strmPath, baseItem.GetType().Name, item.RuntimeTicks);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "VirtualLib: UpdateItem failed for '{Path}' — will retry", strmPath);
-                    stillPending.Add((strmPath, chapter));
+                    stillPending.Add((strmPath, item));
                 }
             }
 
@@ -600,10 +677,10 @@ public sealed class SyncService
 
         if (remaining.Count > 0)
             _logger.LogWarning(
-                "VirtualLib: {Count} chapter(s) still unresolved after timeout — they will get metadata on next sync",
+                "VirtualLib: {Count} item(s) still unresolved after timeout — they will get metadata on next sync",
                 remaining.Count);
         else
-            _logger.LogInformation("VirtualLib: all audiobook chapter metadata pushed successfully");
+            _logger.LogInformation("VirtualLib: all pending .strm metadata pushed successfully");
     }
 
     private static string SanitizeFileName(string name) => StrmGenerator.SanitizeName(name);
