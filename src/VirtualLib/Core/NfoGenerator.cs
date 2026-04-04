@@ -29,9 +29,7 @@ public sealed class NfoGenerator
         if (metadata.Type == MediaType.Movie)
         {
             content = GenerateMovieNfo(metadata);
-            fileName = StrmGenerator.SanitizeName(metadata.Year.HasValue
-                ? $"{metadata.Title} ({metadata.Year})"
-                : metadata.Title) + ".nfo";
+            fileName = "movie.nfo";
         }
         else if (metadata.Type == MediaType.Episode)
         {
@@ -129,6 +127,8 @@ public sealed class NfoGenerator
             writer.WriteEndElement();
         }
 
+        WriteStreamDetails(writer, metadata.Technical, metadata.RuntimeTicks);
+
         writer.WriteEndElement(); // movie
         writer.WriteEndDocument();
         writer.Flush();
@@ -182,11 +182,162 @@ public sealed class NfoGenerator
             writer.WriteEndElement();
         }
 
+        WriteStreamDetails(writer, metadata.Technical, metadata.RuntimeTicks);
+
         writer.WriteEndElement(); // episodedetails
         writer.WriteEndDocument();
         writer.Flush();
 
         return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    public string GenerateShowNfo(MediaMetadata metadata)
+    {
+        using var ms = new MemoryStream();
+        using var writer = XmlWriter.Create(ms, XmlSettings);
+
+        writer.WriteStartDocument(true);
+        writer.WriteStartElement("tvshow");
+
+        writer.WriteElementString("title", metadata.Title);
+        if (metadata.Year.HasValue)
+            writer.WriteElementString("year", metadata.Year.Value.ToString());
+        if (!string.IsNullOrEmpty(metadata.Overview))
+            writer.WriteElementString("plot", metadata.Overview);
+        if (metadata.CommunityRating.HasValue)
+            writer.WriteElementString("rating", metadata.CommunityRating.Value.ToString("F1", System.Globalization.CultureInfo.InvariantCulture));
+        if (!string.IsNullOrEmpty(metadata.OfficialRating))
+            writer.WriteElementString("mpaa", metadata.OfficialRating);
+
+        foreach (var genre in metadata.Genres)
+            writer.WriteElementString("genre", genre);
+
+        foreach (var studio in metadata.Studios)
+            writer.WriteElementString("studio", studio);
+
+        foreach (var tag in metadata.Tags)
+            writer.WriteElementString("tag", tag);
+
+        if (!string.IsNullOrEmpty(metadata.TvdbId))
+        {
+            writer.WriteStartElement("uniqueid");
+            writer.WriteAttributeString("type", "tvdb");
+            writer.WriteAttributeString("default", "true");
+            writer.WriteString(metadata.TvdbId);
+            writer.WriteEndElement();
+        }
+
+        writer.WriteEndElement(); // tvshow
+        writer.WriteEndDocument();
+        writer.Flush();
+
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    public string GenerateSeasonNfo(MediaMetadata metadata)
+    {
+        using var ms = new MemoryStream();
+        using var writer = XmlWriter.Create(ms, XmlSettings);
+
+        writer.WriteStartDocument(true);
+        writer.WriteStartElement("season");
+
+        writer.WriteElementString("title", metadata.Title);
+        if (metadata.SeasonNumber.HasValue)
+            writer.WriteElementString("seasonnumber", metadata.SeasonNumber.Value.ToString());
+        if (!string.IsNullOrEmpty(metadata.Overview))
+            writer.WriteElementString("plot", metadata.Overview);
+        if (metadata.Year.HasValue)
+            writer.WriteElementString("year", metadata.Year.Value.ToString());
+
+        writer.WriteEndElement(); // season
+        writer.WriteEndDocument();
+        writer.Flush();
+
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    /// <summary>
+    /// Patches an existing NFO file by injecting or replacing the &lt;fileinfo&gt; block.
+    /// Safe to call if the file does not exist or if tech/runtimeTicks are null.
+    /// </summary>
+    public void PatchStreamDetails(string nfoPath, TechnicalInfo? tech, long? runtimeTicks)
+    {
+        if (tech is null && !runtimeTicks.HasValue) return;
+        if (!File.Exists(nfoPath)) return;
+
+        var content = File.ReadAllText(nfoPath);
+
+        // Remove existing <fileinfo> block if present
+        var start = content.IndexOf("<fileinfo>", StringComparison.OrdinalIgnoreCase);
+        var end   = content.IndexOf("</fileinfo>", StringComparison.OrdinalIgnoreCase);
+        if (start >= 0 && end >= 0)
+            content = content.Remove(start, end + "</fileinfo>".Length - start);
+
+        // Build the new fileinfo block
+        using var ms = new MemoryStream();
+        var settings = new XmlWriterSettings { Indent = true, IndentChars = "  ", OmitXmlDeclaration = true, Encoding = new UTF8Encoding(false) };
+        using (var writer = XmlWriter.Create(ms, settings))
+        {
+            WriteStreamDetails(writer, tech, runtimeTicks);
+            writer.Flush();
+        }
+        var block = "\n" + Encoding.UTF8.GetString(ms.ToArray()).Trim();
+
+        // Insert before the closing root element
+        var closeTag = content.LastIndexOf("</", StringComparison.Ordinal);
+        if (closeTag < 0) return;
+
+        content = content.Insert(closeTag, block + "\n");
+        File.WriteAllText(nfoPath, content, new UTF8Encoding(false));
+    }
+
+    private static void WriteStreamDetails(XmlWriter writer, TechnicalInfo? tech, long? runtimeTicks)
+    {
+        // runtime from ticks if not already in metadata
+        int? runtimeMinutes = null;
+        if (runtimeTicks.HasValue)
+            runtimeMinutes = (int)(runtimeTicks.Value / 10_000_000 / 60);
+
+        bool hasVideo = tech is { Width: not null } or { Height: not null } or { VideoCodec: not null };
+        bool hasAudio = tech is { AudioCodec: not null } or { AudioChannels: not null } or { AudioSampleRate: not null };
+        bool hasRuntime = runtimeMinutes.HasValue;
+        bool hasBitrate = tech?.Bitrate.HasValue ?? false;
+        bool hasContainer = !string.IsNullOrEmpty(tech?.Container);
+
+        if (!hasVideo && !hasAudio && !hasRuntime && !hasBitrate && !hasContainer) return;
+
+        writer.WriteStartElement("fileinfo");
+        writer.WriteStartElement("streamdetails");
+
+        if (hasVideo || runtimeMinutes.HasValue)
+        {
+            writer.WriteStartElement("video");
+            if (!string.IsNullOrEmpty(tech?.VideoCodec))
+                writer.WriteElementString("codec", tech.VideoCodec);
+            if (tech?.Width.HasValue == true)
+                writer.WriteElementString("width", tech.Width.Value.ToString());
+            if (tech?.Height.HasValue == true)
+                writer.WriteElementString("height", tech.Height.Value.ToString());
+            if (runtimeMinutes.HasValue)
+                writer.WriteElementString("durationinseconds", ((int)(runtimeTicks!.Value / 10_000_000)).ToString());
+            writer.WriteEndElement(); // video
+        }
+
+        if (hasAudio)
+        {
+            writer.WriteStartElement("audio");
+            if (!string.IsNullOrEmpty(tech?.AudioCodec))
+                writer.WriteElementString("codec", tech.AudioCodec);
+            if (tech?.AudioChannels.HasValue == true)
+                writer.WriteElementString("channels", tech.AudioChannels.Value.ToString());
+            if (tech?.AudioSampleRate.HasValue == true)
+                writer.WriteElementString("samplingrate", tech.AudioSampleRate.Value.ToString());
+            writer.WriteEndElement(); // audio
+        }
+
+        writer.WriteEndElement(); // streamdetails
+        writer.WriteEndElement(); // fileinfo
     }
 
     /// <summary>

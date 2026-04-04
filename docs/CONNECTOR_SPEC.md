@@ -117,8 +117,9 @@ public class MediaItem
     public MediaType Type { get; init; }
     public int? Year { get; init; }
 
-    // Séries uniquement
-    public string? SeriesId { get; init; }
+    // Séries / livres audio
+    public string? SeriesId { get; init; }       // Show ID (épisodes) ou Album ID (chapitres)
+    public string? SeasonId { get; init; }       // Saison ID — requis pour artwork/NFO de saison
     public string? SeriesName { get; init; }
     public int? SeasonNumber { get; init; }
     public int? EpisodeNumber { get; init; }
@@ -130,23 +131,55 @@ public class MediaItem
 
     public DateTime? DateAdded { get; init; }
 
-    // Artworks disponibles (types présents sur le serveur distant)
+    /// <summary>Durée en ticks 100 ns. Plex : duration(ms) × 10_000. Emby : RunTimeTicks direct.</summary>
+    public long? RuntimeTicks { get; init; }
+
+    public IReadOnlyList<string> AlbumArtists { get; init; } = Array.Empty<string>();
     public IReadOnlyList<ArtworkType> AvailableArtwork { get; init; } = Array.Empty<ArtworkType>();
+
+    /// <summary>
+    /// Infos techniques issues des MediaSources distants.
+    /// Doit être peuplé par ListItemsAsync ET GetMetadataAsync.
+    /// Utilisé pour écrire &lt;fileinfo&gt;&lt;streamdetails&gt; dans le NFO AVANT le scan Emby.
+    /// </summary>
+    public TechnicalInfo? Technical { get; init; }
 }
 
-public enum MediaType
+public enum MediaType { Movie, Episode, Music, Photo, Book, AudioBook }
+```
+
+### TechnicalInfo
+
+```csharp
+/// <summary>
+/// Infos de probing issues du serveur source.
+/// C'est le SEUL mécanisme fiable pour injecter des MediaStream sur des .strm :
+/// le bloc &lt;fileinfo&gt;&lt;streamdetails&gt; dans le NFO est lu par Emby au moment du scan.
+/// UpdateItem(Width/Height) ne crée PAS de MediaStream.
+/// </summary>
+public sealed class TechnicalInfo
 {
-    Movie,
-    Episode,
-    Music,
-    Photo
+    public long?   Size            { get; init; }  // taille fichier en octets
+    public int?    Bitrate         { get; init; }  // débit total en bps (Plex envoie kbps → ×1000)
+    public string? Container       { get; init; }  // mkv, mp4, avi…
+    public int?    Width           { get; init; }
+    public int?    Height          { get; init; }
+    public string? VideoCodec      { get; init; }
+    public string? AudioCodec      { get; init; }
+    public int?    AudioChannels   { get; init; }
+    public int?    AudioSampleRate { get; init; }
 }
 ```
 
 ### MediaMetadata
 
 ```csharp
-/// <summary>Étend MediaItem avec les données éditoriales complètes</summary>
+/// <summary>Étend MediaItem avec les données éditoriales complètes.</summary>
+/// <remarks>
+/// Technical est hérité de MediaItem — doit être peuplé par GetMetadataAsync.
+/// Pour Plex : ParseTechnicalInfo(videoElement) depuis l'élément &lt;Media&gt; enfant.
+/// Pour Emby : MapTechnicalInfo(item) depuis item.MediaSources[0].
+/// </remarks>
 public class MediaMetadata : MediaItem
 {
     public string? Overview { get; init; }
@@ -155,7 +188,13 @@ public class MediaMetadata : MediaItem
     public IReadOnlyList<string> Genres { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Studios { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
-    public string? OfficialRating { get; init; }   // "PG-13", "R", etc.
+    public string? OfficialRating { get; init; }
+    public IReadOnlyList<PersonInfo> Cast { get; init; } = Array.Empty<PersonInfo>();
+    public IReadOnlyList<string> Directors { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> Writers { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> Authors { get; init; } = Array.Empty<string>();
+    public string? Tagline { get; init; }
+    public string? TrailerUrl { get; init; }
 }
 ```
 
@@ -164,10 +203,13 @@ public class MediaMetadata : MediaItem
 ```csharp
 public enum ArtworkType
 {
-    Poster,     // Affiche verticale (poster.jpg)
-    Backdrop,   // Image de fond (fanart.jpg)
-    Thumb,      // Miniature épisode (thumb.jpg)
-    Logo        // Logo transparent (clearlogo.png)
+    Poster,    // poster.jpg (video) ou folder.jpg (audio)
+    Backdrop,  // fanart.jpg
+    Thumb,     // landscape.jpg
+    Logo,      // logo.png
+    Banner,    // banner.jpg
+    Disc,      // disc.jpg
+    Art        // clearart.png
 }
 ```
 

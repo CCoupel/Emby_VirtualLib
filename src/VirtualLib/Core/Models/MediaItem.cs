@@ -9,6 +9,7 @@ public class MediaItem
 
     // Series only
     public string? SeriesId { get; init; }
+    public string? SeasonId { get; init; }
     public string? SeriesName { get; init; }
     public int? SeasonNumber { get; init; }
     public int? EpisodeNumber { get; init; }
@@ -22,6 +23,14 @@ public class MediaItem
 
     /// <summary>Duration in 100-nanosecond ticks (same unit as Emby's RunTimeTicks).</summary>
     public long? RuntimeTicks { get; init; }
+
+    // User state (played / favorite / resume) — synced from the remote server for the authenticated user
+    public bool      IsPlayed               { get; init; }
+    public bool      IsFavorite             { get; init; }
+    public int       PlayCount              { get; init; }
+    public DateTime? LastPlayedDate         { get; init; }
+    /// <summary>Resume position in 100-ns ticks (same unit as Emby's PlaybackPositionTicks).</summary>
+    public long      PlaybackPositionTicks  { get; init; }
 
     /// <summary>Album artists / book authors — used to group audiobook chapters into a container.</summary>
     public IReadOnlyList<string> AlbumArtists { get; init; } = Array.Empty<string>();

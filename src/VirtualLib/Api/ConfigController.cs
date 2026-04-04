@@ -2,6 +2,7 @@ using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Api;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Services;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -231,7 +232,7 @@ public sealed class ConfigController : BaseApiService
     private readonly ILibraryMonitor _libraryMonitor;
     private readonly ITaskManager _taskManager;
 
-    public ConfigController(ILibraryManager libraryManager, ILibraryMonitor libraryMonitor, ITaskManager taskManager)
+    public ConfigController(ILibraryManager libraryManager, ILibraryMonitor libraryMonitor, ITaskManager taskManager, IItemRepository itemRepository, IUserDataManager userDataManager, IUserManager userManager)
     {
         _libraryManager = libraryManager;
         _libraryMonitor = libraryMonitor;
@@ -243,7 +244,10 @@ public sealed class ConfigController : BaseApiService
             new EpubStubGenerator(),
             new NfoGenerator(),
             NullLogger<SyncService>.Instance,
-            libraryManager);
+            libraryManager,
+            itemRepository,
+            userDataManager,
+            userManager);
     }
 
     /// <summary>
@@ -592,6 +596,7 @@ public sealed class ConfigController : BaseApiService
                 // ── Phase 2 ─────────────────────────────────────────────────
                 if (lp is not null && lp.Items.Count > 0)
                 {
+                    await Task.Delay(5_000, CancellationToken.None);
                     SyncState.StartPhase2(1, 1);
                     SyncState.ConnectorStarted(conn.DisplayName, 1);
                     var prog2 = new Progress<SyncProgress>(p => SyncState.ReportItemProgress(p));
@@ -788,6 +793,9 @@ public sealed class ConfigController : BaseApiService
                 var pendingWithItems = allPending.Where(p => p.Items.Count > 0).ToList();
                 if (pendingWithItems.Count > 0)
                 {
+                    // Give per-library scans time to index new files before polling begins
+                    await Task.Delay(5_000, CancellationToken.None);
+
                     var byConnector = pendingWithItems.GroupBy(p => p.ConnectorName).ToList();
                     SyncState.StartPhase2(byConnector.Count, pendingWithItems.Count);
 
@@ -855,6 +863,7 @@ public sealed class ConfigController : BaseApiService
                 var pendingWithItems = pending.Where(p => p.Items.Count > 0).ToList();
                 if (pendingWithItems.Count > 0)
                 {
+                    await Task.Delay(5_000, CancellationToken.None);
                     SyncState.StartPhase2(1, pendingWithItems.Count);
                     SyncState.ConnectorStarted(conn.DisplayName, pendingWithItems.Count);
                     var prog2 = new Progress<SyncProgress>(p => SyncState.ReportItemProgress(p));

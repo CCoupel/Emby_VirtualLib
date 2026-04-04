@@ -221,7 +221,7 @@ public sealed class EmbyConnector : IMediaServerConnector
                           $"?ParentId={libraryId}" +
                           $"&Recursive=true" +
                           $"&IncludeItemTypes={GetIncludeItemTypes(libraryId)}" +
-                          $"&Fields=Overview,Genres,Studios,ProviderIds,DateCreated,Tags,Album,AlbumId,MediaSources" +
+                          $"&Fields=Overview,Genres,Studios,ProviderIds,DateCreated,Tags,Album,AlbumId,MediaSources,UserData" +
                           $"&StartIndex={startIndex}" +
                           $"&Limit={PageSize}";
 
@@ -292,7 +292,7 @@ public sealed class EmbyConnector : IMediaServerConnector
     {
         var userId = await GetUserIdAsync(cancellationToken);
         var url = userId is not null
-            ? $"Users/{userId}/Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines,AlbumArtist,MediaSources"
+            ? $"Users/{userId}/Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines,AlbumArtist,MediaSources,UserData"
             : $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines,AlbumArtist,MediaSources";
         using var response = await GetWithRetryAsync(url, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -514,7 +514,12 @@ public sealed class EmbyConnector : IMediaServerConnector
             RuntimeTicks  = item.RunTimeTicks,
             AlbumArtists  = ExtractAuthors(item),
             AvailableArtwork = GetAvailableArtwork(item),
-            Technical     = MapTechnicalInfo(item)
+            Technical     = MapTechnicalInfo(item),
+            IsPlayed              = item.UserData?.Played ?? false,
+            IsFavorite            = item.UserData?.IsFavorite ?? false,
+            PlayCount             = item.UserData?.PlayCount ?? 0,
+            LastPlayedDate        = item.UserData?.LastPlayedDate,
+            PlaybackPositionTicks = item.UserData?.PlaybackPositionTicks ?? 0
         };
     }
 
@@ -544,6 +549,7 @@ public sealed class EmbyConnector : IMediaServerConnector
             Type = type.Value,
             Year = item.ProductionYear,
             SeriesId = item.SeriesId,
+            SeasonId = item.SeasonId,
             SeriesName = item.SeriesName,
             SeasonNumber = item.ParentIndexNumber,
             EpisodeNumber = item.IndexNumber,
@@ -551,8 +557,14 @@ public sealed class EmbyConnector : IMediaServerConnector
             TmdbId = item.ProviderIds?.GetValueOrDefault("Tmdb"),
             TvdbId = item.ProviderIds?.GetValueOrDefault("Tvdb"),
             DateAdded = item.DateCreated,
+            RuntimeTicks = item.RunTimeTicks,
             AvailableArtwork = GetAvailableArtwork(item),
-            Technical = MapTechnicalInfo(item)
+            Technical = MapTechnicalInfo(item),
+            IsPlayed              = item.UserData?.Played ?? false,
+            IsFavorite            = item.UserData?.IsFavorite ?? false,
+            PlayCount             = item.UserData?.PlayCount ?? 0,
+            LastPlayedDate        = item.UserData?.LastPlayedDate,
+            PlaybackPositionTicks = item.UserData?.PlaybackPositionTicks ?? 0
         };
     }
 
@@ -576,6 +588,7 @@ public sealed class EmbyConnector : IMediaServerConnector
             Type = type,
             Year = item.ProductionYear,
             SeriesId = item.SeriesId,
+            SeasonId = item.SeasonId,
             SeriesName = item.SeriesName,
             SeasonNumber = item.ParentIndexNumber,
             EpisodeNumber = item.IndexNumber,
@@ -583,6 +596,7 @@ public sealed class EmbyConnector : IMediaServerConnector
             TmdbId = item.ProviderIds?.GetValueOrDefault("Tmdb"),
             TvdbId = item.ProviderIds?.GetValueOrDefault("Tvdb"),
             DateAdded = item.DateCreated,
+            RuntimeTicks = item.RunTimeTicks,
             AvailableArtwork = GetAvailableArtwork(item),
             Overview = item.Overview,
             CommunityRating = item.CommunityRating,
@@ -608,7 +622,12 @@ public sealed class EmbyConnector : IMediaServerConnector
             Authors = ExtractAuthors(item),
             Tagline = item.Taglines?.FirstOrDefault(),
             TrailerUrl = item.RemoteTrailers?.FirstOrDefault()?.Url,
-            Technical = MapTechnicalInfo(item)
+            Technical = MapTechnicalInfo(item),
+            IsPlayed              = item.UserData?.Played ?? false,
+            IsFavorite            = item.UserData?.IsFavorite ?? false,
+            PlayCount             = item.UserData?.PlayCount ?? 0,
+            LastPlayedDate        = item.UserData?.LastPlayedDate,
+            PlaybackPositionTicks = item.UserData?.PlaybackPositionTicks ?? 0
         };
     }
 

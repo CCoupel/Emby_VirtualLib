@@ -3,7 +3,11 @@ using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Providers;
+using EmbyMediaStream        = MediaBrowser.Model.Entities.MediaStream;
+using EmbyMediaStreamType    = MediaBrowser.Model.Entities.MediaStreamType;
+using EmbyUserDataSaveReason = MediaBrowser.Model.Entities.UserDataSaveReason;
 using Microsoft.Extensions.Logging;
 using VirtualLib.Core.Models;
 
@@ -72,6 +76,9 @@ public sealed class SyncService
     private readonly NfoGenerator _nfoGenerator;
     private readonly ILogger<SyncService> _logger;
     private readonly ILibraryManager? _libraryManager;
+    private readonly IItemRepository? _itemRepository;
+    private readonly IUserDataManager? _userDataManager;
+    private readonly IUserManager? _userManager;
 
     public SyncService(
         IConnectorFactory connectorFactory,
@@ -79,7 +86,10 @@ public sealed class SyncService
         EpubStubGenerator epubStubGenerator,
         NfoGenerator nfoGenerator,
         ILogger<SyncService> logger,
-        ILibraryManager? libraryManager = null)
+        ILibraryManager? libraryManager = null,
+        IItemRepository? itemRepository = null,
+        IUserDataManager? userDataManager = null,
+        IUserManager? userManager = null)
     {
         _connectorFactory = connectorFactory;
         _strmGenerator = strmGenerator;
@@ -87,6 +97,9 @@ public sealed class SyncService
         _nfoGenerator = nfoGenerator;
         _logger = logger;
         _libraryManager = libraryManager;
+        _itemRepository = itemRepository;
+        _userDataManager = userDataManager;
+        _userManager = userManager;
     }
 
     /// <summary>
@@ -307,8 +320,10 @@ public sealed class SyncService
         CancellationToken ct)
     {
         int libCreated = 0, libSkipped = 0, libFailed = 0;
-        var processedBookIds = new HashSet<string>(); // avoid re-fetching book metadata per chapter
-        var pendingStrms     = new List<(string StrmPath, MediaItem Item)>();
+        var processedBookIds   = new HashSet<string>(); // avoid re-fetching book metadata per chapter
+        var processedSeriesIds = new HashSet<string>(); // avoid re-fetching show artwork per series
+        var processedSeasonIds = new HashSet<string>(); // avoid re-fetching season artwork per season
+        var pendingStrms       = new List<(string StrmPath, MediaItem Item)>();
 
         IReadOnlyList<MediaItem> items;
         try
@@ -428,6 +443,9 @@ public sealed class SyncService
                         && !BookFileNeedsDownload(bookPathNoExt)
                         && File.Exists(bookNfoPath))
                     {
+                        var existingBookPath = FindExistingBookFile(bookPathNoExt);
+                        if (existingBookPath is not null)
+                            pendingStrms.Add((existingBookPath, item));
                         libSkipped++;
                         continue;
                     }
@@ -466,6 +484,9 @@ public sealed class SyncService
                         }
                     }
 
+                    var newBookPath = FindExistingBookFile(bookPathNoExt);
+                    if (newBookPath is not null)
+                        pendingStrms.Add((newBookPath, item));
                     libCreated++;
                     continue;
                 }
@@ -476,23 +497,97 @@ public sealed class SyncService
                 var nfoDir     = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
                 var mediaFileName = _strmGenerator.GetFileName(item);
 
+                // ---- TV Show level artwork (once per series) --------------------------------
+                if (item.Type == MediaType.Episode
+                    && !string.IsNullOrEmpty(item.SeriesId)
+                    && config.MetadataMode != MetadataMode.LocalScraping
+                    && !processedSeriesIds.Contains(item.SeriesId))
+                {
+                    processedSeriesIds.Add(item.SeriesId);
+                    var showFolder = Path.GetDirectoryName(nfoDir); // up from Season XX → Show folder
+                    if (showFolder is not null)
+                    {
+                        try
+                        {
+                            var showMeta = await connector.GetMetadataAsync(item.SeriesId, ct);
+                            await DownloadArtworkAsync(connector, showMeta, showFolder, ct);
+
+                            var tvshowNfoPath = Path.Combine(showFolder, "tvshow.nfo");
+                            if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(tvshowNfoPath))
+                            {
+                                var nfoContent = _nfoGenerator.GenerateShowNfo(showMeta);
+                                if (!string.IsNullOrEmpty(nfoContent))
+                                    File.WriteAllText(tvshowNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
+                            }
+
+                            // Sync favorite/played state for the show folder itself
+                            SyncUserFlagsForFolder(showFolder, showMeta, ct);
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to download show artwork for series '{Series}'", item.SeriesName);
+                        }
+                    }
+                }
+
+                // ---- Season level artwork (once per season) ---------------------------------
+                if (item.Type == MediaType.Episode
+                    && !string.IsNullOrEmpty(item.SeasonId)
+                    && config.MetadataMode != MetadataMode.LocalScraping
+                    && !processedSeasonIds.Contains(item.SeasonId))
+                {
+                    processedSeasonIds.Add(item.SeasonId);
+                    try
+                    {
+                        var seasonMeta = await connector.GetMetadataAsync(item.SeasonId, ct);
+                        await DownloadArtworkAsync(connector, seasonMeta, nfoDir, ct);
+
+                        var seasonNfoPath = Path.Combine(nfoDir, "season.nfo");
+                        if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(seasonNfoPath))
+                        {
+                            var nfoContent = _nfoGenerator.GenerateSeasonNfo(seasonMeta);
+                            if (!string.IsNullOrEmpty(nfoContent))
+                                File.WriteAllText(seasonNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
+                        }
+
+                        // Sync favorite/played state for the season folder itself
+                        SyncUserFlagsForFolder(nfoDir, seasonMeta, ct);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to download season artwork for S{Season} of '{Series}'", item.SeasonNumber, item.SeriesName);
+                    }
+                }
+
                 // LocalScraping: only .strm is needed — Emby handles metadata/images itself.
-                // Queue for polling with list-level item (Technical may be incomplete).
                 if (config.MetadataMode == MetadataMode.LocalScraping)
                 {
-                    if (item.RuntimeTicks.HasValue || item.Technical is not null)
-                        pendingStrms.Add((strmPath, item));
+                    pendingStrms.Add((strmPath, item));
                     libCreated++;
                     continue;
                 }
 
                 // RemoteSync / RemoteSyncFull: fetch metadata + write NFO + download artwork.
-                var nfoPath = Path.Combine(nfoDir, mediaFileName + ".nfo");
+                // Movies use "movie.nfo" so Emby finds it as a canonical sidecar.
+                var nfoPath = item.Type == MediaType.Movie
+                    ? Path.Combine(nfoDir, "movie.nfo")
+                    : Path.Combine(nfoDir, mediaFileName + ".nfo");
                 if (config.MetadataMode == MetadataMode.RemoteSync && File.Exists(nfoPath))
                 {
-                    // NFO already exists — use item from list for polling (best-effort Technical).
-                    if (item.RuntimeTicks.HasValue || item.Technical is not null)
-                        pendingStrms.Add((strmPath, item));
+                    // NFO already exists — patch <fileinfo> in phase 1 so the scan picks up stream details.
+                    var hasFileinfo = NfoHasFileinfo(nfoPath);
+                    _logger.LogDebug(
+                        "VirtualLib skip '{Title}' — nfoHasFileinfo={HasFI} itemTech={HasTech} (codec={Codec} {W}x{H})",
+                        item.Title, hasFileinfo,
+                        item.Technical is not null,
+                        item.Technical?.VideoCodec ?? item.Technical?.AudioCodec ?? "null",
+                        item.Technical?.Width, item.Technical?.Height);
+                    if (!hasFileinfo)
+                        _nfoGenerator.PatchStreamDetails(nfoPath, item.Technical, item.RuntimeTicks);
+
+                    pendingStrms.Add((strmPath, item));
                     libSkipped++;
                     continue;
                 }
@@ -510,9 +605,17 @@ public sealed class SyncService
                 _nfoGenerator.Generate(metadata, nfoDir);
                 await DownloadArtworkAsync(connector, metadata, nfoDir, ct);
 
+                _logger.LogDebug(
+                    "VirtualLib NFO written for '{Title}' — Technical={HasTech} (codec={Codec} {W}x{H}) RuntimeTicks={Ticks}",
+                    metadata.Title,
+                    metadata.Technical is not null,
+                    metadata.Technical?.VideoCodec ?? metadata.Technical?.AudioCodec ?? "null",
+                    metadata.Technical?.Width,
+                    metadata.Technical?.Height,
+                    metadata.RuntimeTicks);
+
                 // Use metadata (individual item call) — contains full Technical from MediaSources.
-                if (metadata.RuntimeTicks.HasValue || metadata.Technical is not null)
-                    pendingStrms.Add((strmPath, metadata));
+                pendingStrms.Add((strmPath, metadata));
                 libCreated++;
             }
             catch (OperationCanceledException) { throw; }
@@ -603,8 +706,7 @@ public sealed class SyncService
         {
             if (ct.IsCancellationRequested) break;
 
-            // First round: give the scan a few seconds to start indexing.
-            await Task.Delay(round == 0 ? 5000 : 2000, ct).ConfigureAwait(false);
+            await Task.Delay(2000, ct).ConfigureAwait(false);
             round++;
 
             var stillPending = new List<(string StrmPath, MediaItem Item)>();
@@ -637,6 +739,11 @@ public sealed class SyncService
                         if (!string.IsNullOrEmpty(tech.Container))
                             video.Container = tech.Container;
                     }
+                    else if (baseItem is Audio audioTech)
+                    {
+                        if (tech.Bitrate.HasValue)             audioTech.TotalBitrate = tech.Bitrate.Value;
+                        if (!string.IsNullOrEmpty(tech.Container)) audioTech.Container = tech.Container;
+                    }
                 }
 
                 // Audiobook chapter — also inject grouping fields
@@ -657,10 +764,38 @@ public sealed class SyncService
                     totalPushed++;
                     progress?.Report(new SyncProgress { LibraryName = libraryName, Current = totalPushed, Total = totalItems });
                     _libraryManager.UpdateItem(baseItem, baseItem.GetParent(), ItemUpdateType.MetadataEdit, new MetadataRefreshOptions((IDirectoryService)null!));
+
+                    // Inject MediaStream entries directly into the DB — the only reliable
+                    // way to populate "Media info" (codec/resolution/channels) for .strm files.
+                    if (_itemRepository is not null && item.Technical is { } techForStreams)
+                        SaveMediaStreams(baseItem.InternalId, techForStreams, item.RuntimeTicks, ct);
+                    else
+                        _logger.LogWarning(
+                            "VirtualLib: SaveMediaStreams SKIPPED for '{Title}' — _itemRepository={R} Technical={T}",
+                            item.Title, _itemRepository is not null, item.Technical is not null);
+
+                    // Sync played/favorite/resume-position for all local users
+                    _logger.LogDebug(
+                        "VirtualLib: user flags from source — '{Title}': played={P} count={PC} pos={Pos} fav={F}",
+                        item.Title, item.IsPlayed, item.PlayCount, item.PlaybackPositionTicks, item.IsFavorite);
+
+                    if (_userDataManager is not null && _userManager is not null
+                        && (item.IsPlayed || item.IsFavorite || item.PlayCount > 0 || item.PlaybackPositionTicks > 0))
+                    {
+                        SyncUserFlags(baseItem, item, ct);
+                    }
+
+                    // Patch NFO with <fileinfo><streamdetails> as additional persistence.
+                    var nfoDir2 = Path.GetDirectoryName(strmPath)!;
+                    var nfoPath = item.Type == MediaType.Movie
+                        ? Path.Combine(nfoDir2, "movie.nfo")
+                        : Path.ChangeExtension(strmPath, ".nfo");
+                    _nfoGenerator.PatchStreamDetails(nfoPath, item.Technical, item.RuntimeTicks);
+
                     pushed++;
                     _logger.LogInformation(
-                        "VirtualLib: pushed metadata — '{Path}' type={Type} ticks={Ticks}",
-                        strmPath, baseItem.GetType().Name, item.RuntimeTicks);
+                        "VirtualLib: pushed metadata — '{Path}' type={Type} ticks={Ticks} tech={HasTech}",
+                        strmPath, baseItem.GetType().Name, item.RuntimeTicks, item.Technical is not null);
                 }
                 catch (Exception ex)
                 {
@@ -683,13 +818,166 @@ public sealed class SyncService
             _logger.LogInformation("VirtualLib: all pending .strm metadata pushed successfully");
     }
 
+    /// <summary>
+    /// Builds and persists MediaStream entries (video + audio) from TechnicalInfo
+    /// directly into the Emby item repository, bypassing ffprobe.
+    /// This populates the "Media info" panel in the Emby UI for .strm files.
+    /// </summary>
+    private void SaveMediaStreams(long itemId, TechnicalInfo tech, long? runtimeTicks, CancellationToken ct)
+    {
+        try
+        {
+            var streams = new List<EmbyMediaStream>();
+            int index = 0;
+
+            bool hasVideo = tech.VideoCodec is not null || tech.Width.HasValue || tech.Height.HasValue;
+            if (hasVideo)
+            {
+                var video = new EmbyMediaStream
+                {
+                    Type      = EmbyMediaStreamType.Video,
+                    Index     = index++,
+                    IsDefault = true,
+                };
+                if (!string.IsNullOrEmpty(tech.VideoCodec)) video.Codec = tech.VideoCodec;
+                if (tech.Width.HasValue)   video.Width   = tech.Width.Value;
+                if (tech.Height.HasValue)  video.Height  = tech.Height.Value;
+                if (tech.Bitrate.HasValue) video.BitRate = tech.Bitrate.Value;
+                streams.Add(video);
+            }
+
+            bool hasAudio = tech.AudioCodec is not null || tech.AudioChannels.HasValue;
+            if (hasAudio)
+            {
+                var audio = new EmbyMediaStream
+                {
+                    Type      = EmbyMediaStreamType.Audio,
+                    Index     = index++,
+                    IsDefault = true,
+                };
+                if (!string.IsNullOrEmpty(tech.AudioCodec))  audio.Codec      = tech.AudioCodec;
+                if (tech.AudioChannels.HasValue)              audio.Channels   = tech.AudioChannels.Value;
+                if (tech.AudioSampleRate.HasValue)            audio.SampleRate = tech.AudioSampleRate.Value;
+                streams.Add(audio);
+            }
+
+            if (streams.Count > 0)
+            {
+                _itemRepository!.SaveMediaStreams(itemId, streams, ct);
+                _logger.LogInformation(
+                    "VirtualLib: saved {Count} MediaStream(s) for itemId={ItemId} (video={V}, audio={A})",
+                    streams.Count, itemId, hasVideo, hasAudio);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "VirtualLib: SaveMediaStreams failed for itemId={ItemId}", itemId);
+        }
+    }
+
+    /// <summary>
+    /// Finds a folder item by path in the local library and syncs its user flags.
+    /// No-op if the folder isn't in Emby yet (first sync) or if all flags are unset.
+    /// </summary>
+    private void SyncUserFlagsForFolder(string folderPath, MediaItem item, CancellationToken ct)
+    {
+        if (_libraryManager is null || _userDataManager is null || _userManager is null) return;
+        if (!item.IsPlayed && !item.IsFavorite && item.PlayCount == 0 && item.PlaybackPositionTicks == 0) return;
+
+        try
+        {
+            var folder = _libraryManager.FindByPath(folderPath, true);
+            if (folder is null) return; // not yet scanned — will be picked up on next sync
+            SyncUserFlags(folder, item, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "VirtualLib: SyncUserFlagsForFolder failed for '{Path}'", folderPath);
+        }
+    }
+
+    /// <summary>
+    /// Copies played/favorite state from the remote item to all local Emby users.
+    /// Only called when at least one flag is set on the remote side.
+    /// </summary>
+    private void SyncUserFlags(BaseItem baseItem, MediaItem item, CancellationToken ct)
+    {
+        _logger.LogInformation(
+            "VirtualLib: SyncUserFlags '{Title}' — played={P} playCount={PC} positionTicks={Pos} favorite={F}",
+            item.Title, item.IsPlayed, item.PlayCount, item.PlaybackPositionTicks, item.IsFavorite);
+
+        try
+        {
+#pragma warning disable CS0618 // IUserManager.Users is deprecated but the replacement (GetUsers) requires a UserQuery filter
+            foreach (var user in _userManager!.Users)
+#pragma warning restore CS0618
+            {
+                var userData = _userDataManager!.GetUserData(user, baseItem);
+
+                // Only update if the remote state differs (avoid unnecessary writes)
+                bool changed = false;
+                if (item.IsPlayed && !userData.Played)
+                {
+                    userData.Played = true;
+                    changed = true;
+                }
+                if (item.PlayCount > userData.PlayCount)
+                {
+                    userData.PlayCount = item.PlayCount;
+                    changed = true;
+                }
+                if (item.LastPlayedDate.HasValue
+                    && (!userData.LastPlayedDate.HasValue || item.LastPlayedDate > userData.LastPlayedDate))
+                {
+                    userData.LastPlayedDate = item.LastPlayedDate;
+                    changed = true;
+                }
+                if (item.IsFavorite && !userData.IsFavorite)
+                {
+                    userData.IsFavorite = true;
+                    changed = true;
+                }
+                // Resume position: only advance (never rewind what the local user already played past)
+                if (item.PlaybackPositionTicks > userData.PlaybackPositionTicks)
+                {
+                    userData.PlaybackPositionTicks = item.PlaybackPositionTicks;
+                    changed = true;
+                }
+
+                if (changed)
+                    _userDataManager.SaveUserData(user, baseItem, userData, EmbyUserDataSaveReason.Import, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "VirtualLib: SyncUserFlags failed for item '{Title}'", item.Title);
+        }
+    }
+
     private static string SanitizeFileName(string name) => StrmGenerator.SanitizeName(name);
+
+    private static bool NfoHasFileinfo(string nfoPath)
+    {
+        try { return File.ReadAllText(nfoPath).Contains("<fileinfo>", StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
+    }
+
+    private static readonly string[] _bookExtensions = { ".epub", ".mobi", ".pdf", ".azw3", ".cbz", ".cbr", ".fb2" };
+
+    private static string? FindExistingBookFile(string pathNoExt)
+    {
+        foreach (var ext in _bookExtensions)
+        {
+            var path = pathNoExt + ext;
+            if (File.Exists(path)) return path;
+        }
+        return null;
+    }
 
     // Returns true when no real book file exists yet, or only a tiny stub is present (<4 KB)
     private static bool BookFileNeedsDownload(string pathNoExt)
     {
-        var extensions = new[] { ".epub", ".mobi", ".pdf", ".azw3", ".cbz", ".cbr", ".fb2" };
-        foreach (var ext in extensions)
+        foreach (var ext in _bookExtensions)
         {
             var path = pathNoExt + ext;
             if (File.Exists(path))
@@ -700,8 +988,7 @@ public sealed class SyncService
 
     private static void DeleteExistingBookFiles(string pathNoExt)
     {
-        var extensions = new[] { ".epub", ".mobi", ".pdf", ".azw3", ".cbz", ".cbr", ".fb2" };
-        foreach (var ext in extensions)
+        foreach (var ext in _bookExtensions)
         {
             var path = pathNoExt + ext;
             if (File.Exists(path)) try { File.Delete(path); } catch { /* best-effort */ }
