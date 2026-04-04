@@ -1,112 +1,124 @@
+using System.Collections.Concurrent;
+
 namespace VirtualLib.Core;
+
+public enum LibrarySyncStatus { Pending, RunningPhase1, RunningPhase2, Done, Failed }
+
+/// <summary>Per-library sync progress tracked during a parallel sync run.</summary>
+public sealed class LibrarySyncEntry
+{
+    public string ConnectorId   { get; init; } = string.Empty;
+    public string ConnectorName { get; init; } = string.Empty;
+    public string LibraryId     { get; init; } = string.Empty;
+    public string LibraryName   { get; init; } = string.Empty;
+    public string MediaType     { get; init; } = string.Empty;
+
+    private int _status = (int)LibrarySyncStatus.Pending;
+    private int _p1Done, _p1Total, _p2Done, _p2Total;
+
+    public LibrarySyncStatus Status
+    {
+        get => (LibrarySyncStatus)Volatile.Read(ref _status);
+        set => Volatile.Write(ref _status, (int)value);
+    }
+    public int Phase1Done  { get => Volatile.Read(ref _p1Done);  set => Volatile.Write(ref _p1Done,  value); }
+    public int Phase1Total { get => Volatile.Read(ref _p1Total); set => Volatile.Write(ref _p1Total, value); }
+    public int Phase2Done  { get => Volatile.Read(ref _p2Done);  set => Volatile.Write(ref _p2Done,  value); }
+    public int Phase2Total { get => Volatile.Read(ref _p2Total); set => Volatile.Write(ref _p2Total, value); }
+
+    public string? ErrorMessage { get; set; }
+}
 
 /// <summary>
 /// Thread-safe global sync state — prevents concurrent syncs and exposes
-/// granular progress to the config page (survives page refresh).
+/// per-library parallel progress to the config page (survives page refresh).
 /// </summary>
 public static class SyncState
 {
     private static int _isSyncing;
-    private static int _doneConnectors;
-    private static int _doneLibraries;
-    private static int _doneItems;
-    private static int _totalItems;
-    private static string _prevLibraryName = "";
+    private static readonly ConcurrentDictionary<string, LibrarySyncEntry> _libraries = new();
 
-    public static bool IsSyncing    => Volatile.Read(ref _isSyncing) == 1;
-    public static string Message    { get; private set; } = string.Empty;
+    public static bool     IsSyncing  => Volatile.Read(ref _isSyncing) == 1;
     public static DateTime? StartedAt { get; private set; }
-
-    // Connector-level
-    public static string CurrentConnectorName { get; private set; } = string.Empty;
-    public static int TotalConnectors { get; private set; }
-    public static int DoneConnectors  => Volatile.Read(ref _doneConnectors);
-
-    // Library-level (within current connector)
-    public static string CurrentLibraryName { get; private set; } = string.Empty;
-    public static int TotalLibraries { get; private set; }
-    public static int DoneLibraries  => Volatile.Read(ref _doneLibraries);
-
-    // Item-level (within current library)
-    public static int TotalItems => Volatile.Read(ref _totalItems);
-    public static int DoneItems  => Volatile.Read(ref _doneItems);
-
-    /// <summary>Results of the last completed sync.</summary>
     public static List<SyncResult>? LastResults { get; private set; }
 
-    /// <summary>Attempt to acquire the sync lock. Returns false if already running.</summary>
-    public static int Phase { get; private set; } = 1;
+    public static ICollection<LibrarySyncEntry> Libraries => _libraries.Values;
 
-    public static bool TryStart(string message, int totalConnectors = 1)
+    public static string MakeKey(string connectorId, string libraryId) =>
+        $"{connectorId}::{libraryId}";
+
+    /// <summary>Attempt to acquire the sync lock. Returns false if already running.</summary>
+    public static bool TryStart()
     {
-        if (Interlocked.CompareExchange(ref _isSyncing, 1, 0) != 0)
-            return false;
-        Phase    = 1;
-        Message   = message;
-        StartedAt = DateTime.UtcNow;
-        TotalConnectors = totalConnectors;
-        Volatile.Write(ref _doneConnectors, 0);
-        TotalLibraries = 0;
-        Volatile.Write(ref _doneLibraries, 0);
-        Volatile.Write(ref _totalItems, 0);
-        Volatile.Write(ref _doneItems, 0);
-        _prevLibraryName = "";
-        CurrentConnectorName = "";
-        CurrentLibraryName = "";
+        if (Interlocked.CompareExchange(ref _isSyncing, 1, 0) != 0) return false;
+        _libraries.Clear();
+        StartedAt   = DateTime.UtcNow;
+        LastResults = null;
         return true;
     }
 
-    /// <summary>Transitions to phase 2 (metadata injection), resetting progress counters.</summary>
-    public static void StartPhase2(int totalConnectors, int totalLibraries)
+    public static void RegisterLibrary(
+        string connectorId, string connectorName,
+        string libraryId,   string libraryName,
+        string mediaType)
     {
-        Phase = 2;
-        Message = "Injecting metadata…";
-        TotalConnectors = totalConnectors;
-        TotalLibraries  = totalLibraries;
-        Volatile.Write(ref _doneConnectors, 0);
-        Volatile.Write(ref _doneLibraries, 0);
-        Volatile.Write(ref _totalItems, 0);
-        Volatile.Write(ref _doneItems, 0);
-        _prevLibraryName = "";
-        CurrentConnectorName = "";
-        CurrentLibraryName = "";
-    }
-
-    /// <summary>Call just before SyncConnectorAsync for each connector.</summary>
-    public static void ConnectorStarted(string connectorName, int totalLibraries)
-    {
-        CurrentConnectorName = connectorName;
-        Message = $"Syncing {connectorName}…";
-        TotalLibraries = totalLibraries;
-        Volatile.Write(ref _doneLibraries, 0);
-        Volatile.Write(ref _totalItems, 0);
-        Volatile.Write(ref _doneItems, 0);
-        _prevLibraryName = "";
-        CurrentLibraryName = "";
-    }
-
-    /// <summary>Called via IProgress&lt;SyncProgress&gt; for each item processed.</summary>
-    public static void ReportItemProgress(SyncProgress p)
-    {
-        // Detect library transition
-        if (p.LibraryName != _prevLibraryName)
+        _libraries[MakeKey(connectorId, libraryId)] = new LibrarySyncEntry
         {
-            if (!string.IsNullOrEmpty(_prevLibraryName))
-                Interlocked.Increment(ref _doneLibraries);
-            _prevLibraryName = p.LibraryName;
-            CurrentLibraryName = p.LibraryName;
-        }
-        Volatile.Write(ref _totalItems, p.Total);
-        Volatile.Write(ref _doneItems, p.Current);
+            ConnectorId   = connectorId,
+            ConnectorName = connectorName,
+            LibraryId     = libraryId,
+            LibraryName   = libraryName,
+            MediaType     = mediaType
+        };
     }
 
-    /// <summary>Call after each connector finishes.</summary>
-    public static void ConnectorCompleted() => Interlocked.Increment(ref _doneConnectors);
+    public static void UpdatePhase1(string connectorId, string libraryId, int done, int total)
+    {
+        if (_libraries.TryGetValue(MakeKey(connectorId, libraryId), out var e))
+        {
+            e.Status     = LibrarySyncStatus.RunningPhase1;
+            e.Phase1Done  = done;
+            e.Phase1Total = total;
+        }
+    }
+
+    public static void Phase2Start(string connectorId, string libraryId, int total)
+    {
+        if (_libraries.TryGetValue(MakeKey(connectorId, libraryId), out var e))
+        {
+            e.Status     = LibrarySyncStatus.RunningPhase2;
+            e.Phase2Total = total;
+            e.Phase2Done  = 0;
+        }
+    }
+
+    public static void UpdatePhase2(string connectorId, string libraryId, int done, int total)
+    {
+        if (_libraries.TryGetValue(MakeKey(connectorId, libraryId), out var e))
+        {
+            e.Phase2Done  = done;
+            e.Phase2Total = total;
+        }
+    }
+
+    public static void MarkDone(string connectorId, string libraryId)
+    {
+        if (_libraries.TryGetValue(MakeKey(connectorId, libraryId), out var e))
+            e.Status = LibrarySyncStatus.Done;
+    }
+
+    public static void MarkFailed(string connectorId, string libraryId, string error)
+    {
+        if (_libraries.TryGetValue(MakeKey(connectorId, libraryId), out var e))
+        {
+            e.Status       = LibrarySyncStatus.Failed;
+            e.ErrorMessage = error;
+        }
+    }
 
     public static void Finish(List<SyncResult>? results = null)
     {
         LastResults = results;
-        Message     = string.Empty;
         StartedAt   = null;
         Volatile.Write(ref _isSyncing, 0);
     }

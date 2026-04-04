@@ -206,6 +206,14 @@
                     </div>
                 </div>
 
+                <div class="inputContainer" style="margin-top:1em">
+                    <label class="inputLabel inputLabelUnfocused" for="connectorMaxParallel">Max Parallel Libraries</label>
+                    <input type="number" id="connectorMaxParallel" class="emby-input" min="1" max="16" value="4" />
+                    <div class="fieldDescription">
+                        Maximum number of libraries from this connector synced simultaneously (default: 4).
+                    </div>
+                </div>
+
                 <div style="margin-top:0.75em">
                     <button id="btnTestConnection" is="emby-button" class="raised emby-button">
                         <span>Test Connection</span>
@@ -240,26 +248,28 @@
                     </button>
                 </div>
 
+                <style>
+                    /* ── Parallel sync tree ──────────────────────────────── */
+                    .vl-sp-section   { margin-bottom:6px }
+                    .vl-sp-conn-row  { display:flex;align-items:center;gap:8px;padding:4px 0;font-weight:bold;font-size:0.9em }
+                    .vl-sp-type-row  { display:flex;align-items:center;gap:8px;padding:2px 0 2px 14px;font-size:0.83em;opacity:0.8 }
+                    .vl-sp-lib-row   { display:flex;align-items:center;gap:8px;padding:2px 0 2px 28px;font-size:0.85em }
+                    .vl-sp-name      { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
+                    .vl-sp-bars      { display:flex;gap:5px;width:240px;flex-shrink:0 }
+                    .vl-sp-bar-wrap  { flex:1 }
+                    .vl-sp-track     { background:rgba(255,255,255,0.13);border-radius:3px;height:7px;overflow:hidden }
+                    .vl-sp-fill      { height:100%;width:0%;border-radius:3px;transition:width 0.5s }
+                    .vl-sp-pct       { font-size:0.72em;opacity:0.6;text-align:right;margin-top:1px }
+                    .vl-sp-badge     { font-size:0.7em;padding:1px 6px;border-radius:8px;flex-shrink:0;white-space:nowrap }
+                    .vl-sp-done      { background:rgba(76,175,80,0.25);color:#a5d6a7 }
+                    .vl-sp-p1        { background:rgba(0,164,220,0.25);color:#80d4f5 }
+                    .vl-sp-p2        { background:rgba(76,175,80,0.2);color:#c8e6c9 }
+                    .vl-sp-pending   { background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.45) }
+                    .vl-sp-failed    { background:rgba(229,57,53,0.2);color:#ef9a9a }
+                </style>
                 <div id="syncProgressContainer" style="display:none;margin-top:1em">
-                    <div id="syncPhaseLabel" style="font-size:0.85em;font-weight:bold;margin-bottom:8px;"></div>
-                    <style>
-                        .vl-prog-row { margin-bottom:10px }
-                        .vl-prog-track { background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden;height:10px }
-                        .vl-prog-bar { height:100%;width:0%;background:var(--accent-color,#00a4dc);transition:width 0.4s }
-                        .vl-prog-label { font-size:0.78em;opacity:0.75;margin-top:3px;display:flex;justify-content:space-between }
-                    </style>
-                    <div class="vl-prog-row">
-                        <div class="vl-prog-track"><div id="syncBarConnectors" class="vl-prog-bar"></div></div>
-                        <div id="syncLabelConnectors" class="vl-prog-label"></div>
-                    </div>
-                    <div class="vl-prog-row">
-                        <div class="vl-prog-track"><div id="syncBarLibraries" class="vl-prog-bar"></div></div>
-                        <div id="syncLabelLibraries" class="vl-prog-label"></div>
-                    </div>
-                    <div class="vl-prog-row">
-                        <div class="vl-prog-track"><div id="syncBarItems" class="vl-prog-bar" style="background:var(--accent-color,#00a4dc);opacity:0.7"></div></div>
-                        <div id="syncProgressLabel" class="vl-prog-label"></div>
-                    </div>
+                    <div id="syncStatusLabel" style="font-size:0.85em;font-weight:bold;margin-bottom:10px"></div>
+                    <div id="syncTreeProgress"></div>
                 </div>
 
                 <div id="syncResultContainer" style="display:none;margin-top:1em">

@@ -62,4 +62,10 @@ public sealed class ConnectorConfig
     /// The Plex server's unique machine identifier (clientIdentifier from plex.tv resources API).
     /// </summary>
     public string PlexMachineIdentifier { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Maximum number of libraries from this connector synced simultaneously.
+    /// Across all connectors everything runs in parallel; this caps concurrency per connector.
+    /// </summary>
+    public int MaxParallelLibraries { get; set; } = 4;
 }
