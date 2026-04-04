@@ -60,6 +60,17 @@ public class MediaItem
     public IReadOnlyList<ArtworkType> AvailableArtwork { get; init; }
     /// <summary>Infos techniques issues des MediaSources distants.</summary>
     public TechnicalInfo? Technical { get; init; }
+
+    // ── États utilisateur (v1.6.0) ──────────────────────────────────────────
+    // Propagés depuis le serveur source pour l'utilisateur authentifié.
+    // Emby : champ UserData dans /Users/{userId}/Items.
+    // Plex : attributs viewCount / viewOffset / lastViewedAt sur <Video>.
+    public bool      IsPlayed              { get; init; }
+    public bool      IsFavorite            { get; init; }
+    public int       PlayCount             { get; init; }
+    public DateTime? LastPlayedDate        { get; init; }
+    /// <summary>Position de reprise en ticks 100 ns. Plex : viewOffset(ms) × 10_000.</summary>
+    public long      PlaybackPositionTicks { get; init; }
 }
 
 /// <summary>
@@ -373,17 +384,19 @@ Phase 1 — SyncService.SyncConnectorAsync()
     1. TestConnection() — abandon si KO
     2. ListLibraries() — merge auto-découverte dans KnownLibraries
     3. Pour chaque bibliothèque configurée :
-       a. ListItems() — tous les items (avec TechnicalInfo depuis MediaSources)
+       a. ListItems() — tous les items (avec TechnicalInfo + états utilisateur)
        b. Pour chaque item :
           - Génère toujours le .strm (idempotent, change la date de modif → déclenche rescan)
           - Si NFO absent ou RemoteSyncFull :
-              · GetMetadataAsync() → MediaMetadata (avec Technical)
+              · GetMetadataAsync() → MediaMetadata (avec Technical + états utilisateur)
               · Génère .nfo avec <fileinfo><streamdetails>
               · Télécharge artwork (poster.jpg, fanart.jpg…)
           - Si NFO présent (RemoteSync skip) :
               · PatchStreamDetails() si <fileinfo> absent
           - Pour épisodes : GetMetadataAsync(SeriesId) → tvshow.nfo + artwork show (1x/série)
+                              SyncUserFlagsForFolder(showFolder, showMeta) → flags show en DB
                             GetMetadataAsync(SeasonId) → season.nfo + artwork saison (1x/saison)
+                              SyncUserFlagsForFolder(seasonFolder, seasonMeta) → flags saison en DB
           - Ajoute à pendingStrms[]
     4. Scan ciblé de la bibliothèque (QueueLibraryScan)
 
@@ -392,7 +405,11 @@ Phase 2 — SyncService.PushMetadataAsync()
   Pour chaque item dans pendingStrms :
     · FindByPath(strmPath) → item en DB ?
     · Si oui → injecte RunTimeTicks, Size, TotalBitrate, Container, Width, Height via UpdateItem()
+              → SaveMediaStreams() (inject codec/résolution direct en DB)
               → PatchStreamDetails() (idempotent — complémente la phase 1)
+              → SyncUserFlags() — propage IsPlayed / IsFavorite / PlayCount /
+                                  LastPlayedDate / PlaybackPositionTicks pour tous
+                                  les utilisateurs locaux via IUserDataManager
     · Si non → réessaie au prochain tour
 ```
 
@@ -508,12 +525,45 @@ Client Emby
 
 ---
 
+## Synchronisation des états utilisateur (v1.6.0)
+
+Les états de lecture (lu, favori, position) sont propagés depuis le serveur source vers la bibliothèque virtuelle locale. Ils s'appliquent à **tous les utilisateurs locaux** (approche broadcast).
+
+### Stratégie de merge
+
+Les états ne sont jamais réduits — seule l'augmentation est propagée :
+
+| Champ | Règle |
+|---|---|
+| `Played` | Set à `true` si source = true ; jamais remis à false |
+| `PlayCount` | Prend le max(local, source) |
+| `LastPlayedDate` | Prend la date la plus récente |
+| `IsFavorite` | Set à `true` si source = true ; jamais désactivé |
+| `PlaybackPositionTicks` | Prend la position la plus avancée |
+
+### Implémentation par connecteur
+
+**EmbyConnector** :
+- `ListItemsAsync` : ajoute `UserData` dans le champ `Fields` → `EmbyUserData.Played/IsFavorite/PlayCount/LastPlayedDate/PlaybackPositionTicks`
+- `GetMetadataAsync` : même champ sur les endpoints `Users/{userId}/Items/{itemId}`
+- Nécessite le mode **User Credentials** pour obtenir les données de l'utilisateur réel (API Key → données de l'admin, souvent toutes à zéro)
+
+**PlexConnector** :
+- Attributs XML sur `<Video>` : `viewCount` (int), `viewOffset` (ms → `× 10_000` → ticks), `lastViewedAt` (unix timestamp)
+- Parsés dans `MapVideoToItem` (items existants) ET `MapVideoToMetadata` (nouveaux items)
+
+### Limitation connue
+
+La lecture depuis VirtualLib sur le serveur hôte n'est **pas rapportée** au serveur source. Les stats du serveur source restent inchangées. Issue #34 trackera l'implémentation de la backpropagation temps réel (play/pause/stop).
+
+---
+
 ## Extensibilité future
 
-Pour ajouter un nouveau type de serveur :
-1. Créer `PlexConnector : IMediaServerConnector`
-2. Implémenter la traduction API Plex XML → modèles normalisés
-3. Enregistrer dans le conteneur DI du plugin
-4. Ajouter `"Plex"` dans la liste des `ServerType` disponibles dans l'UI
+Pour ajouter un nouveau type de serveur (ex: Jellyfin) :
+1. Créer `JellyfinConnector : IMediaServerConnector` (API très proche d'Emby)
+2. Implémenter la traduction API → modèles normalisés (dont états utilisateur)
+3. Enregistrer dans `ConnectorFactory`
+4. Ajouter `"Jellyfin"` dans la liste des `ServerType` disponibles dans l'UI
 
-Le core (StrmGenerator, NfoGenerator, ProxyController, LibrarySyncJob) ne change pas.
+Le core (StrmGenerator, NfoGenerator, ProxyController, LibrarySyncJob, SyncService) ne change pas.

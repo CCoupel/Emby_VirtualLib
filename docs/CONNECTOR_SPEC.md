@@ -143,6 +143,31 @@ public class MediaItem
     /// Utilisé pour écrire &lt;fileinfo&gt;&lt;streamdetails&gt; dans le NFO AVANT le scan Emby.
     /// </summary>
     public TechnicalInfo? Technical { get; init; }
+
+    // ── États utilisateur (v1.6.0) ──────────────────────────────────────────
+    // À peupler depuis le serveur source pour l'utilisateur authentifié.
+    // Emby  : champ UserData dans GET /Users/{userId}/Items.
+    // Plex  : attributs viewCount / viewOffset / lastViewedAt sur <Video>.
+    // Règle merge : seule l'augmentation est propagée (jamais de réduction).
+
+    /// <summary>true si l'item a été regardé en totalité sur le serveur source.</summary>
+    public bool IsPlayed { get; init; }
+
+    /// <summary>Nombre de lectures complètes sur le serveur source.</summary>
+    public int PlayCount { get; init; }
+
+    /// <summary>Date de la dernière lecture complète (UTC).</summary>
+    public DateTime? LastPlayedDate { get; init; }
+
+    /// <summary>true si l'item est favori sur le serveur source.</summary>
+    public bool IsFavorite { get; init; }
+
+    /// <summary>
+    /// Position de reprise en ticks 100 ns.
+    /// Plex : viewOffset (ms) × 10_000. Emby : PlaybackPositionTicks direct.
+    /// 0 = pas de position sauvegardée.
+    /// </summary>
+    public long PlaybackPositionTicks { get; init; }
 }
 
 public enum MediaType { Movie, Episode, Music, Photo, Book, AudioBook }
@@ -231,6 +256,9 @@ public enum ArtworkType
 - Propager le `CancellationToken` à chaque appel paginé
 - Loguer un warning pour les items dont le type n'est pas reconnu, puis les ignorer
 - En cas d'erreur partielle (une page échoue) : loguer et retourner les items déjà collectés
+- **Peupler les champs utilisateur** (`IsPlayed`, `PlayCount`, `LastPlayedDate`, `IsFavorite`, `PlaybackPositionTicks`) depuis le serveur source pour l'utilisateur authentifié
+  - Emby : ajouter `UserData` dans le paramètre `Fields` de la requête
+  - Plex : lire `viewCount`, `viewOffset`, `lastViewedAt` sur les éléments `<Video>`
 
 ### GetStreamUrlAsync
 - L'URL retournée doit être directement utilisable dans un `HttpClient.GetAsync()`

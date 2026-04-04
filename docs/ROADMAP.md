@@ -44,7 +44,6 @@
 - [ ] Détection delta : index JSON local `{connectorId}.json` (issue #12)
 - [ ] Gestion des suppressions (items supprimés sur la source)
 - [ ] Tests intégration sync job (issue #14)
-- [ ] Progression sync par item en temps réel (issue #20)
 
 ---
 
@@ -90,10 +89,9 @@
 - [x] Mise à jour du compteur d'items distants pour toutes les bibliothèques (cochées et non cochées) lors du sync
 
 **Reste en backlog :**
-- [ ] `JellyfinConnector` (API proche d'Emby)
-- [ ] Détection delta : index JSON local `{connectorId}.json` (issue #12)
+- [ ] `JellyfinConnector` (API proche d'Emby) — issue #15
+- [ ] Détection delta : index JSON local `{connectorId}.json` — issue #12
 - [ ] Gestion des suppressions (items supprimés sur la source)
-- [ ] Progression sync par item en temps réel (issue #20)
 
 ---
 
@@ -107,7 +105,7 @@
 - [x] `LibraryProvisioner` : création automatique des dossiers virtuels Emby (`audiobooks`, `books`, `photos`)
 - [x] Support photos/homevideos dans le connector Emby
 
-### v1.5.0 — Métadonnées livres audio robustes (branche `feature/audiobook-book-nfo-provider`)
+### v1.5.0 — Métadonnées livres audio robustes
 - [x] `AudioBookNfoProvider` (`ILocalMetadataProvider<Audio>`) : lit `album.nfo` pour chaque chapitre et injecte `Album`, `AlbumArtists`, `ProductionYear`
 - [x] `AudioBookFolderNfoProvider` (`ILocalMetadataProvider<Folder>`) : lit `album.nfo` pour le container du livre
 - [x] `BookNfoProvider` (`ILocalMetadataProvider<Book>`) : lit `{filename}.nfo` pour les ebooks
@@ -121,6 +119,21 @@
 - [x] Images par chapitre : Primary téléchargée comme `{chapitre}.jpg` à côté du `.strm`
 - [x] Fix `AudioBookNfoProvider` : injecte `Album` (titre du livre) et non `Name` sur les chapitres
 
+---
+
+## Phase 5 — Synchronisation des états utilisateur ✅ Terminé (v1.6.0)
+
+- [x] **Champs utilisateur sur `MediaItem`** : `IsPlayed`, `IsFavorite`, `PlayCount`, `LastPlayedDate`, `PlaybackPositionTicks`
+- [x] **EmbyConnector** : champ `UserData` ajouté dans les requêtes `ListItemsAsync` et `GetMetadataAsync` ; mapping vers `MediaItem`
+- [x] **PlexConnector** : parsing `viewCount` (lu/playCount), `viewOffset` (position en ms → ticks), `lastViewedAt` dans `MapVideoToItem` et `MapVideoToMetadata`
+- [x] **`SyncUserFlags`** (Phase 2) : après injection des métadonnées, applique les états lus/favoris/position pour tous les utilisateurs locaux via `IUserDataManager.SaveUserData(..., UserDataSaveReason.Import)`
+- [x] **`SyncUserFlagsForFolder`** (Phase 1) : sync des flags show/saison directement dans le dossier (ces items ne passent pas par `pendingStrms`)
+- [x] **`LibrarySyncJob` + `ConfigController`** : injection de `IUserDataManager` et `IUserManager` dans `SyncService`
+- [x] Stratégie merge : les états locaux ne sont jamais réduits (seule l'augmentation est propagée — playCount, position, favori)
+- [x] Compatibilité : `IUserManager.Users` (déprécié mais seul accès disponible dans Emby) protégé par `#pragma warning disable CS0618`
+- [x] `UserDataSaveReason` : alias `EmbyUserDataSaveReason = MediaBrowser.Model.Entities.UserDataSaveReason` pour éviter l'ambiguïté `MediaType`
+
 **Reste en backlog :**
-- [ ] Détection delta / suppressions
-- [ ] `JellyfinConnector`
+- [ ] Backpropagation temps réel vers le serveur source (play/pause/stop/avancement) — issue #34
+- [ ] Détection delta / suppressions — issue #12
+- [ ] `JellyfinConnector` — issue #15

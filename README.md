@@ -4,19 +4,32 @@ Agrège les bibliothèques de serveurs médias distants comme bibliothèques vir
 
 ## Fonctionnalités
 
-- **Bibliothèques virtuelles** — les médias d'un serveur Emby/Jellyfin distant apparaissent comme des bibliothèques natives
+- **Bibliothèques virtuelles** — films, séries, livres audio, ebooks et photos d'un serveur distant apparaissent comme des bibliothèques natives
 - **Proxy transparent** — le streaming transite par le serveur hôte, permettant le transcodage
-- **Sync automatique** — détection des ajouts/suppressions sur les serveurs sources
-- **Métadonnées complètes** — titre, synopsis, artwork, identifiants TMDB/IMDB sans re-scraping
-- **Multi-sources** — support de plusieurs serveurs simultanément
+- **Sync automatique** — détection des ajouts sur les serveurs sources, sync incrémentale ou forcée
+- **Métadonnées complètes** — titre, synopsis, artwork, cast, identifiants TMDB/IMDB sans re-scraping
+- **Infos techniques** — résolution, codec, durée injectés sans re-probe (via `<fileinfo>` NFO)
+- **États utilisateur synchronisés** — lu/non lu, favori, position de reprise propagés depuis le serveur source
+- **Multi-sources** — Emby et Plex supportés simultanément
+- **Progression temps réel** — 3 barres de progression dans le dashboard (connecteurs / bibliothèques / items)
 
 ## Serveurs supportés
 
-| Serveur | Statut |
+| Serveur | Statut | Version |
+|---|---|---|
+| Emby | ✅ Supporté | v1.0.0+ |
+| Plex | ✅ Supporté | v1.3.0+ |
+| Jellyfin | 🔄 Planifié | — |
+
+## Types de médias supportés
+
+| Type | Statut |
 |---|---|
-| Emby | ✅ Phase 1 |
-| Jellyfin | 🔄 Phase 3 |
-| Plex | 🔄 Phase 3 |
+| Films | ✅ |
+| Séries / Épisodes | ✅ |
+| Livres audio (AudioBook) | ✅ v1.4.0+ |
+| Ebooks / PDF / ePub | ✅ v1.4.0+ |
+| Photos / HomeVideos | ✅ v1.4.0+ |
 
 ## Installation
 

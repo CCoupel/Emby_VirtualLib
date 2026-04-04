@@ -67,8 +67,10 @@ Cliquer **"Test Connection"** pour valider avant de sauvegarder.
 
 | Mode | Description |
 |---|---|
-| **API Key** | Accès admin complet, aucun suivi d'usage sur le serveur distant |
-| **User Credentials** | Le serveur distant voit les sessions de cet utilisateur, applique ses restrictions et enregistre l'historique de lecture |
+| **API Key** | Accès admin complet — les états utilisateur (lu/favori/position) remontés sont ceux de l'admin, souvent tous à zéro si l'admin ne regarde pas lui-même les médias |
+| **User Credentials** | Le serveur distant voit les sessions de cet utilisateur — **recommandé** pour que la synchronisation des états (lu, favori, position de reprise) reflète les données réelles de l'utilisateur |
+
+> **Recommandation** : utiliser **User Credentials** si vous souhaitez que les états lu/favori/position soient correctement synchronisés depuis le serveur source.
 
 #### Metadata Source
 
@@ -300,6 +302,24 @@ Normal : la terminaison TLS est faite par le reverse proxy (traefik). Le serveur
         ├── Dune (2021).nfo
         └── poster.jpg
 ```
+
+---
+
+## Synchronisation des états utilisateur (v1.6.0)
+
+À chaque sync, VirtualLib propage depuis le serveur source les états suivants vers la bibliothèque virtuelle locale :
+
+| État | Emby | Plex |
+|---|---|---|
+| Lu / Non lu | ✅ champ `UserData.Played` | ✅ `viewCount > 0` |
+| Nombre de lectures | ✅ `UserData.PlayCount` | ✅ `viewCount` |
+| Date dernière lecture | ✅ `UserData.LastPlayedDate` | ✅ `lastViewedAt` (unix timestamp) |
+| Favori | ✅ `UserData.IsFavorite` | — (Plex n'expose pas les favoris via API XML) |
+| Position de reprise | ✅ `UserData.PlaybackPositionTicks` | ✅ `viewOffset` (ms → ticks) |
+
+**Règle de merge** : les états ne sont jamais réduits. Si vous avez marqué un item "lu" localement, il reste lu même si le serveur source l'indique comme non lu.
+
+**Important — les lectures depuis VirtualLib ne sont pas rapportées au serveur source.** Si vous regardez un film depuis la bibliothèque virtuelle, le serveur Emby/Plex source n'en sera pas informé et ses propres statistiques resteront inchangées. La synchronisation est donc unidirectionnelle (source → hôte). La backpropagation temps réel est prévue dans une future version (issue #34).
 
 ---
 
