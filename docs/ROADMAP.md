@@ -1,5 +1,14 @@
 # Roadmap — VirtualLib
 
+## Documentation
+
+- Architecture & Core → [core/](./core/)
+- Connecteurs → [connectors/](./connectors/)
+- Types de médias → [media-types/](./media-types/)
+- Configuration utilisateur → [CONFIGURATION.md](./CONFIGURATION.md)
+
+---
+
 ## Phase 1 — Core ✅ Terminé
 
 - [x] Scaffolding projet C# plugin Emby

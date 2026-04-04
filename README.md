@@ -35,9 +35,21 @@ Agrège les bibliothèques de serveurs médias distants comme bibliothèques vir
 
 Voir [docs/CONFIGURATION.md](docs/CONFIGURATION.md) pour le guide d'installation complet.
 
-## Architecture
+## Documentation
 
-Voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) pour la documentation technique.
+| Document | Contenu |
+|---|---|
+| [docs/core/OVERVIEW.md](docs/core/OVERVIEW.md) | Architecture, flux, sécurité |
+| [docs/core/SYNC.md](docs/core/SYNC.md) | Algorithme de sync, NFO, états utilisateur |
+| [docs/core/PROXY.md](docs/core/PROXY.md) | ProxyController, Range, pièges |
+| [docs/core/API_EMBY.md](docs/core/API_EMBY.md) | Référence endpoints Emby REST |
+| [docs/connectors/SPEC.md](docs/connectors/SPEC.md) | Interface IMediaServerConnector, modèles |
+| [docs/connectors/EMBY.md](docs/connectors/EMBY.md) | EmbyConnector |
+| [docs/connectors/PLEX.md](docs/connectors/PLEX.md) | PlexConnector |
+| [docs/media-types/VIDEO.md](docs/media-types/VIDEO.md) | Films, séries — NFO, arborescences |
+| [docs/media-types/AUDIOBOOK_BOOK.md](docs/media-types/AUDIOBOOK_BOOK.md) | Livres audio, ebooks |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Guide utilisateur |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Roadmap et backlog |
 
 ## Développement
 

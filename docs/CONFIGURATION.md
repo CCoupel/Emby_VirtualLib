@@ -1,5 +1,15 @@
 # Guide de configuration — VirtualLib
 
+## Documentation technique
+
+- Architecture → [core/OVERVIEW.md](./core/OVERVIEW.md)
+- Synchronisation & NFO → [core/SYNC.md](./core/SYNC.md)
+- Proxy streaming → [core/PROXY.md](./core/PROXY.md)
+- EmbyConnector → [connectors/EMBY.md](./connectors/EMBY.md)
+- PlexConnector → [connectors/PLEX.md](./connectors/PLEX.md)
+
+---
+
 ## Installation du plugin
 
 ### Méthode 1 : Via le catalogue de plugins Emby
