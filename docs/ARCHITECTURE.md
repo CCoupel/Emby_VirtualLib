@@ -17,17 +17,22 @@ VirtualLib est un plugin Emby qui expose les bibliothèques de serveurs médias 
 Interface centrale d'abstraction. Chaque type de serveur source implémente cette interface.
 
 ```csharp
-public interface IMediaServerConnector
+public interface IMediaServerConnector : IDisposable
 {
     string ServerType { get; }
-    string ServerId { get; }
+    string ConnectorId { get; }
+    string DisplayName { get; }
 
-    Task<ConnectorTestResult> TestConnectionAsync(CancellationToken ct);
-    Task<IEnumerable<RemoteLibrary>> ListLibrariesAsync(CancellationToken ct);
-    Task<IEnumerable<MediaItem>> ListItemsAsync(string libraryId, CancellationToken ct);
-    Task<MediaMetadata> GetMetadataAsync(string itemId, CancellationToken ct);
-    Task<string> GetStreamUrlAsync(string itemId, CancellationToken ct);
-    Task<Stream> GetArtworkStreamAsync(string itemId, ArtworkType type, CancellationToken ct);
+    Task<ConnectorTestResult> TestConnectionAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<RemoteLibrary>> ListLibrariesAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<MediaItem>> ListItemsAsync(string libraryId, CancellationToken ct = default);
+    Task<int> GetItemCountAsync(string libraryId, CancellationToken ct = default);
+    Task<MediaMetadata> GetMetadataAsync(string itemId, CancellationToken ct = default);
+    Task<string> GetStreamUrlAsync(string itemId, CancellationToken ct = default);
+    Task<Stream?> GetArtworkStreamAsync(string itemId, ArtworkType type, CancellationToken ct = default);
+    Task<string> DownloadFileToPathAsync(string itemId, string destPathNoExt, CancellationToken ct);
+    Task ReportPlaybackStartAsync(string itemId, CancellationToken ct = default);
+    Task ReportPlaybackStoppedAsync(string itemId, CancellationToken ct = default);
 }
 ```
 
@@ -36,30 +41,62 @@ public interface IMediaServerConnector
 ```csharp
 public class MediaItem
 {
-    public string RemoteId { get; set; }               // ID natif sur le serveur source
-    public string Title { get; set; }
-    public MediaType Type { get; set; }
-    public int? Year { get; set; }
-    public string? SeriesId { get; set; }              // AudioBook : AlbumId (container)
-    public string? SeriesName { get; set; }            // AudioBook : Album (titre du livre)
-    public int? SeasonNumber { get; set; }
-    public int? EpisodeNumber { get; set; }
-    public string? ImdbId { get; set; }
-    public string? TmdbId { get; set; }
-    public string? TvdbId { get; set; }
-    public DateTime? DateAdded { get; set; }
-    public long? RuntimeTicks { get; set; }            // Durée en ticks 100 ns (= Emby RunTimeTicks)
-    public IReadOnlyList<string> AlbumArtists { get; set; } // Auteurs (livres audio)
-    public IReadOnlyList<ArtworkType> AvailableArtwork { get; set; }
+    public string RemoteId { get; init; }
+    public string Title { get; init; }
+    public MediaType Type { get; init; }
+    public int? Year { get; init; }
+    public string? SeriesId { get; init; }       // séries : show ID ; audiobooks : album ID
+    public string? SeasonId { get; init; }       // séries : saison ID
+    public string? SeriesName { get; init; }     // audiobooks : titre du livre
+    public int? SeasonNumber { get; init; }
+    public int? EpisodeNumber { get; init; }
+    public string? ImdbId { get; init; }
+    public string? TmdbId { get; init; }
+    public string? TvdbId { get; init; }
+    public DateTime? DateAdded { get; init; }
+    /// <summary>Durée en ticks 100 ns (même unité que Emby RunTimeTicks).</summary>
+    public long? RuntimeTicks { get; init; }
+    public IReadOnlyList<string> AlbumArtists { get; init; }  // auteurs livres audio
+    public IReadOnlyList<ArtworkType> AvailableArtwork { get; init; }
+    /// <summary>Infos techniques issues des MediaSources distants.</summary>
+    public TechnicalInfo? Technical { get; init; }
+}
+
+/// <summary>
+/// Infos techniques probing du serveur source (déjà analysées par la source).
+/// Injectées dans le NFO via &lt;fileinfo&gt;&lt;streamdetails&gt; AVANT le scan Emby.
+/// C'est le seul mécanisme fiable pour créer des MediaStream sur des fichiers .strm.
+/// (UpdateItem avec Width/Height ne crée PAS de MediaStream — seulement le NFO le fait.)
+/// </summary>
+public sealed class TechnicalInfo
+{
+    public long?   Size            { get; init; }  // taille en octets
+    public int?    Bitrate         { get; init; }  // débit total en bps
+    public string? Container       { get; init; }  // mkv, mp4, avi…
+    public int?    Width           { get; init; }  // largeur vidéo en pixels
+    public int?    Height          { get; init; }  // hauteur vidéo en pixels
+    public string? VideoCodec      { get; init; }  // h264, hevc…
+    public string? AudioCodec      { get; init; }  // ac3, aac…
+    public int?    AudioChannels   { get; init; }
+    public int?    AudioSampleRate { get; init; }
 }
 
 public class MediaMetadata : MediaItem
 {
-    public string? Overview { get; set; }
-    public float? Rating { get; set; }
-    public IEnumerable<string> Genres { get; set; }
-    public IEnumerable<string> Studios { get; set; }
-    public int? RuntimeMinutes { get; set; }
+    public string? Overview { get; init; }
+    public float? CommunityRating { get; init; }
+    public int? RuntimeMinutes { get; init; }
+    public IReadOnlyList<string> Genres { get; init; }
+    public IReadOnlyList<string> Studios { get; init; }
+    public IReadOnlyList<string> Tags { get; init; }
+    public string? OfficialRating { get; init; }
+    public IReadOnlyList<PersonInfo> Cast { get; init; }
+    public IReadOnlyList<string> Directors { get; init; }
+    public IReadOnlyList<string> Writers { get; init; }
+    public IReadOnlyList<string> Authors { get; init; }   // livres / livres audio
+    public string? Tagline { get; init; }
+    public string? TrailerUrl { get; init; }
+    // Technical est hérité de MediaItem — doit être peuplé par GetMetadataAsync
 }
 
 public enum MediaType { Movie, Episode, Music, Photo, Book, AudioBook }
@@ -162,6 +199,17 @@ Pour les séries :
 
 Génère les fichiers `.nfo` au format Kodi/Emby pour éviter le re-scraping.
 
+**Méthodes disponibles** :
+| Méthode | Fichier généré | Élément racine XML |
+|---|---|---|
+| `GenerateMovieNfo` | `{Title} ({Year}).nfo` | `<movie>` |
+| `GenerateEpisodeNfo` | `{Series} - S{xx}E{yy}.nfo` | `<episodedetails>` |
+| `GenerateShowNfo` | `tvshow.nfo` | `<tvshow>` |
+| `GenerateSeasonNfo` | `season.nfo` | `<season>` |
+| `GenerateAudioBookNfo` | `album.nfo` | `<album>` |
+| `GenerateBookNfo` | `{Title} ({Year}).nfo` | `<book>` |
+| `PatchStreamDetails` | modifie un NFO existant | — injecte `<fileinfo>` |
+
 **movie.nfo** :
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -173,12 +221,65 @@ Génère les fichiers `.nfo` au format Kodi/Emby pour éviter le re-scraping.
   <runtime>148</runtime>
   <genre>Science-Fiction</genre>
   <studio>Warner Bros.</studio>
-  <uniqueid type="imdb">tt1375666</uniqueid>
+  <uniqueid type="imdb" default="true">tt1375666</uniqueid>
   <uniqueid type="tmdb">27205</uniqueid>
+  <fileinfo>
+    <streamdetails>
+      <video>
+        <codec>h264</codec>
+        <width>1920</width>
+        <height>1080</height>
+        <durationinseconds>8880</durationinseconds>
+      </video>
+      <audio>
+        <codec>aac</codec>
+        <channels>2</channels>
+      </audio>
+    </streamdetails>
+  </fileinfo>
 </movie>
 ```
 
-**tvshow.nfo + episodedetails.nfo** pour les séries.
+**Contrainte critique — `<fileinfo>` et fichiers `.strm`** :
+
+Emby ne lance pas ffprobe sur les `.strm` (fichiers HTTP). Sans `<fileinfo>` dans le NFO,
+aucun `MediaStream` n'est créé → pas de résolution, pas de codec, pas de durée affichée.
+
+`UpdateItem(video.Width = 1920)` **ne crée pas de MediaStream** — il ne modifie que
+l'objet item. Seul le scan du NFO avec `<fileinfo>` crée des entrées `MediaStream` en DB.
+
+**Stratégie en deux temps** :
+1. **Phase 1 (avant scan)** : le NFO est généré avec `<fileinfo>` d'emblée pour les nouveaux items.
+   Pour les items existants (skip), `PatchStreamDetails` injecte `<fileinfo>` si absent.
+2. **Phase 2 (après scan)** : `UpdateItem` injecte `RunTimeTicks`, `Size`, `TotalBitrate`.
+   `PatchStreamDetails` est rappelé en cas de NFO non encore patché.
+
+`PatchStreamDetails` est idempotent (no-op si `<fileinfo>` déjà présent ou données nulles).
+
+**tvshow.nfo + season.nfo + episodedetails.nfo** pour les séries.
+Artwork : `poster.jpg`, `fanart.jpg` au niveau show et season (téléchargés une fois par série/saison).
+
+### 4b. PlexConnector — spécificités et contraintes
+
+**Authentification** :
+- API Key → header `X-Plex-Token` dès la construction
+- UserCredentials → POST `https://plex.tv/users/sign_in.xml` → `authToken`; retry 401
+
+**Format des réponses** : XML (pas JSON). Éléments racine variés :
+| Type d'item | Élément XML | Attribut durée |
+|---|---|---|
+| Film / Episode | `<Video>` | `duration` en **ms** → `× 10 000` → ticks |
+| Show / Saison | `<Directory>` | n/a (conteneurs) |
+| Piste audio | `<Track>` | `duration` en **ms** |
+
+**⚠ Pièges Plex** :
+- `GetMetadataAsync` pour un Show ou Season retourne un élément `<Directory>`, pas `<Video>`.
+  `MapDirectoryToMetadata` gère ce cas. Si seul `<Video>` est cherché → exception silencieuse.
+- `duration` est en **millisecondes** ; Emby attend des ticks (100 ns). Conversion : `ms × 10_000`.
+- `parentRatingKey` sur un épisode = `SeasonId` (la saison). Absent → le bloc artwork/NFO de saison ne s'exécute jamais.
+- `TechnicalInfo` est parsé depuis l'élément `<Media>` enfant du `<Video>` :
+  `videoCodec`, `audioCodec`, `width`, `height`, `bitrate` (en **kbps** → `× 1000` pour bps),
+  `audioChannels`, `container`. Le bitrate total est en kbps côté Plex.
 
 ---
 
@@ -261,42 +362,51 @@ finally { try { await outputStream.DisposeAsync(); } catch { } }
 
 ---
 
-### 6. LibrarySyncJob
+### 6. LibrarySyncJob / SyncService
 
-Tâche planifiée Emby (`IScheduledTask`) qui orchestre la synchronisation.
+Tâche planifiée Emby (`IScheduledTask`). Délègue à `SyncService` qui orchestre la sync.
 
-**Algorithme de sync** :
+**Algorithme de sync en deux phases** :
 ```
-Pour chaque ConnectorConfig actif :
-  Phase 1 — Génération des fichiers
-    1. TestConnection() — skip si KO
-    2. ListLibraries() — récupère les bibliothèques configurées
-    3. Pour chaque bibliothèque :
-       a. ListItems() — liste tous les items distants
-       b. Génère .strm + .nfo + télécharge artwork (poster, fanart, banner, disc, clearart…)
-       c. Pour les livres audio : album.nfo + folder.jpg dans le dossier du livre
-          → collecte les chapitres dans pendingChapters[]
-  Phase 2 — Injection de métadonnées post-scan (livres audio seulement)
-    4. QueueLibraryScan() — déclenche le scan Emby des nouveaux fichiers
-    5. Boucle de polling (background, toutes les 2 s, timeout 5 min) :
-       - Pour chaque chapitre dans pendingChapters :
-         · ILibraryManager.FindByPath(strmPath) → Audio item en DB ?
-         · Si oui → injecte RunTimeTicks, Album, AlbumArtists via UpdateItem()
-                  → retire de la liste
-         · Si non → réessaie au prochain tour
-       - S'arrête quand la liste est vide ou timeout atteint
+Phase 1 — SyncService.SyncConnectorAsync()
+  Pour chaque ConnectorConfig actif :
+    1. TestConnection() — abandon si KO
+    2. ListLibraries() — merge auto-découverte dans KnownLibraries
+    3. Pour chaque bibliothèque configurée :
+       a. ListItems() — tous les items (avec TechnicalInfo depuis MediaSources)
+       b. Pour chaque item :
+          - Génère toujours le .strm (idempotent, change la date de modif → déclenche rescan)
+          - Si NFO absent ou RemoteSyncFull :
+              · GetMetadataAsync() → MediaMetadata (avec Technical)
+              · Génère .nfo avec <fileinfo><streamdetails>
+              · Télécharge artwork (poster.jpg, fanart.jpg…)
+          - Si NFO présent (RemoteSync skip) :
+              · PatchStreamDetails() si <fileinfo> absent
+          - Pour épisodes : GetMetadataAsync(SeriesId) → tvshow.nfo + artwork show (1x/série)
+                            GetMetadataAsync(SeasonId) → season.nfo + artwork saison (1x/saison)
+          - Ajoute à pendingStrms[]
+    4. Scan ciblé de la bibliothèque (QueueLibraryScan)
+
+Phase 2 — SyncService.PushMetadataAsync()
+  Boucle de polling (toutes les 2 s, timeout 5 min) :
+  Pour chaque item dans pendingStrms :
+    · FindByPath(strmPath) → item en DB ?
+    · Si oui → injecte RunTimeTicks, Size, TotalBitrate, Container, Width, Height via UpdateItem()
+              → PatchStreamDetails() (idempotent — complémente la phase 1)
+    · Si non → réessaie au prochain tour
 ```
 
-**Pourquoi le polling ?**
-Emby ne fait pas de ffprobe sur les fichiers `.strm` (protocole HTTP, non local). La durée
-et les champs de groupement (`Album`, `AlbumArtists`) ne sont donc jamais remplis
-automatiquement. Le polling injecte ces données directement en DB dès que le scan crée
-les items, sans attendre une seconde synchronisation.
+**Pourquoi deux phases ?**
+Emby ne lance pas ffprobe sur les `.strm`. Sans injection :
+- Durée = inconnue → impossible de scrobbler / afficher la progression
+- Pas de MediaStream → pas de résolution/codec affichés
 
-**Détection de delta** (backlog) :
-- Fichier index JSON local : `{virtualLibRoot}/.index/{connectorId}.json`
-- Contient : `{ remoteId: string, localPath: string, dateAdded: DateTime }[]`
-- Comparaison par `remoteId` entre l'index et les items distants
+Phase 1 (NFO `<fileinfo>`) crée les `MediaStream` lors du scan.
+Phase 2 (`UpdateItem`) complète `RunTimeTicks` et `Size` directement sur l'item.
+
+**Pourquoi le .strm est toujours régénéré ?**
+Sa date de modification change → Emby détecte le changement et lance un rescan partiel,
+ce qui permet au NFO patché d'être relu et les nouveaux `<fileinfo>` d'être appliqués.
 
 ### 7. Fournisseurs de métadonnées locaux (ILocalMetadataProvider)
 
@@ -310,6 +420,12 @@ bibliothèque Audiobooks, ni pour `Book`. Trois providers custom comblent ces la
 | `BookNfoProvider` | `Book` | `{filename}.nfo` | Injecte les métadonnées complètes pour les ebooks |
 
 Ces providers sont auto-découverts par Emby via le plugin assembly (pas de registration manuelle).
+
+**⚠ Contrainte DI SimpleInjector** :
+Emby utilise SimpleInjector qui **n'enregistre pas** `ILogger<T>` générique.
+Les providers ne doivent pas injecter `ILogger<T>` dans leur constructeur — cela provoque
+une `ActivationException` au chargement du plugin. Utiliser `NullLogger<T>.Instance` ou
+ne pas logger.
 
 ---
 

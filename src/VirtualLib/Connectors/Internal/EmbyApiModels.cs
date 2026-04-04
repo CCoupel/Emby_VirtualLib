@@ -82,6 +82,9 @@ internal sealed class EmbyItem
     [JsonPropertyName("SeriesId")]
     public string? SeriesId { get; init; }
 
+    [JsonPropertyName("SeasonId")]
+    public string? SeasonId { get; init; }
+
     [JsonPropertyName("ParentIndexNumber")]
     public int? ParentIndexNumber { get; init; }
 
@@ -115,6 +118,27 @@ internal sealed class EmbyItem
 
     [JsonPropertyName("MediaSources")]
     public List<EmbyMediaSource>? MediaSources { get; init; }
+
+    [JsonPropertyName("UserData")]
+    public EmbyUserData? UserData { get; init; }
+}
+
+internal sealed class EmbyUserData
+{
+    [JsonPropertyName("IsFavorite")]
+    public bool IsFavorite { get; init; }
+
+    [JsonPropertyName("Played")]
+    public bool Played { get; init; }
+
+    [JsonPropertyName("PlayCount")]
+    public int PlayCount { get; init; }
+
+    [JsonPropertyName("LastPlayedDate")]
+    public DateTime? LastPlayedDate { get; init; }
+
+    [JsonPropertyName("PlaybackPositionTicks")]
+    public long PlaybackPositionTicks { get; init; }
 }
 
 internal sealed class EmbyMediaSource

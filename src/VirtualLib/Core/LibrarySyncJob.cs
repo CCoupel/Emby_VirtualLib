@@ -1,4 +1,5 @@
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using VirtualLib.Core;
@@ -14,7 +15,7 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
     private readonly SyncService _syncService;
     private readonly ILibraryManager _libraryManager;
 
-    public LibrarySyncJob(ILibraryManager libraryManager)
+    public LibrarySyncJob(ILibraryManager libraryManager, IItemRepository itemRepository, IUserDataManager userDataManager, IUserManager userManager)
     {
         _libraryManager = libraryManager;
         _syncService = new SyncService(
@@ -23,7 +24,10 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
             new EpubStubGenerator(),
             new NfoGenerator(),
             NullLogger<SyncService>.Instance,
-            libraryManager);
+            libraryManager,
+            itemRepository,
+            userDataManager,
+            userManager);
     }
 
     // -------------------------------------------------------------------------

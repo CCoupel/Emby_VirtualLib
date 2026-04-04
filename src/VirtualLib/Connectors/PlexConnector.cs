@@ -298,9 +298,18 @@ public sealed class PlexConnector : IMediaServerConnector
         CancellationToken cancellationToken = default)
     {
         var doc = await GetXmlAsync($"library/metadata/{itemId}", cancellationToken);
-        var mediaElement = doc?.Root?.Elements()
-            .FirstOrDefault(e => e.Name.LocalName is "Video" or "Track" or "Photo")
-            ?? throw new InvalidOperationException($"No media element in metadata response for item {itemId}");
+        var root = doc?.Root ?? throw new InvalidOperationException($"Empty response for item {itemId}");
+
+        // Episodes/Movies → Video element; Shows/Seasons → Directory element
+        var mediaElement = root.Elements()
+            .FirstOrDefault(e => e.Name.LocalName is "Video" or "Track" or "Photo" or "Directory");
+        if (mediaElement is null)
+            throw new InvalidOperationException($"No media element in metadata response for item {itemId}");
+
+        // Shows and Seasons are Directory elements — map them as container metadata
+        if (mediaElement.Name.LocalName == "Directory")
+            return MapDirectoryToMetadata(mediaElement);
+
         return MapVideoToMetadata(mediaElement);
     }
 
@@ -329,13 +338,15 @@ public sealed class PlexConnector : IMediaServerConnector
         try
         {
             var doc = await GetXmlAsync($"library/metadata/{itemId}", cancellationToken);
-            var video = doc?.Root?.Element("Video");
-            if (video is null) return null;
+            // Video for episodes/movies, Directory for shows/seasons
+            var element = doc?.Root?.Elements()
+                .FirstOrDefault(e => e.Name.LocalName is "Video" or "Track" or "Photo" or "Directory");
+            if (element is null) return null;
 
             // Plex provides thumb (poster) and art (backdrop)
             var artPath = artworkType == ArtworkType.Backdrop
-                ? video.Attribute("art")?.Value
-                : video.Attribute("thumb")?.Value;
+                ? element.Attribute("art")?.Value
+                : element.Attribute("thumb")?.Value;
 
             if (string.IsNullOrEmpty(artPath)) return null;
 
@@ -420,6 +431,11 @@ public sealed class PlexConnector : IMediaServerConnector
             return null;
         }
 
+        var itemDurationMs = long.TryParse(video.Attribute("duration")?.Value, out var d) ? d : 0L;
+        var viewCount      = int.TryParse(video.Attribute("viewCount")?.Value, out var vc) ? vc : 0;
+        var viewOffsetMs   = long.TryParse(video.Attribute("viewOffset")?.Value, out var vo) ? vo : 0L;
+        var lastViewedAt   = ParseUnixTimestamp(video, "lastViewedAt");
+
         return new MediaItem
         {
             RemoteId        = video.Attribute("ratingKey")?.Value ?? string.Empty,
@@ -427,6 +443,7 @@ public sealed class PlexConnector : IMediaServerConnector
             Type            = type.Value,
             Year            = ParseInt(video, "year"),
             SeriesId        = video.Attribute("grandparentRatingKey")?.Value,
+            SeasonId        = video.Attribute("parentRatingKey")?.Value,
             SeriesName      = video.Attribute("grandparentTitle")?.Value,
             SeasonNumber    = ParseInt(video, "parentIndex"),
             EpisodeNumber   = ParseInt(video, "index"),
@@ -434,7 +451,13 @@ public sealed class PlexConnector : IMediaServerConnector
             TmdbId          = ParseGuid(video, "tmdb://"),
             TvdbId          = ParseGuid(video, "tvdb://"),
             DateAdded       = ParseUnixTimestamp(video, "addedAt"),
-            AvailableArtwork = BuildAvailableArtwork(video)
+            RuntimeTicks    = itemDurationMs > 0 ? itemDurationMs * 10_000L : null,
+            AvailableArtwork = BuildAvailableArtwork(video),
+            Technical       = ParseTechnicalInfo(video),
+            IsPlayed              = viewCount > 0,
+            PlayCount             = viewCount,
+            LastPlayedDate        = lastViewedAt,
+            PlaybackPositionTicks = viewOffsetMs > 0 ? viewOffsetMs * 10_000L : 0
         };
     }
 
@@ -446,7 +469,9 @@ public sealed class PlexConnector : IMediaServerConnector
             _         => MediaType.Movie
         };
 
-        var durationMs = long.TryParse(video.Attribute("duration")?.Value, out var d) ? d : 0L;
+        var durationMs   = long.TryParse(video.Attribute("duration")?.Value, out var d) ? d : 0L;
+        var metaViewCount = int.TryParse(video.Attribute("viewCount")?.Value, out var mvc) ? mvc : 0;
+        var metaViewOffMs = long.TryParse(video.Attribute("viewOffset")?.Value, out var mvo) ? mvo : 0L;
         var rating = float.TryParse(
             video.Attribute("rating")?.Value,
             System.Globalization.NumberStyles.Float,
@@ -460,6 +485,7 @@ public sealed class PlexConnector : IMediaServerConnector
             Type             = type,
             Year             = ParseInt(video, "year"),
             SeriesId         = video.Attribute("grandparentRatingKey")?.Value,
+            SeasonId         = video.Attribute("parentRatingKey")?.Value,
             SeriesName       = video.Attribute("grandparentTitle")?.Value,
             SeasonNumber     = ParseInt(video, "parentIndex"),
             EpisodeNumber    = ParseInt(video, "index"),
@@ -467,6 +493,7 @@ public sealed class PlexConnector : IMediaServerConnector
             TmdbId           = ParseGuid(video, "tmdb://"),
             TvdbId           = ParseGuid(video, "tvdb://"),
             DateAdded        = ParseUnixTimestamp(video, "addedAt"),
+            RuntimeTicks     = durationMs > 0 ? durationMs * 10_000L : null,
             AvailableArtwork = BuildAvailableArtwork(video),
             Overview         = video.Attribute("summary")?.Value,
             CommunityRating  = rating,
@@ -497,8 +524,97 @@ public sealed class PlexConnector : IMediaServerConnector
                                    .Where(s => !string.IsNullOrEmpty(s))
                                    .ToList(),
             Tagline          = video.Attribute("tagline")?.Value,
-            TrailerUrl       = null // Plex does not expose trailer URLs in metadata
+            TrailerUrl       = null, // Plex does not expose trailer URLs in metadata
+            Technical        = ParseTechnicalInfo(video),
+            IsPlayed              = metaViewCount > 0,
+            PlayCount             = metaViewCount,
+            LastPlayedDate        = ParseUnixTimestamp(video, "lastViewedAt"),
+            PlaybackPositionTicks = metaViewOffMs > 0 ? metaViewOffMs * 10_000L : 0
         };
+    }
+
+    /// <summary>
+    /// Maps a Plex Directory element (Show or Season) to MediaMetadata for artwork/NFO generation.
+    /// </summary>
+    private MediaMetadata MapDirectoryToMetadata(XElement dir)
+    {
+        var type = dir.Attribute("type")?.Value switch
+        {
+            "show"   => MediaType.Episode, // treat as series container
+            "season" => MediaType.Episode, // treat as season container
+            _        => MediaType.Movie
+        };
+
+        var rating = float.TryParse(
+            dir.Attribute("rating")?.Value,
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var r) ? r : (float?)null;
+
+        return new MediaMetadata
+        {
+            RemoteId         = dir.Attribute("ratingKey")?.Value ?? string.Empty,
+            Title            = dir.Attribute("title")?.Value ?? string.Empty,
+            Type             = type,
+            Year             = ParseInt(dir, "year"),
+            SeasonNumber     = ParseInt(dir, "index"),
+            SeriesName       = dir.Attribute("parentTitle")?.Value,
+            Overview         = dir.Attribute("summary")?.Value,
+            CommunityRating  = rating,
+            OfficialRating   = dir.Attribute("contentRating")?.Value,
+            TvdbId           = ParseGuid(dir, "tvdb://"),
+            AvailableArtwork = BuildAvailableArtwork(dir),
+            Genres           = dir.Elements("Genre")
+                                  .Select(g => g.Attribute("tag")?.Value ?? string.Empty)
+                                  .Where(g => !string.IsNullOrEmpty(g))
+                                  .ToList(),
+        };
+    }
+
+    /// <summary>
+    /// Parses TechnicalInfo from a Plex &lt;Video&gt; element's &lt;Media&gt; child.
+    /// Plex bitrate is in kbps → convert to bps. AudioSampleRate from &lt;Stream&gt; if not on &lt;Media&gt;.
+    /// </summary>
+    private static TechnicalInfo? ParseTechnicalInfo(XElement video)
+    {
+        var media = video.Element("Media");
+        if (media is null) return null;
+
+        // Bitrate on <Media> is in kbps
+        int? bitrate = int.TryParse(media.Attribute("bitrate")?.Value, out var br) ? br * 1000 : null;
+
+        // AudioSampleRate: check <Media> first, then <Part><Stream audioSamplingRate="...">
+        int? sampleRate = ParseInt(media, "audioSampleRate");
+        if (sampleRate is null)
+        {
+            var part = media.Element("Part");
+            sampleRate = part?.Elements("Stream")
+                .Where(s => s.Attribute("streamType")?.Value == "2") // 2 = audio
+                .Select(s => ParseInt(s, "samplingRate"))
+                .FirstOrDefault(v => v.HasValue);
+        }
+
+        // File size from <Part size="...">
+        long? size = long.TryParse(media.Element("Part")?.Attribute("size")?.Value, out var sz) ? sz : null;
+
+        var result = new TechnicalInfo
+        {
+            Container       = media.Attribute("container")?.Value,
+            Bitrate         = bitrate,
+            Width           = ParseInt(media, "width"),
+            Height          = ParseInt(media, "height"),
+            VideoCodec      = media.Attribute("videoCodec")?.Value,
+            AudioCodec      = media.Attribute("audioCodec")?.Value,
+            AudioChannels   = ParseInt(media, "audioChannels"),
+            AudioSampleRate = sampleRate,
+            Size            = size
+        };
+
+        // Return null if nothing meaningful was found
+        bool hasAny = result.Container is not null || result.VideoCodec is not null
+                   || result.AudioCodec is not null || result.Width.HasValue
+                   || result.Height.HasValue || result.Bitrate.HasValue;
+        return hasAny ? result : null;
     }
 
     private static string? ParseGuid(XElement video, string prefix) =>
