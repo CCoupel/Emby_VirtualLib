@@ -221,7 +221,7 @@ public sealed class EmbyConnector : IMediaServerConnector
                           $"?ParentId={libraryId}" +
                           $"&Recursive=true" +
                           $"&IncludeItemTypes={GetIncludeItemTypes(libraryId)}" +
-                          $"&Fields=Overview,Genres,Studios,ProviderIds,DateCreated,Tags,Album,AlbumId" +
+                          $"&Fields=Overview,Genres,Studios,ProviderIds,DateCreated,Tags,Album,AlbumId,MediaSources" +
                           $"&StartIndex={startIndex}" +
                           $"&Limit={PageSize}";
 
@@ -292,8 +292,8 @@ public sealed class EmbyConnector : IMediaServerConnector
     {
         var userId = await GetUserIdAsync(cancellationToken);
         var url = userId is not null
-            ? $"Users/{userId}/Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines,AlbumArtist"
-            : $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines,AlbumArtist";
+            ? $"Users/{userId}/Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines,AlbumArtist,MediaSources"
+            : $"Items/{itemId}?Fields=Overview,Genres,Studios,ProviderIds,People,Tags,RemoteTrailers,Taglines,AlbumArtist,MediaSources";
         using var response = await GetWithRetryAsync(url, cancellationToken);
         response.EnsureSuccessStatusCode();
 
@@ -513,7 +513,8 @@ public sealed class EmbyConnector : IMediaServerConnector
             DateAdded     = item.DateCreated,
             RuntimeTicks  = item.RunTimeTicks,
             AlbumArtists  = ExtractAuthors(item),
-            AvailableArtwork = GetAvailableArtwork(item)
+            AvailableArtwork = GetAvailableArtwork(item),
+            Technical     = MapTechnicalInfo(item)
         };
     }
 
@@ -550,7 +551,8 @@ public sealed class EmbyConnector : IMediaServerConnector
             TmdbId = item.ProviderIds?.GetValueOrDefault("Tmdb"),
             TvdbId = item.ProviderIds?.GetValueOrDefault("Tvdb"),
             DateAdded = item.DateCreated,
-            AvailableArtwork = GetAvailableArtwork(item)
+            AvailableArtwork = GetAvailableArtwork(item),
+            Technical = MapTechnicalInfo(item)
         };
     }
 
@@ -605,7 +607,32 @@ public sealed class EmbyConnector : IMediaServerConnector
                 .ToList() ?? (IReadOnlyList<string>)Array.Empty<string>(),
             Authors = ExtractAuthors(item),
             Tagline = item.Taglines?.FirstOrDefault(),
-            TrailerUrl = item.RemoteTrailers?.FirstOrDefault()?.Url
+            TrailerUrl = item.RemoteTrailers?.FirstOrDefault()?.Url,
+            Technical = MapTechnicalInfo(item)
+        };
+    }
+
+    private static TechnicalInfo? MapTechnicalInfo(EmbyItem item)
+    {
+        var src = item.MediaSources?.FirstOrDefault();
+        if (src is null) return null;
+
+        var videoStream = src.MediaStreams?.FirstOrDefault(s =>
+            string.Equals(s.Type, "Video", StringComparison.OrdinalIgnoreCase));
+        var audioStream = src.MediaStreams?.FirstOrDefault(s =>
+            string.Equals(s.Type, "Audio", StringComparison.OrdinalIgnoreCase));
+
+        return new TechnicalInfo
+        {
+            Size            = src.Size,
+            Bitrate         = src.Bitrate,
+            Container       = src.Container,
+            Width           = videoStream?.Width,
+            Height          = videoStream?.Height,
+            VideoCodec      = videoStream?.Codec,
+            AudioCodec      = audioStream?.Codec,
+            AudioChannels   = audioStream?.Channels,
+            AudioSampleRate = audioStream?.SampleRate
         };
     }
 

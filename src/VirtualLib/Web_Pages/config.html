@@ -1,6 +1,6 @@
 <div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow"
      data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true"
-     data-bindheader="true" data-controller="__plugin/VirtualLibConfigScript101"
+     data-bindheader="true" data-controller="__plugin/VirtualLibConfigScript104"
      data-title="VirtualLib">
 
     <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
@@ -241,13 +241,25 @@
                 </div>
 
                 <div id="syncProgressContainer" style="display:none;margin-top:1em">
-                    <div style="background:var(--card-bg,#333);border-radius:4px;overflow:hidden;height:8px">
-                        <div id="syncProgressBar"
-                             style="height:100%;width:0%;background:var(--accent-color,#00a4dc);
-                                    transition:width 0.3s"></div>
+                    <div id="syncPhaseLabel" style="font-size:0.85em;font-weight:bold;margin-bottom:8px;"></div>
+                    <style>
+                        .vl-prog-row { margin-bottom:10px }
+                        .vl-prog-track { background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden;height:10px }
+                        .vl-prog-bar { height:100%;width:0%;background:var(--accent-color,#00a4dc);transition:width 0.4s }
+                        .vl-prog-label { font-size:0.78em;opacity:0.75;margin-top:3px;display:flex;justify-content:space-between }
+                    </style>
+                    <div class="vl-prog-row">
+                        <div class="vl-prog-track"><div id="syncBarConnectors" class="vl-prog-bar"></div></div>
+                        <div id="syncLabelConnectors" class="vl-prog-label"></div>
                     </div>
-                    <div id="syncProgressLabel"
-                         style="margin-top:0.4em;font-size:0.85em;opacity:0.8"></div>
+                    <div class="vl-prog-row">
+                        <div class="vl-prog-track"><div id="syncBarLibraries" class="vl-prog-bar"></div></div>
+                        <div id="syncLabelLibraries" class="vl-prog-label"></div>
+                    </div>
+                    <div class="vl-prog-row">
+                        <div class="vl-prog-track"><div id="syncBarItems" class="vl-prog-bar" style="background:var(--accent-color,#00a4dc);opacity:0.7"></div></div>
+                        <div id="syncProgressLabel" class="vl-prog-label"></div>
+                    </div>
                 </div>
 
                 <div id="syncResultContainer" style="display:none;margin-top:1em">

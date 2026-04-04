@@ -112,6 +112,48 @@ internal sealed class EmbyItem
 
     [JsonPropertyName("Taglines")]
     public List<string>? Taglines { get; init; }
+
+    [JsonPropertyName("MediaSources")]
+    public List<EmbyMediaSource>? MediaSources { get; init; }
+}
+
+internal sealed class EmbyMediaSource
+{
+    [JsonPropertyName("Size")]
+    public long? Size { get; init; }
+
+    [JsonPropertyName("Bitrate")]
+    public int? Bitrate { get; init; }
+
+    [JsonPropertyName("Container")]
+    public string? Container { get; init; }
+
+    [JsonPropertyName("MediaStreams")]
+    public List<EmbyMediaStream>? MediaStreams { get; init; }
+}
+
+internal sealed class EmbyMediaStream
+{
+    [JsonPropertyName("Type")]
+    public string? Type { get; init; }
+
+    [JsonPropertyName("Codec")]
+    public string? Codec { get; init; }
+
+    [JsonPropertyName("Width")]
+    public int? Width { get; init; }
+
+    [JsonPropertyName("Height")]
+    public int? Height { get; init; }
+
+    [JsonPropertyName("BitRate")]
+    public int? BitRate { get; init; }
+
+    [JsonPropertyName("Channels")]
+    public int? Channels { get; init; }
+
+    [JsonPropertyName("SampleRate")]
+    public int? SampleRate { get; init; }
 }
 
 internal sealed class EmbyStudio
