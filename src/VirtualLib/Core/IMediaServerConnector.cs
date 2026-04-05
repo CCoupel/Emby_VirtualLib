@@ -74,6 +74,12 @@ public interface IMediaServerConnector : IDisposable
     Task ReportPlaybackStartAsync(string itemId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Envoie la position de lecture courante au serveur distant (~toutes les 10s).
+    /// No-op si le connecteur utilise un API key.
+    /// </summary>
+    Task ReportPlaybackProgressAsync(string itemId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Notifie le serveur distant que la lecture s'est arrêtée.
     /// No-op si le connecteur utilise un API key.
     /// </summary>

@@ -441,6 +441,30 @@ public sealed class EmbyConnector : IMediaServerConnector
         }
     }
 
+    public async Task ReportPlaybackProgressAsync(string itemId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
+    {
+        if (_config.AuthMode != AuthMode.UserCredentials) return;
+
+        try
+        {
+            var userId = await GetUserIdAsync(cancellationToken);
+            var body = new
+            {
+                ItemId = itemId,
+                MediaSourceId = itemId,
+                UserId = userId,
+                PositionTicks = positionTicks,
+                IsPaused = isPaused
+            };
+            using var response = await PostWithRetryAsync("Sessions/Playing/Progress", body, cancellationToken);
+            _logger.LogDebug("Reported PlaybackProgress for item={ItemId} pos={Ticks} paused={IsPaused}", itemId, positionTicks, isPaused);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to report PlaybackProgress for item {ItemId}", itemId);
+        }
+    }
+
     public async Task ReportPlaybackStoppedAsync(string itemId, CancellationToken cancellationToken = default)
     {
         if (_config.AuthMode != AuthMode.UserCredentials) return;
