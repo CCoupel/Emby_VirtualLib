@@ -78,6 +78,15 @@
                 .vl-type-group.vl-collapsed .vl-type-body { display: none; }
                 .vl-library { display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 0.9em; }
                 .vl-lib-count { opacity: 0.55; font-size: 0.85em; margin-left: 4px; }
+                /* ── Inline sync bars ─────────────────────────────────────── */
+                .vl-ib { display:none; gap:4px; flex-shrink:0; width:160px; align-items:center }
+                .vl-ib.vl-ib-active { display:flex }
+                .vl-ib-wrap { flex:1 }
+                .vl-ib-track { background:rgba(255,255,255,0.13);border-radius:3px;height:5px;overflow:hidden }
+                .vl-ib-fill { height:100%;width:0%;border-radius:3px;transition:width 0.5s }
+                .vl-ib-p1 { background:var(--accent-color,#00a4dc) }
+                .vl-ib-p2 { background:#4caf50 }
+                .vl-ib-fail { background:var(--theme-error-color,#e53935) }
             </style>
 
             <!-- Connector list -->
@@ -248,28 +257,16 @@
                     </button>
                 </div>
 
-                <style>
-                    /* ── Parallel sync tree ──────────────────────────────── */
-                    .vl-sp-section   { margin-bottom:6px }
-                    .vl-sp-conn-row  { display:flex;align-items:center;gap:8px;padding:4px 0;font-weight:bold;font-size:0.9em }
-                    .vl-sp-type-row  { display:flex;align-items:center;gap:8px;padding:2px 0 2px 14px;font-size:0.83em;opacity:0.8 }
-                    .vl-sp-lib-row   { display:flex;align-items:center;gap:8px;padding:2px 0 2px 28px;font-size:0.85em }
-                    .vl-sp-name      { flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap }
-                    .vl-sp-bars      { display:flex;gap:5px;width:240px;flex-shrink:0 }
-                    .vl-sp-bar-wrap  { flex:1 }
-                    .vl-sp-track     { background:rgba(255,255,255,0.13);border-radius:3px;height:7px;overflow:hidden }
-                    .vl-sp-fill      { height:100%;width:0%;border-radius:3px;transition:width 0.5s }
-                    .vl-sp-pct       { font-size:0.72em;opacity:0.6;text-align:right;margin-top:1px }
-                    .vl-sp-badge     { font-size:0.7em;padding:1px 6px;border-radius:8px;flex-shrink:0;white-space:nowrap }
-                    .vl-sp-done      { background:rgba(76,175,80,0.25);color:#a5d6a7 }
-                    .vl-sp-p1        { background:rgba(0,164,220,0.25);color:#80d4f5 }
-                    .vl-sp-p2        { background:rgba(76,175,80,0.2);color:#c8e6c9 }
-                    .vl-sp-pending   { background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.45) }
-                    .vl-sp-failed    { background:rgba(229,57,53,0.2);color:#ef9a9a }
-                </style>
-                <div id="syncProgressContainer" style="display:none;margin-top:1em">
-                    <div id="syncStatusLabel" style="font-size:0.85em;font-weight:bold;margin-bottom:10px"></div>
-                    <div id="syncTreeProgress"></div>
+                <div id="syncProgressContainer" style="display:none;margin-top:0.75em">
+                    <div style="display:flex;align-items:center;gap:10px">
+                        <div style="flex:1">
+                            <div class="vl-ib-track" style="height:8px"><div id="syncGlobalP1" class="vl-ib-fill vl-ib-p1" style="height:100%"></div></div>
+                        </div>
+                        <div style="flex:1">
+                            <div class="vl-ib-track" style="height:8px"><div id="syncGlobalP2" class="vl-ib-fill vl-ib-p2" style="height:100%"></div></div>
+                        </div>
+                        <span id="syncGlobalLabel" style="font-size:0.8em;opacity:0.7;white-space:nowrap;flex-shrink:0"></span>
+                    </div>
                 </div>
 
                 <div id="syncResultContainer" style="display:none;margin-top:1em">

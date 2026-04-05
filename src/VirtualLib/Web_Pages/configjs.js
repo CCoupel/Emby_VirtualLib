@@ -145,6 +145,7 @@ define([], function () {
                 header.appendChild(nameSpan);
                 header.appendChild(badge);
                 header.appendChild(summary);
+                header.appendChild(makeInlineBars('c:' + c.Id));
                 header.appendChild(actions);
 
                 header.addEventListener('click', function (e) {
@@ -189,6 +190,7 @@ define([], function () {
                         typeHeader.appendChild(typeCaret);
                         typeHeader.appendChild(typeTitle);
                         typeHeader.appendChild(typeSummary);
+                        typeHeader.appendChild(makeInlineBars('t:' + c.Id + '|' + type));
                         typeHeader.addEventListener('click', function () {
                             typeGroup.classList.toggle('vl-collapsed');
                         });
@@ -249,6 +251,7 @@ define([], function () {
                             libRow.appendChild(label);
                             libRow.appendChild(libName);
                             libRow.appendChild(countSpan);
+                            libRow.appendChild(makeInlineBars('l:' + c.Id + '|' + lib.Id));
                             libRow.appendChild(syncBtn);
                             typeBody.appendChild(libRow);
                         });
@@ -465,11 +468,9 @@ define([], function () {
 
         // ── Sync status constants (mirror LibrarySyncStatus enum) ──────────
         var SP_PENDING = 0, SP_P1 = 1, SP_P2 = 2, SP_DONE = 3, SP_FAILED = 4;
-        var SP_BADGE_CLASS  = ['vl-sp-pending', 'vl-sp-p1', 'vl-sp-p2', 'vl-sp-done', 'vl-sp-failed'];
-        var SP_BADGE_LABEL  = ['Pending', 'Files\u2026', 'Metadata\u2026', 'Done', 'Failed'];
-        var SP_FILL_PHASE1  = 'var(--accent-color,#00a4dc)';
-        var SP_FILL_PHASE2  = '#4caf50';
-        var SP_FILL_FAILED  = 'var(--theme-error-color,#e53935)';
+        var SP_FILL_PHASE1 = 'var(--accent-color,#00a4dc)';
+        var SP_FILL_PHASE2 = '#4caf50';
+        var SP_FILL_FAILED = 'var(--theme-error-color,#e53935)';
 
         function setSyncMode(active) {
             q('btnSyncAll').disabled = active;
@@ -491,161 +492,103 @@ define([], function () {
             return total > 0 ? Math.min(100, Math.round(done / total * 100)) : 0;
         }
 
-        // Build a double-bar element: two side-by-side track+fill combos
-        function makeDoubleBars(p1Done, p1Total, p2Done, p2Total, status) {
-            var wrap = document.createElement('div');
-            wrap.className = 'vl-sp-bars';
+        // ── Inline bar helpers ─────────────────────────────────────────────
 
-            function makeBar(done, total, color) {
+        // Creates a hidden double-bar div with a data-sync-bars attribute for later lookup
+        function makeInlineBars(key) {
+            var wrap = document.createElement('div');
+            wrap.className = 'vl-ib';
+            wrap.setAttribute('data-sync-bars', key);
+            function oneBar(fillCls) {
                 var bw = document.createElement('div');
-                bw.className = 'vl-sp-bar-wrap';
+                bw.className = 'vl-ib-wrap';
                 var track = document.createElement('div');
-                track.className = 'vl-sp-track';
+                track.className = 'vl-ib-track';
                 var fill = document.createElement('div');
-                fill.className = 'vl-sp-fill';
-                fill.style.width = spPct(done, total) + '%';
-                fill.style.background = color;
+                fill.className = 'vl-ib-fill ' + fillCls;
                 track.appendChild(fill);
-                var pctEl = document.createElement('div');
-                pctEl.className = 'vl-sp-pct';
-                pctEl.textContent = spPct(done, total) + '%';
                 bw.appendChild(track);
-                bw.appendChild(pctEl);
                 return bw;
             }
-
-            var p1Color = status === SP_FAILED ? SP_FILL_FAILED : SP_FILL_PHASE1;
-            var p2Color = SP_FILL_PHASE2;
-            wrap.appendChild(makeBar(p1Done, p1Total, p1Color));
-            wrap.appendChild(makeBar(p2Done, p2Total, p2Color));
+            wrap.appendChild(oneBar('vl-ib-p1'));
+            wrap.appendChild(oneBar('vl-ib-p2'));
             return wrap;
         }
 
-        function makeBadge(status) {
-            var b = document.createElement('span');
-            b.className = 'vl-sp-badge ' + (SP_BADGE_CLASS[status] || 'vl-sp-pending');
-            b.textContent = SP_BADGE_LABEL[status] || '';
-            return b;
+        // Update one inline-bar element by key
+        function setInlineBar(key, p1Done, p1Total, p2Done, p2Total, failed) {
+            var el = view.querySelector('[data-sync-bars="' + key + '"]');
+            if (!el) return;
+            el.classList.add('vl-ib-active');
+            var fills = el.querySelectorAll('.vl-ib-fill');
+            fills[0].style.width = spPct(p1Done, p1Total) + '%';
+            fills[0].className = 'vl-ib-fill ' + (failed ? 'vl-ib-fail' : 'vl-ib-p1');
+            fills[1].style.width = spPct(p2Done, p2Total) + '%';
         }
 
         // Compute cumulative Phase1/Phase2 progress across a list of LibrarySyncEntry
         function cumulative(libs) {
             var p1d = 0, p1t = 0, p2d = 0, p2t = 0;
             libs.forEach(function (lib) {
-                p1d += lib.Phase1Done;
-                p1t += lib.Phase1Total;
-                p2d += lib.Phase2Done;
-                p2t += lib.Phase2Total;
+                p1d += lib.Phase1Done;  p1t += lib.Phase1Total;
+                p2d += lib.Phase2Done;  p2t += lib.Phase2Total;
             });
             return { p1d: p1d, p1t: p1t, p2d: p2d, p2t: p2t };
         }
 
-        // Derive an aggregate status from a list of libraries
-        function aggregateStatus(libs) {
-            if (libs.every(function (l) { return l.Status === SP_DONE; })) return SP_DONE;
-            if (libs.some(function (l) { return l.Status === SP_FAILED; })) return SP_FAILED;
-            if (libs.some(function (l) { return l.Status === SP_P2; })) return SP_P2;
-            if (libs.some(function (l) { return l.Status === SP_P1; })) return SP_P1;
-            return SP_PENDING;
-        }
-
-        // Full tree re-render from the Libraries array
-        function renderSyncTree(libraries) {
-            var container = q('syncTreeProgress');
-            while (container.firstChild) container.removeChild(container.firstChild);
-
+        // Update all inline bars in the connector tree + global bar
+        function updateInlineProgress(libraries) {
             if (!libraries || libraries.length === 0) return;
 
-            // Group: connectorId → type → [libs]
+            // Group by connector → type
             var byConn = {};
             libraries.forEach(function (lib) {
-                if (!byConn[lib.ConnectorId])
-                    byConn[lib.ConnectorId] = { name: lib.ConnectorName, types: {} };
-                var types = byConn[lib.ConnectorId].types;
+                if (!byConn[lib.ConnectorId]) byConn[lib.ConnectorId] = { types: {} };
                 var t = lib.MediaType || 'Unknown';
-                if (!types[t]) types[t] = [];
-                types[t].push(lib);
+                if (!byConn[lib.ConnectorId].types[t]) byConn[lib.ConnectorId].types[t] = [];
+                byConn[lib.ConnectorId].types[t].push(lib);
             });
 
-            Object.keys(byConn).sort(function (a, b) {
-                return byConn[a].name.localeCompare(byConn[b].name);
-            }).forEach(function (connId) {
-                var conn = byConn[connId];
-                var allConnLibs = Object.values(conn.types).reduce(function (acc, arr) { return acc.concat(arr); }, []);
-                var cAgg = cumulative(allConnLibs);
-                var cStatus = aggregateStatus(allConnLibs);
+            // Per-library bars
+            libraries.forEach(function (lib) {
+                setInlineBar(
+                    'l:' + lib.ConnectorId + '|' + lib.LibraryId,
+                    lib.Phase1Done, lib.Phase1Total,
+                    lib.Phase2Done, lib.Phase2Total,
+                    lib.Status === SP_FAILED);
+            });
 
-                var section = document.createElement('div');
-                section.className = 'vl-sp-section';
-
-                // ── Connector row ────────────────────────────────────────────
-                var connRow = document.createElement('div');
-                connRow.className = 'vl-sp-conn-row';
-                var connName = document.createElement('span');
-                connName.className = 'vl-sp-name';
-                connName.textContent = conn.name;
-                connRow.appendChild(connName);
-                connRow.appendChild(makeBadge(cStatus));
-                connRow.appendChild(makeDoubleBars(cAgg.p1d, cAgg.p1t, cAgg.p2d, cAgg.p2t, cStatus));
-                section.appendChild(connRow);
-
-                // ── Media type rows ──────────────────────────────────────────
-                Object.keys(conn.types).sort().forEach(function (type) {
-                    var typeLibs = conn.types[type];
-                    var tAgg = cumulative(typeLibs);
-                    var tStatus = aggregateStatus(typeLibs);
-
-                    var typeRow = document.createElement('div');
-                    typeRow.className = 'vl-sp-type-row';
-                    var typeName = document.createElement('span');
-                    typeName.className = 'vl-sp-name';
-                    typeName.textContent = (TYPE_LABELS[type] || type) + ' (' + typeLibs.length + ')';
-                    typeRow.appendChild(typeName);
-                    typeRow.appendChild(makeBadge(tStatus));
-                    typeRow.appendChild(makeDoubleBars(tAgg.p1d, tAgg.p1t, tAgg.p2d, tAgg.p2t, tStatus));
-                    section.appendChild(typeRow);
-
-                    // ── Library rows ─────────────────────────────────────────
-                    typeLibs.forEach(function (lib) {
-                        var libRow = document.createElement('div');
-                        libRow.className = 'vl-sp-lib-row';
-                        var libName = document.createElement('span');
-                        libName.className = 'vl-sp-name';
-                        libName.textContent = lib.LibraryName;
-                        libRow.appendChild(libName);
-                        libRow.appendChild(makeBadge(lib.Status));
-                        libRow.appendChild(makeDoubleBars(
-                            lib.Phase1Done, lib.Phase1Total,
-                            lib.Phase2Done, lib.Phase2Total,
-                            lib.Status));
-                        if (lib.Status === SP_FAILED && lib.ErrorMessage) {
-                            var errSpan = document.createElement('span');
-                            errSpan.title = lib.ErrorMessage;
-                            errSpan.textContent = '\u26a0';
-                            errSpan.style.cssText = 'cursor:help;color:var(--theme-error-color,#e53935);flex-shrink:0';
-                            libRow.appendChild(errSpan);
-                        }
-                        section.appendChild(libRow);
-                    });
+            // Per-type and per-connector bars
+            Object.keys(byConn).forEach(function (connId) {
+                var allConnLibs = [];
+                Object.keys(byConn[connId].types).forEach(function (type) {
+                    var typeLibs = byConn[connId].types[type];
+                    var tc = cumulative(typeLibs);
+                    var hasFail = typeLibs.some(function(l) { return l.Status === SP_FAILED; });
+                    setInlineBar('t:' + connId + '|' + type, tc.p1d, tc.p1t, tc.p2d, tc.p2t, hasFail);
+                    allConnLibs = allConnLibs.concat(typeLibs);
                 });
-
-                container.appendChild(section);
+                var cc = cumulative(allConnLibs);
+                var hasFail = allConnLibs.some(function(l) { return l.Status === SP_FAILED; });
+                setInlineBar('c:' + connId, cc.p1d, cc.p1t, cc.p2d, cc.p2t, hasFail);
             });
+
+            // Global bar
+            var gc = cumulative(libraries);
+            q('syncGlobalP1').style.width = spPct(gc.p1d, gc.p1t) + '%';
+            q('syncGlobalP2').style.width = spPct(gc.p2d, gc.p2t) + '%';
+            var done = libraries.filter(function(l) { return l.Status === SP_DONE || l.Status === SP_FAILED; }).length;
+            q('syncGlobalLabel').textContent = done + '\u202f/\u202f' + libraries.length + ' libs';
         }
 
-        function resetSyncTree() {
-            var container = q('syncTreeProgress');
-            while (container.firstChild) container.removeChild(container.firstChild);
-            var lbl = q('syncStatusLabel');
-            lbl.style.color = SP_FILL_PHASE1;
-            lbl.textContent = '\u25cf Starting\u2026';
-        }
-
-        function finishSyncTree(libraries) {
-            var lbl = q('syncStatusLabel');
-            lbl.style.color = SP_FILL_PHASE2;
-            lbl.textContent = '\u2713 Synchronisation complete';
-            if (libraries && libraries.length > 0) renderSyncTree(libraries);
+        function clearInlineProgress() {
+            view.querySelectorAll('[data-sync-bars]').forEach(function (el) {
+                el.classList.remove('vl-ib-active');
+                el.querySelectorAll('.vl-ib-fill').forEach(function (f) { f.style.width = '0%'; });
+            });
+            q('syncGlobalP1').style.width = '0%';
+            q('syncGlobalP2').style.width = '0%';
+            q('syncGlobalLabel').textContent = '';
         }
 
         // Called repeatedly while a sync is in progress.
@@ -655,17 +598,16 @@ define([], function () {
                 if (status.IsSyncing) {
                     q('syncProgressContainer').style.display = '';
                     q('syncResultContainer').style.display = 'none';
-                    var lbl = q('syncStatusLabel');
-                    lbl.style.color = SP_FILL_PHASE1;
-                    lbl.textContent = '\u25cf Synchronising\u2026';
-                    renderSyncTree(status.Libraries);
+                    updateInlineProgress(status.Libraries);
                     setSyncMode(true);
                     _syncPollTimer = setTimeout(pollSyncStatus, 2000);
                 } else {
                     stopSyncPoll();
                     setSyncMode(false);
                     if (q('syncProgressContainer').style.display !== 'none') {
-                        finishSyncTree(status.Libraries);
+                        // Show final state briefly then clear
+                        updateInlineProgress(status.Libraries);
+                        q('syncGlobalLabel').textContent = '\u2713 Done';
                         if (status.LastResults && status.LastResults.length > 0)
                             displaySyncResults(status.LastResults, q('syncResultLog'), q('syncResultContainer'));
                         loadConnectors();
@@ -680,21 +622,23 @@ define([], function () {
         // Start a sync from the UI: POST endpoint (returns immediately), then poll
         function startSync(url) {
             q('syncProgressContainer').style.display = '';
-            resetSyncTree();
+            clearInlineProgress();
+            q('syncGlobalLabel').textContent = 'Starting\u2026';
             q('syncResultContainer').style.display = 'none';
             q('syncResultLog').textContent = '';
             setSyncMode(true);
+            // Auto-expand all connectors so inline bars are visible
+            view.querySelectorAll('.vl-connector.vl-collapsed').forEach(function (el) {
+                el.classList.remove('vl-collapsed');
+            });
 
             apiPost(url).then(function (res) {
-                if (res && res.AlreadyRunning) {
-                    var lbl = q('syncStatusLabel');
-                    lbl.textContent = 'A sync is already in progress.';
-                }
+                if (res && res.AlreadyRunning)
+                    q('syncGlobalLabel').textContent = 'Already running\u2026';
                 _syncPollTimer = setTimeout(pollSyncStatus, 1000);
             }).catch(function (e) {
-                var lbl = q('syncStatusLabel');
-                lbl.style.color = 'var(--theme-error-color,#e53935)';
-                lbl.textContent = 'Error: ' + e.message;
+                q('syncGlobalLabel').textContent = 'Error: ' + e.message;
+                q('syncGlobalP1').style.background = SP_FILL_FAILED;
                 setSyncMode(false);
             });
         }
