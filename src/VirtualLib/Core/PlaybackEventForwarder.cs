@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Logging;
@@ -40,13 +41,12 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
         _connectorFactory = new ConnectorFactory(new DefaultHttpClientFactory(), loggerFactory);
     }
 
-    public Task Run()
+    public void Run()
     {
         _sessionManager.PlaybackStart    += OnPlaybackStart;
         _sessionManager.PlaybackProgress += OnPlaybackProgress;
         _sessionManager.PlaybackStopped  += OnPlaybackStopped;
         _logger.LogInformation("[VirtualLib] PlaybackEventForwarder started");
-        return Task.CompletedTask;
     }
 
     // -------------------------------------------------------------------------
