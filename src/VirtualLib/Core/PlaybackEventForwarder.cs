@@ -15,18 +15,19 @@ namespace VirtualLib.Core;
 /// de lecture (start, progress, stop) vers le serveur distant correspondant
 /// lorsque l'item joué provient d'une bibliothèque virtuelle VirtualLib.
 ///
-/// Le mapping local → remote se fait en lisant le contenu du fichier .strm,
-/// qui contient l'URL proxy :
-///   {baseUrl}/virtuallib/proxy/{connectorId}/{libraryId}/{remoteItemId}
-///
-/// Un heartbeat indépendant envoie Progress au remote toutes les 30s pour
-/// chaque session active, même si le client host est en pause (les clients
-/// Emby cessent d'envoyer des événements de progression lors d'une pause
-/// prolongée, ce qui entraîne un idle timeout côté serveur distant).
+/// Comportements clés :
+/// - Heartbeat 30s : maintient la session remote vivante pendant les pauses.
+/// - Debounce Stop 8s : le host Emby fire PlaybackStopped quand le proxy
+///   stream HTTP se ferme (client a bufferisé), même si l'utilisateur est
+///   encore actif. On attend 8s — mais uniquement si aucun Progress n'arrive.
+/// - Re-ouverture transparente : si un Progress arrive pour une session
+///   absente (session expirée, debounce expiré, ou pod redémarré), on
+///   ré-envoie Start + Progress automatiquement sans attendre un Start du host.
+/// - Fix race condition : le debounce Stop vérifie le PlaySessionId courant
+///   avant de supprimer, pour éviter de tuer une nouvelle session.
 /// </summary>
 public sealed class PlaybackEventForwarder : IServerEntryPoint
 {
-    // Regex pour extraire connectorId / libraryId / remoteItemId depuis l'URL proxy
     private static readonly Regex ProxyUrlRegex = new(
         @"/virtuallib/proxy/([^/\s]+)/([^/\s]+)/([^/\s\?]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -35,10 +36,7 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
     private readonly ILogger<PlaybackEventForwarder> _logger;
     private readonly IConnectorFactory _connectorFactory;
 
-    // Connecteurs mis en cache par connectorId pour réutiliser la session auth
     private readonly ConcurrentDictionary<string, IMediaServerConnector> _connectors = new();
-
-    // État de chaque session active, par clé "connectorId:remoteItemId"
     private readonly ConcurrentDictionary<string, ActiveSession> _sessions = new();
 
     public PlaybackEventForwarder(ISessionManager sessionManager)
@@ -57,7 +55,7 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
     }
 
     // -------------------------------------------------------------------------
-    // Event handlers — fire-and-forget pour ne jamais bloquer le thread Emby
+    // Event handlers
     // -------------------------------------------------------------------------
 
     private void OnPlaybackStart(object? sender, PlaybackProgressEventArgs e)
@@ -76,51 +74,27 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
     private async Task ForwardEventAsync(PlaybackProgressEventArgs e, PlaybackEvent eventType)
     {
         var path = e.Item?.Path;
-        Console.Error.WriteLine($"[VirtualLib] PlaybackEventForwarder — {eventType} path={path ?? "(null)"}");
+        Console.Error.WriteLine($"[VirtualLib] {eventType} path={path ?? "(null)"}");
 
         if (string.IsNullOrEmpty(path) || !path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
             return;
 
         string strmContent;
-        try
-        {
-            strmContent = await File.ReadAllTextAsync(path).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "[VirtualLib] Cannot read .strm file: {Path}", path);
-            return;
-        }
+        try { strmContent = await File.ReadAllTextAsync(path).ConfigureAwait(false); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Cannot read .strm: {Path}", path); return; }
 
         var match = ProxyUrlRegex.Match(strmContent.Trim());
-        if (!match.Success)
-        {
-            Console.Error.WriteLine($"[VirtualLib] .strm URL not matched: {strmContent.Trim()}");
-            return;
-        }
+        if (!match.Success) { Console.Error.WriteLine($"[VirtualLib] .strm URL not matched: {strmContent.Trim()}"); return; }
 
         var connectorId  = match.Groups[1].Value;
         var remoteItemId = match.Groups[3].Value;
-        Console.Error.WriteLine($"[VirtualLib] Matched — connector={connectorId} item={remoteItemId}");
 
-        var connectorConfig = Plugin.Instance?.Configuration.Connectors
-            .FirstOrDefault(c => c.Id == connectorId);
-        if (connectorConfig is null || !connectorConfig.Enabled)
-        {
-            Console.Error.WriteLine($"[VirtualLib] Connector not found or disabled: {connectorId}");
-            return;
-        }
+        var connectorConfig = Plugin.Instance?.Configuration.Connectors.FirstOrDefault(c => c.Id == connectorId);
+        if (connectorConfig is null || !connectorConfig.Enabled) return;
 
         IMediaServerConnector connector;
-        try
-        {
-            connector = _connectors.GetOrAdd(connectorId, _ => _connectorFactory.Create(connectorConfig));
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[VirtualLib] Failed to create connector {connectorId}: {ex.GetBaseException().Message}");
-            return;
-        }
+        try { connector = _connectors.GetOrAdd(connectorId, _ => _connectorFactory.Create(connectorConfig)); }
+        catch (Exception ex) { Console.Error.WriteLine($"[VirtualLib] Connector error {connectorId}: {ex.GetBaseException().Message}"); return; }
 
         var positionTicks = e.PlaybackPositionTicks ?? 0L;
         var isPaused      = e.IsPaused;
@@ -131,50 +105,113 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
             switch (eventType)
             {
                 case PlaybackEvent.Start:
-                {
-                    // Annuler un heartbeat précédent si la session était déjà ouverte
-                    if (_sessions.TryRemove(sessionKey, out var prev))
-                        prev.Cts.Cancel();
-
-                    var playSessionId = Guid.NewGuid().ToString("N");
-                    var cts = new CancellationTokenSource();
-                    _sessions[sessionKey] = new ActiveSession(playSessionId, positionTicks, isPaused, cts);
-
-                    await connector.ReportPlaybackStartAsync(remoteItemId, playSessionId).ConfigureAwait(false);
-                    Console.Error.WriteLine($"[VirtualLib] PlaybackStart OK → connector={connectorId} item={remoteItemId} session={playSessionId}");
-
-                    // Lancer le heartbeat indépendant (toutes les 30s)
-                    _ = Task.Run(() => HeartbeatLoopAsync(connector, remoteItemId, sessionKey, cts.Token));
+                    await HandleStartAsync(connector, remoteItemId, sessionKey, positionTicks, isPaused);
                     break;
-                }
 
                 case PlaybackEvent.Progress:
-                {
-                    // Mettre à jour la position/pause — le heartbeat lira la nouvelle valeur
-                    if (_sessions.TryGetValue(sessionKey, out var session))
-                    {
-                        _sessions[sessionKey] = session with { PositionTicks = positionTicks, IsPaused = isPaused };
-                        await connector.ReportPlaybackProgressAsync(remoteItemId, session.PlaySessionId, positionTicks, isPaused).ConfigureAwait(false);
-                    }
+                    await HandleProgressAsync(connector, remoteItemId, sessionKey, positionTicks, isPaused);
                     break;
-                }
 
                 case PlaybackEvent.Stop:
-                {
-                    if (_sessions.TryRemove(sessionKey, out var session))
-                    {
-                        session.Cts.Cancel();
-                        await connector.ReportPlaybackStoppedAsync(remoteItemId, session.PlaySessionId, positionTicks).ConfigureAwait(false);
-                        Console.Error.WriteLine($"[VirtualLib] PlaybackStopped OK → connector={connectorId} item={remoteItemId} pos={positionTicks}");
-                    }
+                    HandleStop(connector, remoteItemId, sessionKey, positionTicks);
                     break;
-                }
             }
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[VirtualLib] Failed to forward {eventType} for item={remoteItemId}: {ex.GetBaseException().Message}");
+            Console.Error.WriteLine($"[VirtualLib] {eventType} error for {remoteItemId}: {ex.GetBaseException().Message}");
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Handlers per event type
+    // -------------------------------------------------------------------------
+
+    private async Task HandleStartAsync(
+        IMediaServerConnector connector, string remoteItemId, string sessionKey,
+        long positionTicks, bool isPaused)
+    {
+        if (_sessions.TryRemove(sessionKey, out var prev))
+        {
+            prev.PendingStopCts?.Cancel();
+            prev.HeartbeatCts.Cancel();
+        }
+
+        var session = OpenSession(sessionKey, positionTicks, isPaused);
+        await connector.ReportPlaybackStartAsync(remoteItemId, session.PlaySessionId).ConfigureAwait(false);
+        Console.Error.WriteLine($"[VirtualLib] Start OK → item={remoteItemId} session={session.PlaySessionId}");
+        _ = Task.Run(() => HeartbeatLoopAsync(connector, remoteItemId, sessionKey, session.HeartbeatCts.Token));
+    }
+
+    private async Task HandleProgressAsync(
+        IMediaServerConnector connector, string remoteItemId, string sessionKey,
+        long positionTicks, bool isPaused)
+    {
+        _sessions.TryGetValue(sessionKey, out var session);
+
+        if (session is null)
+        {
+            // Session absente : debounce expiré, pod redémarré, ou host n'a pas renvoyé Start.
+            // Réouvrir transparentement.
+            Console.Error.WriteLine($"[VirtualLib] Progress sans session active — réouverture pour item={remoteItemId}");
+            session = OpenSession(sessionKey, positionTicks, isPaused);
+            await connector.ReportPlaybackStartAsync(remoteItemId, session.PlaySessionId).ConfigureAwait(false);
+            _ = Task.Run(() => HeartbeatLoopAsync(connector, remoteItemId, sessionKey, session.HeartbeatCts.Token));
+        }
+        else if (session.PendingStopCts != null)
+        {
+            // Stop pending — le client est encore actif, annuler
+            session.PendingStopCts.Cancel();
+            session = session with { PendingStopCts = null };
+            _sessions[sessionKey] = session;
+            Console.Error.WriteLine($"[VirtualLib] Stop annulé (client actif) → item={remoteItemId}");
+        }
+
+        _sessions[sessionKey] = session with { PositionTicks = positionTicks, IsPaused = isPaused };
+        await connector.ReportPlaybackProgressAsync(remoteItemId, session.PlaySessionId, positionTicks, isPaused).ConfigureAwait(false);
+    }
+
+    private void HandleStop(
+        IMediaServerConnector connector, string remoteItemId, string sessionKey,
+        long positionTicks)
+    {
+        if (!_sessions.TryGetValue(sessionKey, out var session)) return;
+
+        // Annuler un Stop pending précédent
+        session.PendingStopCts?.Cancel();
+
+        var stopCts         = new CancellationTokenSource();
+        var capturedId      = session.PlaySessionId;   // pour la vérification anti-race
+        var capturedPos     = positionTicks;
+
+        _sessions[sessionKey] = session with { PendingStopCts = stopCts };
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // Attendre 8s : si un Progress arrive, le Stop sera annulé
+                await Task.Delay(TimeSpan.FromSeconds(8), stopCts.Token).ConfigureAwait(false);
+
+                // Vérifier que la session n'a pas été remplacée par une nouvelle (Start entre-temps)
+                if (_sessions.TryGetValue(sessionKey, out var current)
+                    && current.PlaySessionId == capturedId
+                    && _sessions.TryRemove(sessionKey, out var s))
+                {
+                    s.HeartbeatCts.Cancel();
+                    await connector.ReportPlaybackStoppedAsync(remoteItemId, s.PlaySessionId, capturedPos).ConfigureAwait(false);
+                    Console.Error.WriteLine($"[VirtualLib] Stop confirmé → item={remoteItemId} pos={capturedPos}");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                Console.Error.WriteLine($"[VirtualLib] Stop debounced → item={remoteItemId}");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[VirtualLib] Stop error → item={remoteItemId}: {ex.GetBaseException().Message}");
+            }
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -182,38 +219,36 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
     // -------------------------------------------------------------------------
 
     private async Task HeartbeatLoopAsync(
-        IMediaServerConnector connector,
-        string remoteItemId,
-        string sessionKey,
-        CancellationToken ct)
+        IMediaServerConnector connector, string remoteItemId, string sessionKey, CancellationToken ct)
     {
         try
         {
             while (!ct.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
-
-                if (ct.IsCancellationRequested) break;
-                if (!_sessions.TryGetValue(sessionKey, out var session)) break;
+                if (ct.IsCancellationRequested || !_sessions.TryGetValue(sessionKey, out var session)) break;
 
                 await connector.ReportPlaybackProgressAsync(
                     remoteItemId, session.PlaySessionId, session.PositionTicks, session.IsPaused, ct)
                     .ConfigureAwait(false);
 
-                Console.Error.WriteLine(
-                    $"[VirtualLib] Heartbeat → item={remoteItemId} pos={session.PositionTicks} paused={session.IsPaused}");
+                Console.Error.WriteLine($"[VirtualLib] Heartbeat → item={remoteItemId} pos={session.PositionTicks} paused={session.IsPaused}");
             }
         }
-        catch (OperationCanceledException) { /* session arrêtée normalement */ }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[VirtualLib] Heartbeat error for item={remoteItemId}: {ex.GetBaseException().Message}");
-        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Console.Error.WriteLine($"[VirtualLib] Heartbeat error → item={remoteItemId}: {ex.GetBaseException().Message}"); }
     }
 
     // -------------------------------------------------------------------------
-    // Dispose / Cleanup
+    // Helpers
     // -------------------------------------------------------------------------
+
+    private ActiveSession OpenSession(string sessionKey, long positionTicks, bool isPaused)
+    {
+        var session = new ActiveSession(Guid.NewGuid().ToString("N"), positionTicks, isPaused, new CancellationTokenSource());
+        _sessions[sessionKey] = session;
+        return session;
+    }
 
     public void Dispose()
     {
@@ -222,7 +257,10 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
         _sessionManager.PlaybackStopped  -= OnPlaybackStopped;
 
         foreach (var session in _sessions.Values)
-            session.Cts.Cancel();
+        {
+            session.PendingStopCts?.Cancel();
+            session.HeartbeatCts.Cancel();
+        }
         _sessions.Clear();
 
         foreach (var connector in _connectors.Values)
@@ -230,16 +268,10 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
         _connectors.Clear();
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private static void FireAndForget(Func<Task> action)
-    {
+    private static void FireAndForget(Func<Task> action) =>
         Task.Run(action).ContinueWith(
-            t => Console.Error.WriteLine($"[VirtualLib] PlaybackEventForwarder unhandled: {t.Exception?.GetBaseException().Message}"),
+            t => Console.Error.WriteLine($"[VirtualLib] Unhandled: {t.Exception?.GetBaseException().Message}"),
             TaskContinuationOptions.OnlyOnFaulted);
-    }
 
     private enum PlaybackEvent { Start, Progress, Stop }
 
@@ -247,5 +279,6 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
         string PlaySessionId,
         long PositionTicks,
         bool IsPaused,
-        CancellationTokenSource Cts);
+        CancellationTokenSource HeartbeatCts,
+        CancellationTokenSource? PendingStopCts = null);
 }
