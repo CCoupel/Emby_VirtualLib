@@ -312,22 +312,22 @@ public sealed class PlexTvConnector : IMediaServerConnector
         return await inner.GetArtworkStreamAsync(itemId, artworkType, cancellationToken);
     }
 
-    public async Task ReportPlaybackStartAsync(string itemId, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
-        await inner.ReportPlaybackStartAsync(itemId, cancellationToken);
+        await inner.ReportPlaybackStartAsync(itemId, playSessionId, cancellationToken);
     }
 
-    public async Task ReportPlaybackProgressAsync(string itemId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
-        await inner.ReportPlaybackProgressAsync(itemId, positionTicks, isPaused, cancellationToken);
+        await inner.ReportPlaybackProgressAsync(itemId, playSessionId, positionTicks, isPaused, cancellationToken);
     }
 
-    public async Task ReportPlaybackStoppedAsync(string itemId, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
-        await inner.ReportPlaybackStoppedAsync(itemId, cancellationToken);
+        await inner.ReportPlaybackStoppedAsync(itemId, playSessionId, cancellationToken);
     }
 
     public void Dispose()

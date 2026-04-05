@@ -281,9 +281,6 @@ public sealed class ProxyController : BaseApiService
                 _logger.LogDebug("Stream start — item={ItemId} to={ClientIp}", request.ItemId, clientIp);
                 var sw = System.Diagnostics.Stopwatch.StartNew();
 
-                // Notify the remote server that playback has started (user credentials mode only)
-                await connector.ReportPlaybackStartAsync(request.ItemId, ct);
-
                 using (remoteResponse)
                 using (var remoteStream = await remoteResponse.Content.ReadAsStreamAsync(ct))
                 {
@@ -313,8 +310,6 @@ public sealed class ProxyController : BaseApiService
                     "Stream complete — item={ItemId} elapsed={ElapsedMs}ms to={ClientIp}",
                     request.ItemId, sw.ElapsedMilliseconds, clientIp);
 
-                // Notify the remote server that playback has stopped
-                await connector.ReportPlaybackStoppedAsync(request.ItemId, CancellationToken.None);
                 connector.Dispose();
             });
     }

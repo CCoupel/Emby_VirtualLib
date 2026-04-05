@@ -371,13 +371,13 @@ public sealed class PlexConnector : IMediaServerConnector
     }
 
     // Plex playback reporting requires full client session tracking — no-op
-    public Task ReportPlaybackStartAsync(string itemId, CancellationToken cancellationToken = default)
+    public Task ReportPlaybackStartAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
-    public Task ReportPlaybackProgressAsync(string itemId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
+    public Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
-    public Task ReportPlaybackStoppedAsync(string itemId, CancellationToken cancellationToken = default)
+    public Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
     // -------------------------------------------------------------------------

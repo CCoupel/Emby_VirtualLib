@@ -4,6 +4,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace VirtualLib.Core;
 
@@ -32,13 +33,14 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
     // Connecteurs mis en cache par connectorId pour réutiliser la session auth
     private readonly ConcurrentDictionary<string, IMediaServerConnector> _connectors = new();
 
-    public PlaybackEventForwarder(
-        ISessionManager sessionManager,
-        ILoggerFactory loggerFactory)
+    // PlaySessionId par clé "connectorId:remoteItemId" — généré au Start, réutilisé pour Progress/Stop
+    private readonly ConcurrentDictionary<string, string> _playSessions = new();
+
+    public PlaybackEventForwarder(ISessionManager sessionManager)
     {
         _sessionManager = sessionManager;
-        _logger = loggerFactory.CreateLogger<PlaybackEventForwarder>();
-        _connectorFactory = new ConnectorFactory(new DefaultHttpClientFactory(), loggerFactory);
+        _logger = NullLoggerFactory.Instance.CreateLogger<PlaybackEventForwarder>();
+        _connectorFactory = new ConnectorFactory(new DefaultHttpClientFactory(), NullLoggerFactory.Instance);
     }
 
     public void Run()
@@ -69,6 +71,9 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
     private async Task ForwardEventAsync(PlaybackProgressEventArgs e, PlaybackEvent eventType)
     {
         var path = e.Item?.Path;
+        Console.Error.WriteLine($"[VirtualLib] PlaybackEventForwarder — {eventType} path={path ?? "(null)"}");
+        _logger.LogInformation("[VirtualLib] {Event} — item path: {Path}", eventType, path ?? "(null)");
+
         if (string.IsNullOrEmpty(path) || !path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
             return;
 
@@ -85,44 +90,73 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
         }
 
         var match = ProxyUrlRegex.Match(strmContent.Trim());
-        if (!match.Success) return;  // Pas une URL VirtualLib
+        if (!match.Success)
+        {
+            Console.Error.WriteLine($"[VirtualLib] .strm URL not matched: {strmContent.Trim()}");
+            return;
+        }
 
         var connectorId  = match.Groups[1].Value;
         var remoteItemId = match.Groups[3].Value;
+        Console.Error.WriteLine($"[VirtualLib] Matched — connector={connectorId} item={remoteItemId}");
 
         var connectorConfig = Plugin.Instance?.Configuration.Connectors
             .FirstOrDefault(c => c.Id == connectorId);
-        if (connectorConfig is null || !connectorConfig.Enabled) return;
+        if (connectorConfig is null || !connectorConfig.Enabled)
+        {
+            Console.Error.WriteLine($"[VirtualLib] Connector not found or disabled: {connectorId}");
+            return;
+        }
 
         // Récupère ou crée le connecteur (réutilise la session auth)
-        var connector = _connectors.GetOrAdd(connectorId, _ => _connectorFactory.Create(connectorConfig));
+        IMediaServerConnector connector;
+        try
+        {
+            connector = _connectors.GetOrAdd(connectorId, _ => _connectorFactory.Create(connectorConfig));
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[VirtualLib] Failed to create connector {connectorId}: {ex.GetBaseException().Message}");
+            return;
+        }
 
-        var positionTicks = e.PlaybackPositionTicks ?? 0L;
-        var isPaused      = e.IsPaused;
+        var positionTicks  = e.PlaybackPositionTicks ?? 0L;
+        var isPaused       = e.IsPaused;
+        var sessionKey     = $"{connectorId}:{remoteItemId}";
 
         try
         {
             switch (eventType)
             {
                 case PlaybackEvent.Start:
-                    await connector.ReportPlaybackStartAsync(remoteItemId).ConfigureAwait(false);
-                    _logger.LogDebug("[VirtualLib] PlaybackStart → connector={C} item={I}", connectorId, remoteItemId);
+                {
+                    var playSessionId = Guid.NewGuid().ToString("N");
+                    _playSessions[sessionKey] = playSessionId;
+                    await connector.ReportPlaybackStartAsync(remoteItemId, playSessionId).ConfigureAwait(false);
+                    Console.Error.WriteLine($"[VirtualLib] PlaybackStart OK → connector={connectorId} item={remoteItemId} session={playSessionId}");
                     break;
+                }
 
                 case PlaybackEvent.Progress:
-                    await connector.ReportPlaybackProgressAsync(remoteItemId, positionTicks, isPaused).ConfigureAwait(false);
-                    _logger.LogDebug("[VirtualLib] PlaybackProgress → connector={C} item={I} pos={T}", connectorId, remoteItemId, positionTicks);
+                {
+                    if (!_playSessions.TryGetValue(sessionKey, out var playSessionId)) return;
+                    await connector.ReportPlaybackProgressAsync(remoteItemId, playSessionId, positionTicks, isPaused).ConfigureAwait(false);
                     break;
+                }
 
                 case PlaybackEvent.Stop:
-                    await connector.ReportPlaybackStoppedAsync(remoteItemId).ConfigureAwait(false);
-                    _logger.LogDebug("[VirtualLib] PlaybackStopped → connector={C} item={I} pos={T}", connectorId, remoteItemId, positionTicks);
+                {
+                    _playSessions.TryRemove(sessionKey, out var playSessionId);
+                    playSessionId ??= Guid.NewGuid().ToString("N"); // fallback si Start manqué (pod restart)
+                    await connector.ReportPlaybackStoppedAsync(remoteItemId, playSessionId).ConfigureAwait(false);
+                    Console.Error.WriteLine($"[VirtualLib] PlaybackStopped OK → connector={connectorId} item={remoteItemId}");
                     break;
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "[VirtualLib] Failed to forward {Event} for item={I}", eventType, remoteItemId);
+            Console.Error.WriteLine($"[VirtualLib] Failed to forward {eventType} for item={remoteItemId}: {ex.GetBaseException().Message}");
         }
     }
 

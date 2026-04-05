@@ -69,19 +69,18 @@ public interface IMediaServerConnector : IDisposable
 
     /// <summary>
     /// Notifie le serveur distant qu'une lecture vient de démarrer.
-    /// No-op si le connecteur utilise un API key (pas de session utilisateur).
+    /// <paramref name="playSessionId"/> est un GUID unique par session de lecture,
+    /// à réutiliser dans les appels Progress et Stopped correspondants.
     /// </summary>
-    Task ReportPlaybackStartAsync(string itemId, CancellationToken cancellationToken = default);
+    Task ReportPlaybackStartAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Envoie la position de lecture courante au serveur distant (~toutes les 10s).
-    /// No-op si le connecteur utilise un API key.
     /// </summary>
-    Task ReportPlaybackProgressAsync(string itemId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default);
+    Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Notifie le serveur distant que la lecture s'est arrêtée.
-    /// No-op si le connecteur utilise un API key.
     /// </summary>
-    Task ReportPlaybackStoppedAsync(string itemId, CancellationToken cancellationToken = default);
+    Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default);
 }
