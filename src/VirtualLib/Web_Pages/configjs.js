@@ -134,19 +134,23 @@ define([], function () {
                 summary.style.cssText = 'font-size:0.82em;opacity:0.55;margin-left:6px';
 
                 var actions = document.createElement('div');
-                actions.className = 'vl-connector-actions';
+                actions.className = 'vl-row-actions';
                 actions.appendChild(makeBtn('Edit',   function () { openEditConnector(c.Id); }));
                 actions.appendChild(makeBtn('Delete', function () { deleteConnector(c.Id); }));
                 var connSyncBtn = makeBtn('Sync', function () { syncSingleConnector(c.Id); });
                 connSyncBtn.setAttribute('data-sync-btn', '1');
                 actions.appendChild(connSyncBtn);
 
+                var connRowRight = document.createElement('div');
+                connRowRight.className = 'vl-row-right';
+                connRowRight.appendChild(makeInlineBars('c:' + c.Id, 'vl-ib-conn'));
+                connRowRight.appendChild(actions);
+
                 header.appendChild(caret);
                 header.appendChild(nameSpan);
                 header.appendChild(badge);
                 header.appendChild(summary);
-                header.appendChild(makeInlineBars('c:' + c.Id));
-                header.appendChild(actions);
+                header.appendChild(connRowRight);
 
                 header.addEventListener('click', function (e) {
                     if (e.target.closest('button')) return;
@@ -187,10 +191,14 @@ define([], function () {
                         typeSummary.setAttribute('data-type-summary', c.Id + '|' + type);
                         typeSummary.style.cssText = 'font-size:0.82em;opacity:0.55;margin-left:6px';
 
+                        var typeRowRight = document.createElement('div');
+                        typeRowRight.className = 'vl-row-right';
+                        typeRowRight.appendChild(makeInlineBars('t:' + c.Id + '|' + type, 'vl-ib-type'));
+
                         typeHeader.appendChild(typeCaret);
                         typeHeader.appendChild(typeTitle);
                         typeHeader.appendChild(typeSummary);
-                        typeHeader.appendChild(makeInlineBars('t:' + c.Id + '|' + type));
+                        typeHeader.appendChild(typeRowRight);
                         typeHeader.addEventListener('click', function () {
                             typeGroup.classList.toggle('vl-collapsed');
                         });
@@ -248,11 +256,19 @@ define([], function () {
                                 };
                             }(c.Id, lib.Id, type, syncBtn, countSpan)));
 
+                            var libActions = document.createElement('div');
+                            libActions.className = 'vl-row-actions';
+                            libActions.appendChild(syncBtn);
+
+                            var libRowRight = document.createElement('div');
+                            libRowRight.className = 'vl-row-right';
+                            libRowRight.appendChild(makeInlineBars('l:' + c.Id + '|' + lib.Id, 'vl-ib-lib'));
+                            libRowRight.appendChild(libActions);
+
                             libRow.appendChild(label);
                             libRow.appendChild(libName);
                             libRow.appendChild(countSpan);
-                            libRow.appendChild(makeInlineBars('l:' + c.Id + '|' + lib.Id));
-                            libRow.appendChild(syncBtn);
+                            libRow.appendChild(libRowRight);
                             typeBody.appendChild(libRow);
                         });
 
@@ -495,23 +511,23 @@ define([], function () {
         // ── Inline bar helpers ─────────────────────────────────────────────
 
         // Creates a hidden double-bar div with a data-sync-bars attribute for later lookup
-        function makeInlineBars(key) {
+        function makeInlineBars(key, levelClass) {
             var wrap = document.createElement('div');
-            wrap.className = 'vl-ib';
+            wrap.className = 'vl-ib' + (levelClass ? ' ' + levelClass : '');
             wrap.setAttribute('data-sync-bars', key);
-            function oneBar(fillCls) {
+            function oneBar(fillCls, trackCls) {
                 var bw = document.createElement('div');
                 bw.className = 'vl-ib-wrap';
                 var track = document.createElement('div');
-                track.className = 'vl-ib-track';
+                track.className = trackCls;
                 var fill = document.createElement('div');
                 fill.className = 'vl-ib-fill ' + fillCls;
                 track.appendChild(fill);
                 bw.appendChild(track);
                 return bw;
             }
-            wrap.appendChild(oneBar('vl-ib-p1'));
-            wrap.appendChild(oneBar('vl-ib-p2'));
+            wrap.appendChild(oneBar('vl-ib-p1', 'vl-ib-track-p1'));
+            wrap.appendChild(oneBar('vl-ib-p2', 'vl-ib-track-p2'));
             return wrap;
         }
 
@@ -523,7 +539,7 @@ define([], function () {
             var fills = el.querySelectorAll('.vl-ib-fill');
             fills[0].style.width = spPct(p1Done, p1Total) + '%';
             fills[0].className = 'vl-ib-fill ' + (failed ? 'vl-ib-fail' : 'vl-ib-p1');
-            fills[1].style.width = spPct(p2Done, p2Total) + '%';
+            fills[1].style.width = spPct(p2Done, p1Total) + '%';
         }
 
         // Compute cumulative Phase1/Phase2 progress across a list of LibrarySyncEntry
@@ -576,7 +592,7 @@ define([], function () {
             // Global bar
             var gc = cumulative(libraries);
             q('syncGlobalP1').style.width = spPct(gc.p1d, gc.p1t) + '%';
-            q('syncGlobalP2').style.width = spPct(gc.p2d, gc.p2t) + '%';
+            q('syncGlobalP2').style.width = spPct(gc.p2d, gc.p1t) + '%';
             var done = libraries.filter(function(l) { return l.Status === SP_DONE || l.Status === SP_FAILED; }).length;
             q('syncGlobalLabel').textContent = done + '\u202f/\u202f' + libraries.length + ' libs';
         }
@@ -589,6 +605,7 @@ define([], function () {
             q('syncGlobalP1').style.width = '0%';
             q('syncGlobalP2').style.width = '0%';
             q('syncGlobalLabel').textContent = '';
+            q('syncGlobalLabel').style.display = 'none';
         }
 
         // Called repeatedly while a sync is in progress.
@@ -597,6 +614,7 @@ define([], function () {
             apiGet('/virtuallib/sync/status').then(function (status) {
                 if (status.IsSyncing) {
                     q('syncProgressContainer').style.display = '';
+                    q('syncGlobalLabel').style.display = '';
                     q('syncResultContainer').style.display = 'none';
                     updateInlineProgress(status.Libraries);
                     setSyncMode(true);
@@ -622,6 +640,7 @@ define([], function () {
         // Start a sync from the UI: POST endpoint (returns immediately), then poll
         function startSync(url) {
             q('syncProgressContainer').style.display = '';
+            q('syncGlobalLabel').style.display = '';
             clearInlineProgress();
             q('syncGlobalLabel').textContent = 'Starting\u2026';
             q('syncResultContainer').style.display = 'none';
