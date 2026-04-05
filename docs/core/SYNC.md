@@ -1,5 +1,27 @@
 # Synchronisation — SyncService & LibrarySyncJob
 
+## Orchestration parallèle (v1.6.1)
+
+Toutes les bibliothèques activées de tous les connecteurs sont synchronisées **simultanément** (`Task.WhenAll`). Chaque bibliothèque est traitée de façon autonome et indépendante.
+
+```
+SyncAll / LibrarySyncJob.Execute()
+  │
+  ├── ConnectorA :  SemaphoreSlim(MaxParallelLibraries=4)
+  │     ├── LibA1  → Phase1 ──(sémaphore relâché)──► Phase2
+  │     ├── LibA2  → Phase1 ──(sémaphore relâché)──► Phase2
+  │     └── LibA3  → Phase1 ──(sémaphore relâché)──► Phase2
+  │
+  └── ConnectorB :  SemaphoreSlim(MaxParallelLibraries=4)
+        └── LibB1  → Phase1 ──(sémaphore relâché)──► Phase2
+```
+
+- Le `SemaphoreSlim` limite la Phase 1 (appels réseau distants) mais **pas** la Phase 2 (polling Emby local).
+- `SyncState` (ConcurrentDictionary) centralise les compteurs Phase1/Phase2 de chaque bibliothèque pour le polling UI.
+- Statuts : `Pending → RunningPhase1 → RunningPhase2 → Done | Failed`
+
+---
+
 ## Algorithme en deux phases
 
 ```

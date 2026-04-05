@@ -1,6 +1,6 @@
 <div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow"
      data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true"
-     data-bindheader="true" data-controller="__plugin/VirtualLibConfigScript104"
+     data-bindheader="true" data-controller="__plugin/VirtualLibConfigScript106"
      data-title="VirtualLib">
 
     <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
@@ -65,11 +65,10 @@
                 .vl-connector-header:hover { background: rgba(255,255,255,0.09); }
                 .vl-caret { font-size: 0.75em; transition: transform 0.15s; display: inline-block; opacity: 0.7; min-width: 10px; }
                 .vl-connector.vl-collapsed .vl-connector-header > .vl-caret { transform: rotate(-90deg); }
-                .vl-connector-body { padding: 4px 0 6px 28px; }
+                .vl-connector-body { padding: 4px 0 6px 28px; padding-right: 12px; }
                 .vl-connector.vl-collapsed .vl-connector-body { display: none; }
                 .vl-connector-name { font-weight: bold; }
                 .vl-badge { font-size: 0.72em; padding: 1px 7px; border-radius: 10px; background: rgba(255,255,255,0.12); }
-                .vl-connector-actions { margin-left: auto; display: flex; gap: 4px; }
                 .vl-type-group { margin: 3px 0; }
                 .vl-type-header { display: flex; align-items: center; gap: 6px; padding: 3px 8px; cursor: pointer; font-size: 0.88em; opacity: 0.75; user-select: none; border-radius: 3px; }
                 .vl-type-header:hover { opacity: 1; background: rgba(255,255,255,0.05); }
@@ -78,11 +77,37 @@
                 .vl-type-group.vl-collapsed .vl-type-body { display: none; }
                 .vl-library { display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 0.9em; }
                 .vl-lib-count { opacity: 0.55; font-size: 0.85em; margin-left: 4px; }
+                /* ── Right-aligned wrapper (bars + actions) ───────────────── */
+                .vl-row-right { display:flex; align-items:center; gap:8px; flex:1; min-width:0 }
+                .vl-row-actions { display:flex; gap:4px; flex-shrink:0 }
+                /* ── Inline sync bars ─────────────────────────────────────── */
+                .vl-ib { display:none; gap:4px; flex:1; min-width:80px; align-items:center }
+                .vl-ib.vl-ib-active { display:flex }
+                .vl-ib-wrap { flex:1 }
+                .vl-ib-track-p1 { background:rgba(0,164,220,0.2); border-radius:3px; overflow:hidden }
+                .vl-ib-track-p2 { background:rgba(76,175,80,0.2); border-radius:3px; overflow:hidden }
+                .vl-ib-fill { height:100%; width:0%; border-radius:3px; transition:width 0.5s }
+                .vl-ib-p1 { background:var(--accent-color,#00a4dc) }
+                .vl-ib-p2 { background:#4caf50 }
+                .vl-ib-fail { background:var(--theme-error-color,#e53935) }
+                /* Level-specific bar heights */
+                .vl-ib-conn .vl-ib-track-p1, .vl-ib-conn .vl-ib-track-p2 { height:9px }
+                .vl-ib-type .vl-ib-track-p1, .vl-ib-type .vl-ib-track-p2 { height:6px }
+                .vl-ib-lib  .vl-ib-track-p1, .vl-ib-lib  .vl-ib-track-p2 { height:4px }
             </style>
 
             <!-- Connector list -->
             <div class="detailSection" style="margin-top:2em">
-                <div class="detailSectionHeader">Remote Connectors</div>
+                <div class="detailSectionHeader" style="display:flex;align-items:center;gap:12px">
+                    <span style="flex-shrink:0">Remote Connectors</span>
+                    <div id="syncProgressContainer" style="display:none;flex:1;min-width:0">
+                        <div style="display:flex;align-items:center;gap:6px">
+                            <div style="flex:1"><div class="vl-ib-track-p1" style="height:8px"><div id="syncGlobalP1" class="vl-ib-fill vl-ib-p1" style="height:100%"></div></div></div>
+                            <div style="flex:1"><div class="vl-ib-track-p2" style="height:8px"><div id="syncGlobalP2" class="vl-ib-fill vl-ib-p2" style="height:100%"></div></div></div>
+                        </div>
+                    </div>
+                    <span id="syncGlobalLabel" style="display:none;font-size:0.8em;opacity:0.7;white-space:nowrap;flex-shrink:0"></span>
+                </div>
 
                 <p id="noConnectorsMsg" class="fieldDescription" style="display:none">
                     No connectors configured. Click "Add Connector" below.
@@ -206,6 +231,14 @@
                     </div>
                 </div>
 
+                <div class="inputContainer" style="margin-top:1em">
+                    <label class="inputLabel inputLabelUnfocused" for="connectorMaxParallel">Max Parallel Libraries</label>
+                    <input type="number" id="connectorMaxParallel" class="emby-input" min="1" max="16" value="4" />
+                    <div class="fieldDescription">
+                        Maximum number of libraries from this connector synced simultaneously (default: 4).
+                    </div>
+                </div>
+
                 <div style="margin-top:0.75em">
                     <button id="btnTestConnection" is="emby-button" class="raised emby-button">
                         <span>Test Connection</span>
@@ -238,28 +271,6 @@
                     <button id="btnSyncAll" is="emby-button" class="raised emby-button">
                         <span>Synchronise Now</span>
                     </button>
-                </div>
-
-                <div id="syncProgressContainer" style="display:none;margin-top:1em">
-                    <div id="syncPhaseLabel" style="font-size:0.85em;font-weight:bold;margin-bottom:8px;"></div>
-                    <style>
-                        .vl-prog-row { margin-bottom:10px }
-                        .vl-prog-track { background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden;height:10px }
-                        .vl-prog-bar { height:100%;width:0%;background:var(--accent-color,#00a4dc);transition:width 0.4s }
-                        .vl-prog-label { font-size:0.78em;opacity:0.75;margin-top:3px;display:flex;justify-content:space-between }
-                    </style>
-                    <div class="vl-prog-row">
-                        <div class="vl-prog-track"><div id="syncBarConnectors" class="vl-prog-bar"></div></div>
-                        <div id="syncLabelConnectors" class="vl-prog-label"></div>
-                    </div>
-                    <div class="vl-prog-row">
-                        <div class="vl-prog-track"><div id="syncBarLibraries" class="vl-prog-bar"></div></div>
-                        <div id="syncLabelLibraries" class="vl-prog-label"></div>
-                    </div>
-                    <div class="vl-prog-row">
-                        <div class="vl-prog-track"><div id="syncBarItems" class="vl-prog-bar" style="background:var(--accent-color,#00a4dc);opacity:0.7"></div></div>
-                        <div id="syncProgressLabel" class="vl-prog-label"></div>
-                    </div>
                 </div>
 
                 <div id="syncResultContainer" style="display:none;margin-top:1em">

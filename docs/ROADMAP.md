@@ -146,3 +146,17 @@
 - [ ] Backpropagation temps réel vers le serveur source (play/pause/stop/avancement) — issue #34
 - [ ] Détection delta / suppressions — issue #12
 - [ ] `JellyfinConnector` — issue #15
+
+---
+
+## Phase 6 — Sync parallèle & UI temps réel ✅ Terminé (v1.6.1)
+
+- [x] **Sync 100 % parallèle** : toutes les bibliothèques de tous les connecteurs synchées simultanément (`Task.WhenAll`) — issues #30 et #35
+- [x] **Phase 2 autonome** : chaque bibliothèque enchaîne Phase 1 → Phase 2 de façon indépendante, sans attendre les autres
+- [x] **`MaxParallelLibraries`** : limite configurable par connecteur (défaut : 4), appliquée via `SemaphoreSlim` sur Phase 1 uniquement (Phase 2 = polling Emby, pas de charge réseau distante)
+- [x] **`SyncState`** redesigné : `ConcurrentDictionary<string, LibrarySyncEntry>` avec champs `Volatile.Read/Write` pour la thread-safety, statuts `Pending / RunningPhase1 / RunningPhase2 / Done / Failed`
+- [x] **Barres de progression inline** : double barre (Phase 1 bleue / Phase 2 verte) sur chaque ligne de l'arbre (bibliothèque, type, connecteur), affichage via polling HTTP `/virtuallib/sync/status` toutes les 2 s
+- [x] **Barre globale** dans le header "Remote Connectors", compteur à droite
+- [x] **Barres pleine largeur** : s'étirent sur tout l'espace disponible (`flex:1`) — même dénominateur (`p1Total`) pour les deux phases, évite les sauts de progression
+- [x] **Épaisseur par niveau** : connecteur 9 px / type 6 px / bibliothèque 4 px
+- [x] **Pistes bicolores** : fond clair (20 % opacité) indique le total, remplissage foncé indique l'avancement

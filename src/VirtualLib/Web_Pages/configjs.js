@@ -134,18 +134,23 @@ define([], function () {
                 summary.style.cssText = 'font-size:0.82em;opacity:0.55;margin-left:6px';
 
                 var actions = document.createElement('div');
-                actions.className = 'vl-connector-actions';
+                actions.className = 'vl-row-actions';
                 actions.appendChild(makeBtn('Edit',   function () { openEditConnector(c.Id); }));
                 actions.appendChild(makeBtn('Delete', function () { deleteConnector(c.Id); }));
                 var connSyncBtn = makeBtn('Sync', function () { syncSingleConnector(c.Id); });
                 connSyncBtn.setAttribute('data-sync-btn', '1');
                 actions.appendChild(connSyncBtn);
 
+                var connRowRight = document.createElement('div');
+                connRowRight.className = 'vl-row-right';
+                connRowRight.appendChild(makeInlineBars('c:' + c.Id, 'vl-ib-conn'));
+                connRowRight.appendChild(actions);
+
                 header.appendChild(caret);
                 header.appendChild(nameSpan);
                 header.appendChild(badge);
                 header.appendChild(summary);
-                header.appendChild(actions);
+                header.appendChild(connRowRight);
 
                 header.addEventListener('click', function (e) {
                     if (e.target.closest('button')) return;
@@ -186,9 +191,14 @@ define([], function () {
                         typeSummary.setAttribute('data-type-summary', c.Id + '|' + type);
                         typeSummary.style.cssText = 'font-size:0.82em;opacity:0.55;margin-left:6px';
 
+                        var typeRowRight = document.createElement('div');
+                        typeRowRight.className = 'vl-row-right';
+                        typeRowRight.appendChild(makeInlineBars('t:' + c.Id + '|' + type, 'vl-ib-type'));
+
                         typeHeader.appendChild(typeCaret);
                         typeHeader.appendChild(typeTitle);
                         typeHeader.appendChild(typeSummary);
+                        typeHeader.appendChild(typeRowRight);
                         typeHeader.addEventListener('click', function () {
                             typeGroup.classList.toggle('vl-collapsed');
                         });
@@ -246,10 +256,19 @@ define([], function () {
                                 };
                             }(c.Id, lib.Id, type, syncBtn, countSpan)));
 
+                            var libActions = document.createElement('div');
+                            libActions.className = 'vl-row-actions';
+                            libActions.appendChild(syncBtn);
+
+                            var libRowRight = document.createElement('div');
+                            libRowRight.className = 'vl-row-right';
+                            libRowRight.appendChild(makeInlineBars('l:' + c.Id + '|' + lib.Id, 'vl-ib-lib'));
+                            libRowRight.appendChild(libActions);
+
                             libRow.appendChild(label);
                             libRow.appendChild(libName);
                             libRow.appendChild(countSpan);
-                            libRow.appendChild(syncBtn);
+                            libRow.appendChild(libRowRight);
                             typeBody.appendChild(libRow);
                         });
 
@@ -372,6 +391,7 @@ define([], function () {
             q('connectorUsername').value = '';
             q('connectorPassword').value = '';
             q('connectorMetadataMode').value = 'RemoteSync';
+            q('connectorMaxParallel').value = 4;
             q('plexTwoFactorPin').value = '';
             resetPlexServerPicker();
             clearStatus(q('plexServersStatus'));
@@ -406,6 +426,7 @@ define([], function () {
                 q('connectorUsername').value = c.Username || '';
                 q('connectorPassword').value = c.Password || '';
                 q('connectorMetadataMode').value = c.MetadataMode || 'RemoteSync';
+                q('connectorMaxParallel').value = c.MaxParallelLibraries || 4;
 
                 // Restore PlexTV machine picker with saved identifier
                 var sel = q('plexMachineId');
@@ -461,13 +482,18 @@ define([], function () {
 
         var _syncPollTimer = null;
 
+        // ── Sync status constants (mirror LibrarySyncStatus enum) ──────────
+        var SP_PENDING = 0, SP_P1 = 1, SP_P2 = 2, SP_DONE = 3, SP_FAILED = 4;
+        var SP_FILL_PHASE1 = 'var(--accent-color,#00a4dc)';
+        var SP_FILL_PHASE2 = '#4caf50';
+        var SP_FILL_FAILED = 'var(--theme-error-color,#e53935)';
+
         function setSyncMode(active) {
             q('btnSyncAll').disabled = active;
             view.querySelectorAll('[data-sync-btn]').forEach(function (btn) {
                 if (active) {
                     btn.disabled = true;
                 } else {
-                    // Re-enable only if the library checkbox is checked (or it's a connector-level btn)
                     var libEnabled = btn.getAttribute('data-lib-enabled');
                     btn.disabled = libEnabled === 'false';
                 }
@@ -478,89 +504,108 @@ define([], function () {
             if (_syncPollTimer) { clearTimeout(_syncPollTimer); _syncPollTimer = null; }
         }
 
-        function pct(done, total) {
-            return total > 0 ? Math.round(done / total * 100) : 0;
+        function spPct(done, total) {
+            return total > 0 ? Math.min(100, Math.round(done / total * 100)) : 0;
         }
 
-        var PHASE1_COLOR = 'var(--accent-color,#00a4dc)';
-        var PHASE2_COLOR = '#4caf50';
+        // ── Inline bar helpers ─────────────────────────────────────────────
 
-        function setBar(barId, labelId, pct, leftText, color) {
-            var bar = q(barId);
-            bar.style.width = pct + '%';
-            bar.style.background = color;
-            var lbl = q(labelId);
-            lbl.textContent = '';
-            var left = document.createElement('span');
-            left.textContent = leftText;
-            var right = document.createElement('span');
-            right.textContent = pct + '%';
-            lbl.appendChild(left);
-            lbl.appendChild(right);
+        // Creates a hidden double-bar div with a data-sync-bars attribute for later lookup
+        function makeInlineBars(key, levelClass) {
+            var wrap = document.createElement('div');
+            wrap.className = 'vl-ib' + (levelClass ? ' ' + levelClass : '');
+            wrap.setAttribute('data-sync-bars', key);
+            function oneBar(fillCls, trackCls) {
+                var bw = document.createElement('div');
+                bw.className = 'vl-ib-wrap';
+                var track = document.createElement('div');
+                track.className = trackCls;
+                var fill = document.createElement('div');
+                fill.className = 'vl-ib-fill ' + fillCls;
+                track.appendChild(fill);
+                bw.appendChild(track);
+                return bw;
+            }
+            wrap.appendChild(oneBar('vl-ib-p1', 'vl-ib-track-p1'));
+            wrap.appendChild(oneBar('vl-ib-p2', 'vl-ib-track-p2'));
+            return wrap;
         }
 
-        function updateProgressBars(status) {
-            var isPhase2 = status.Phase === 2;
-            var color = isPhase2 ? PHASE2_COLOR : PHASE1_COLOR;
-
-            // Phase label
-            var phaseLabel = q('syncPhaseLabel');
-            phaseLabel.style.color = color;
-            phaseLabel.textContent = isPhase2
-                ? '\u25cf Phase 2/2 \u2014 Metadata injection'
-                : '\u25cf Phase 1/2 \u2014 File synchronisation';
-
-            // Item bar: direct fraction
-            var itemFraction = (status.TotalItems > 0) ? status.DoneItems / status.TotalItems : 0;
-            var itemPct = Math.round(itemFraction * 100);
-            var itemText = status.TotalItems > 0
-                ? 'Items: ' + status.DoneItems + ' / ' + status.TotalItems + (status.CurrentItem ? ' \u2014 ' + status.CurrentItem : '')
-                : (status.Message || 'Synchronising\u2026');
-            setBar('syncBarItems', 'syncProgressLabel', itemPct, itemText, color);
-
-            // Library bar: done libs + fractional progress of current lib
-            var libDone = status.DoneLibraries + itemFraction;
-            var libPct = status.TotalLibraries > 0 ? Math.round(libDone / status.TotalLibraries * 100) : 0;
-            var libCurrent = (status.TotalLibraries > 0 && status.DoneLibraries < status.TotalLibraries)
-                ? status.DoneLibraries + 1 : status.DoneLibraries;
-            var libText = status.TotalLibraries > 0
-                ? 'Libraries: ' + libCurrent + ' / ' + status.TotalLibraries
-                  + (status.CurrentLibrary ? ' \u2014 ' + status.CurrentLibrary : '')
-                : '';
-            setBar('syncBarLibraries', 'syncLabelLibraries', libPct, libText, color);
-
-            // Connector bar: done connectors + fractional progress of current connector
-            var libFraction = (status.TotalLibraries > 0) ? libDone / status.TotalLibraries : 0;
-            var connDone = status.DoneConnectors + libFraction;
-            var connPct = status.TotalConnectors > 0 ? Math.round(connDone / status.TotalConnectors * 100) : 0;
-            var connCurrent = (status.TotalConnectors > 0 && status.DoneConnectors < status.TotalConnectors)
-                ? status.DoneConnectors + 1 : status.DoneConnectors;
-            var connText = status.TotalConnectors > 1
-                ? 'Connectors: ' + connCurrent + ' / ' + status.TotalConnectors
-                : (status.CurrentConnector || '');
-            setBar('syncBarConnectors', 'syncLabelConnectors', connPct, connText, color);
+        // Update one inline-bar element by key
+        function setInlineBar(key, p1Done, p1Total, p2Done, p2Total, failed) {
+            var el = view.querySelector('[data-sync-bars="' + key + '"]');
+            if (!el) return;
+            el.classList.add('vl-ib-active');
+            var fills = el.querySelectorAll('.vl-ib-fill');
+            fills[0].style.width = spPct(p1Done, p1Total) + '%';
+            fills[0].className = 'vl-ib-fill ' + (failed ? 'vl-ib-fail' : 'vl-ib-p1');
+            fills[1].style.width = spPct(p2Done, p1Total) + '%';
         }
 
-        function resetProgressBars() {
-            ['syncBarConnectors', 'syncBarLibraries', 'syncBarItems'].forEach(function (id) {
-                q(id).style.width = '0%';
-                q(id).style.background = PHASE1_COLOR;
+        // Compute cumulative Phase1/Phase2 progress across a list of LibrarySyncEntry
+        function cumulative(libs) {
+            var p1d = 0, p1t = 0, p2d = 0, p2t = 0;
+            libs.forEach(function (lib) {
+                p1d += lib.Phase1Done;  p1t += lib.Phase1Total;
+                p2d += lib.Phase2Done;  p2t += lib.Phase2Total;
             });
-            q('syncLabelConnectors').textContent = '';
-            q('syncLabelLibraries').textContent = '';
-            var phaseLabel = q('syncPhaseLabel');
-            phaseLabel.style.color = PHASE1_COLOR;
-            phaseLabel.textContent = '\u25cf Phase 1/2 \u2014 File synchronisation';
+            return { p1d: p1d, p1t: p1t, p2d: p2d, p2t: p2t };
         }
 
-        function finishProgressBars() {
-            var color = PHASE2_COLOR;
-            setBar('syncBarConnectors', 'syncLabelConnectors', 100, '', color);
-            setBar('syncBarLibraries', 'syncLabelLibraries', 100, '', color);
-            setBar('syncBarItems', 'syncProgressLabel', 100, 'Done', color);
-            var phaseLabel = q('syncPhaseLabel');
-            phaseLabel.style.color = color;
-            phaseLabel.textContent = '\u2713 Synchronisation complete';
+        // Update all inline bars in the connector tree + global bar
+        function updateInlineProgress(libraries) {
+            if (!libraries || libraries.length === 0) return;
+
+            // Group by connector → type
+            var byConn = {};
+            libraries.forEach(function (lib) {
+                if (!byConn[lib.ConnectorId]) byConn[lib.ConnectorId] = { types: {} };
+                var t = lib.MediaType || 'Unknown';
+                if (!byConn[lib.ConnectorId].types[t]) byConn[lib.ConnectorId].types[t] = [];
+                byConn[lib.ConnectorId].types[t].push(lib);
+            });
+
+            // Per-library bars
+            libraries.forEach(function (lib) {
+                setInlineBar(
+                    'l:' + lib.ConnectorId + '|' + lib.LibraryId,
+                    lib.Phase1Done, lib.Phase1Total,
+                    lib.Phase2Done, lib.Phase2Total,
+                    lib.Status === SP_FAILED);
+            });
+
+            // Per-type and per-connector bars
+            Object.keys(byConn).forEach(function (connId) {
+                var allConnLibs = [];
+                Object.keys(byConn[connId].types).forEach(function (type) {
+                    var typeLibs = byConn[connId].types[type];
+                    var tc = cumulative(typeLibs);
+                    var hasFail = typeLibs.some(function(l) { return l.Status === SP_FAILED; });
+                    setInlineBar('t:' + connId + '|' + type, tc.p1d, tc.p1t, tc.p2d, tc.p2t, hasFail);
+                    allConnLibs = allConnLibs.concat(typeLibs);
+                });
+                var cc = cumulative(allConnLibs);
+                var hasFail = allConnLibs.some(function(l) { return l.Status === SP_FAILED; });
+                setInlineBar('c:' + connId, cc.p1d, cc.p1t, cc.p2d, cc.p2t, hasFail);
+            });
+
+            // Global bar
+            var gc = cumulative(libraries);
+            q('syncGlobalP1').style.width = spPct(gc.p1d, gc.p1t) + '%';
+            q('syncGlobalP2').style.width = spPct(gc.p2d, gc.p1t) + '%';
+            var done = libraries.filter(function(l) { return l.Status === SP_DONE || l.Status === SP_FAILED; }).length;
+            q('syncGlobalLabel').textContent = done + '\u202f/\u202f' + libraries.length + ' libs';
+        }
+
+        function clearInlineProgress() {
+            view.querySelectorAll('[data-sync-bars]').forEach(function (el) {
+                el.classList.remove('vl-ib-active');
+                el.querySelectorAll('.vl-ib-fill').forEach(function (f) { f.style.width = '0%'; });
+            });
+            q('syncGlobalP1').style.width = '0%';
+            q('syncGlobalP2').style.width = '0%';
+            q('syncGlobalLabel').textContent = '';
+            q('syncGlobalLabel').style.display = 'none';
         }
 
         // Called repeatedly while a sync is in progress.
@@ -569,16 +614,18 @@ define([], function () {
             apiGet('/virtuallib/sync/status').then(function (status) {
                 if (status.IsSyncing) {
                     q('syncProgressContainer').style.display = '';
+                    q('syncGlobalLabel').style.display = '';
                     q('syncResultContainer').style.display = 'none';
-                    updateProgressBars(status);
+                    updateInlineProgress(status.Libraries);
                     setSyncMode(true);
                     _syncPollTimer = setTimeout(pollSyncStatus, 2000);
                 } else {
                     stopSyncPoll();
                     setSyncMode(false);
-                    // If progress was visible (tracking a sync), show completion
                     if (q('syncProgressContainer').style.display !== 'none') {
-                        finishProgressBars();
+                        // Show final state briefly then clear
+                        updateInlineProgress(status.Libraries);
+                        q('syncGlobalLabel').textContent = '\u2713 Done';
                         if (status.LastResults && status.LastResults.length > 0)
                             displaySyncResults(status.LastResults, q('syncResultLog'), q('syncResultContainer'));
                         loadConnectors();
@@ -593,22 +640,24 @@ define([], function () {
         // Start a sync from the UI: POST endpoint (returns immediately), then poll
         function startSync(url) {
             q('syncProgressContainer').style.display = '';
-            resetProgressBars();
-            q('syncProgressLabel').textContent = 'Starting\u2026';
+            q('syncGlobalLabel').style.display = '';
+            clearInlineProgress();
+            q('syncGlobalLabel').textContent = 'Starting\u2026';
             q('syncResultContainer').style.display = 'none';
             q('syncResultLog').textContent = '';
             setSyncMode(true);
+            // Auto-expand all connectors so inline bars are visible
+            view.querySelectorAll('.vl-connector.vl-collapsed').forEach(function (el) {
+                el.classList.remove('vl-collapsed');
+            });
 
             apiPost(url).then(function (res) {
-                if (res && res.AlreadyRunning) {
-                    q('syncProgressLabel').textContent = 'A sync is already in progress.';
-                    setSyncMode(true); // buttons stay disabled; polling will re-enable when done
-                }
-                // Whether AlreadyRunning or just started, start polling to track progress
+                if (res && res.AlreadyRunning)
+                    q('syncGlobalLabel').textContent = 'Already running\u2026';
                 _syncPollTimer = setTimeout(pollSyncStatus, 1000);
             }).catch(function (e) {
-                q('syncProgressLabel').textContent = 'Error: ' + e.message;
-                q('syncBarItems').style.background = 'var(--theme-error-color, #e53935)';
+                q('syncGlobalLabel').textContent = 'Error: ' + e.message;
+                q('syncGlobalP1').style.background = SP_FILL_FAILED;
                 setSyncMode(false);
             });
         }
@@ -887,6 +936,7 @@ define([], function () {
                 var username    = q('connectorUsername').value.trim();
                 var password    = q('connectorPassword').value;
                 var metadataMode = q('connectorMetadataMode').value;
+                var maxParallel  = parseInt(q('connectorMaxParallel').value, 10) || 4;
 
                 if (!displayName) {
                     setStatus(statusEl, 'Name is required.', true);
@@ -924,6 +974,7 @@ define([], function () {
                             Username: username,
                             Password: password,  // empty = preserve existing on server side
                             MetadataMode: metadataMode,
+                            MaxParallelLibraries: maxParallel,
                             LibraryIds: existing ? (existing.LibraryIds || []) : [],
                             Enabled: true
                         };
@@ -948,6 +999,7 @@ define([], function () {
                         Username: username,
                         Password: password,
                         MetadataMode: metadataMode,
+                        MaxParallelLibraries: maxParallel,
                         LibraryIds: [],
                         Enabled: true
                     };

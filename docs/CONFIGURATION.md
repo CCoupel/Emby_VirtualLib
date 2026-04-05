@@ -67,6 +67,7 @@ Cliquer **"+ Add Connector"** et remplir :
 | URL du serveur | `http://192.168.1.200:8096` ou `https://media.example.com/emby` | URL complète avec port **et chemin de base** Emby (non requis pour Plex via plex.tv) |
 | Mode d'authentification | `User Credentials` | Voir section Authentication ci-dessous |
 | Mode de métadonnées | `Remote Sync` | Voir section Metadata Source ci-dessous |
+| Bibliothèques parallèles max | `4` | Nombre de bibliothèques synchées simultanément pour ce connecteur (Phase 1 uniquement) |
 
 **Important — URL du serveur** : inclure le chemin de base si Emby est derrière un reverse proxy.
 Exemple : si Emby répond sur `https://media.example.com/emby/Items/...`, l'URL à configurer est `https://media.example.com/emby`.
@@ -103,7 +104,10 @@ Timeout proxy stream :          30 secondes
 
 ### Étape 6 : Lancer la première synchronisation
 
-Cliquer **"Synchronise Now"** pour déclencher la première sync manuellement. La barre de progression avance bibliothèque par bibliothèque.
+Cliquer **"Synchronise Now"** pour déclencher la première sync manuellement. Toutes les bibliothèques activées sont synchronisées en parallèle. L'avancement est affiché en temps réel dans l'arbre des connecteurs :
+- **Barre bleue** : Phase 1 (génération des `.strm` / `.nfo` / artwork)
+- **Barre verte** : Phase 2 (injection des métadonnées Emby post-scan)
+- Les deux barres partagent la même échelle (total d'items en Phase 1)
 
 Les dossiers virtuels Emby sont créés automatiquement par le plugin — aucune configuration manuelle dans le Dashboard Emby n'est nécessaire.
 
