@@ -407,25 +407,47 @@ public sealed class PlexConnector : IMediaServerConnector
         await EnsureAuthenticatedAsync(ct);
 
         var baseUrl = _config.ServerUrl.TrimEnd('/');
-        var url = $"{baseUrl}/:/timeline" +
-                  $"?ratingKey={itemId}" +
-                  $"&key=/library/metadata/{itemId}" +
-                  $"&state={state}" +
-                  $"&time={positionMs}" +
-                  $"&hasMDE=1" +
-                  $"&X-Plex-Token={_plexToken}";   // token dans la query string (certains proxies l'ignorent dans le header)
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.TryAddWithoutValidation("X-Plex-Session-Identifier", playSessionId);
+        // /:/timeline — met à jour le statut "Now Playing" (visible dans le dashboard Plex)
+        var timelineUrl = $"{baseUrl}/:/timeline" +
+                          $"?hasMDE=1" +
+                          $"&ratingKey={itemId}" +
+                          $"&key=/library/metadata/{itemId}" +
+                          $"&state={state}" +
+                          $"&time={positionMs}" +
+                          $"&X-Plex-Token={_plexToken}";
 
-        using var response = await _httpClient.SendAsync(request, ct);
+        using var timelineRequest = new HttpRequestMessage(HttpMethod.Get, timelineUrl);
+        timelineRequest.Headers.TryAddWithoutValidation("X-Plex-Session-Identifier", playSessionId);
+        using var timelineResponse = await _httpClient.SendAsync(timelineRequest, ct);
 
-        var body = response.IsSuccessStatusCode ? string.Empty
-                   : await response.Content.ReadAsStringAsync(ct);
-
+        var timelineBody = timelineResponse.IsSuccessStatusCode ? string.Empty
+                           : await timelineResponse.Content.ReadAsStringAsync(ct);
         Console.Error.WriteLine(
-            $"[VirtualLib] Plex timeline state={state} item={itemId} pos={positionMs}ms → {(int)response.StatusCode}" +
-            (string.IsNullOrEmpty(body) ? string.Empty : $" body={body}"));
+            $"[VirtualLib] Plex timeline state={state} item={itemId} pos={positionMs}ms → {(int)timelineResponse.StatusCode}" +
+            (string.IsNullOrEmpty(timelineBody) ? string.Empty : $" body={timelineBody}"));
+
+        // /:/progress — persiste le viewOffset en base (pour "Continuer la lecture")
+        // key = ratingKey numérique (PAS /library/metadata/id), state requis
+        // Appelé pour paused et stopped uniquement
+        if (state != "playing" && positionMs > 0)
+        {
+            var progressUrl = $"{baseUrl}/:/progress" +
+                              $"?key={itemId}" +
+                              $"&identifier=com.plexapp.plugins.library" +
+                              $"&time={positionMs}" +
+                              $"&state={state}" +
+                              $"&X-Plex-Token={_plexToken}";
+
+            using var progressRequest = new HttpRequestMessage(HttpMethod.Get, progressUrl);
+            using var progressResponse = await _httpClient.SendAsync(progressRequest, ct);
+
+            var progressBody = progressResponse.IsSuccessStatusCode ? string.Empty
+                               : await progressResponse.Content.ReadAsStringAsync(ct);
+            Console.Error.WriteLine(
+                $"[VirtualLib] Plex progress item={itemId} pos={positionMs}ms → {(int)progressResponse.StatusCode}" +
+                (string.IsNullOrEmpty(progressBody) ? string.Empty : $" body={progressBody}"));
+        }
     }
 
     // -------------------------------------------------------------------------

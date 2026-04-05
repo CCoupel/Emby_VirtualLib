@@ -10,6 +10,7 @@ Agrège les bibliothèques de serveurs médias distants comme bibliothèques vir
 - **Métadonnées complètes** — titre, synopsis, artwork, cast, identifiants TMDB/IMDB sans re-scraping
 - **Infos techniques** — résolution, codec, durée injectés sans re-probe (via `<fileinfo>` NFO)
 - **États utilisateur synchronisés** — lu/non lu, favori, position de reprise propagés depuis le serveur source
+- **Backpropagation lecture** — start/progress/stop/position remontés en temps réel vers le serveur distant pendant la lecture (Emby + Plex)
 - **Multi-sources** — Emby et Plex supportés simultanément
 - **Progression temps réel** — 3 barres de progression dans le dashboard (connecteurs / bibliothèques / items)
 

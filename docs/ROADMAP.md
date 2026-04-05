@@ -143,7 +143,6 @@
 - [x] `UserDataSaveReason` : alias `EmbyUserDataSaveReason = MediaBrowser.Model.Entities.UserDataSaveReason` pour éviter l'ambiguïté `MediaType`
 
 **Reste en backlog :**
-- [ ] Backpropagation temps réel vers le serveur source (play/pause/stop/avancement) — issue #34
 - [ ] Détection delta / suppressions — issue #12
 - [ ] `JellyfinConnector` — issue #15
 
@@ -160,3 +159,19 @@
 - [x] **Barres pleine largeur** : s'étirent sur tout l'espace disponible (`flex:1`) — même dénominateur (`p1Total`) pour les deux phases, évite les sauts de progression
 - [x] **Épaisseur par niveau** : connecteur 9 px / type 6 px / bibliothèque 4 px
 - [x] **Pistes bicolores** : fond clair (20 % opacité) indique le total, remplissage foncé indique l'avancement
+
+---
+
+## Phase 7 — Backpropagation de la lecture ✅ Terminé (v1.7.0) — issue #34
+
+- [x] **`PlaybackEventForwarder`** (`IServerEntryPoint`) : s'abonne aux events `ISessionManager` (Start / Progress / Stop) et propage les notifications vers le serveur distant via le connecteur correspondant
+- [x] **Détection du fichier `.strm`** : parse l'URL proxy `{baseUrl}/virtuallib/proxy/{connectorId}/{libraryId}/{remoteItemId}` pour identifier le connecteur et l'item distant
+- [x] **Heartbeat 30 s** : maintient la session remote vivante pendant les pauses prolongées (les clients Emby cessent d'envoyer des Progress après buffer, le remote killait la session en ~60 s)
+- [x] **Debounce Stop 8 s** : le host Emby fire `PlaybackStopped` quand la connexion HTTP proxy se ferme (buffer client plein), même si l'utilisateur est encore en pause. On attend 8 s — si un Progress arrive avant, le Stop est annulé
+- [x] **Fix race condition** : le debounce Stop vérifie le `PlaySessionId` courant avant de supprimer (évite de tuer une nouvelle session démarrée entre-temps)
+- [x] **Réouverture transparente** : un `Progress` pour une session absente (`_sessions`) ré-envoie automatiquement Start + Progress (couvre debounce expiré, pod restart, host ne renvoyant pas de `PlaybackStart`)
+- [x] **`PositionTicks` dans Stopped** : la position finale est envoyée au remote pour sauvegarder l'avancement ("Continuer la lecture")
+- [x] **Fix `PostWithRetryAsync`** (`EmbyConnector`) : utilise `StringContent` avec `Content-Length` explicite au lieu de `PostAsJsonAsync` (chunked) — ServiceStack (Emby) ignore les corps chunked, causant des champs null dont `PlaySessionId`
+- [x] **`PlaySessionId`** : GUID généré à chaque Start, propagé dans Progress et Stopped (évitait un `ArgumentNullException` dans `SessionInfo.GetOrAddPlaySessionInfo`)
+- [x] **Reporting Plex** (`PlexConnector`) : `GET /:/timeline?state=playing|paused|stopped&time={ms}` + `GET /:/progress?key={ratingKey}&time={ms}` — le `viewOffset` est persité en base pour "Continuer la lecture" (Plex ne persiste pas via `/:/timeline` seul)
+- [x] **Reporting Emby** (`EmbyConnector`) : `POST Sessions/Playing`, `Sessions/Playing/Progress`, `Sessions/Playing/Stopped` avec `PlaySessionId`, `PositionTicks`, `UserId`
