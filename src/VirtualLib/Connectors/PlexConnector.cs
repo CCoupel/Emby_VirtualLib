@@ -377,7 +377,7 @@ public sealed class PlexConnector : IMediaServerConnector
     public Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
-    public Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
+    public Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
     // -------------------------------------------------------------------------

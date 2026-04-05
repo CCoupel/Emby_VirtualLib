@@ -81,6 +81,7 @@ public interface IMediaServerConnector : IDisposable
 
     /// <summary>
     /// Notifie le serveur distant que la lecture s'est arrêtée.
+    /// <paramref name="positionTicks"/> est la position finale (en ticks) pour sauvegarder l'avancement.
     /// </summary>
-    Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default);
+    Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default);
 }

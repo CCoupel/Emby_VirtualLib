@@ -124,20 +124,28 @@ public sealed class EmbyConnector : IMediaServerConnector
         return response;
     }
 
-    private async Task<HttpResponseMessage> PostWithRetryAsync(
+    private async Task<HttpResponseMessage> PostWithRetryAsync<T>(
         string url,
-        object body,
+        T body,
         CancellationToken ct)
     {
+        // Use StringContent (not PostAsJsonAsync) so the body has a Content-Length header.
+        // ServiceStack (Emby's HTTP stack) may fail to read chunked bodies, causing all
+        // deserialized fields to be null (same issue as AuthenticateByName).
+        var bodyJson = System.Text.Json.JsonSerializer.Serialize(body);
+        var content = new StringContent(bodyJson, System.Text.Encoding.UTF8, "application/json");
+
         await EnsureAuthenticatedAsync(ct);
-        var response = await _httpClient.PostAsJsonAsync(url, body, ct);
+        var response = await _httpClient.PostAsync(url, content, ct);
 
         if (response.StatusCode == HttpStatusCode.Unauthorized
             && _config.AuthMode == AuthMode.UserCredentials)
         {
             response.Dispose();
             await EnsureAuthenticatedAsync(ct, forceRefresh: true);
-            response = await _httpClient.PostAsJsonAsync(url, body, ct);
+            // StringContent can only be sent once — recreate it
+            content = new StringContent(bodyJson, System.Text.Encoding.UTF8, "application/json");
+            response = await _httpClient.PostAsync(url, content, ct);
         }
 
         return response;
@@ -464,7 +472,7 @@ public sealed class EmbyConnector : IMediaServerConnector
         }
     }
 
-    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -475,7 +483,8 @@ public sealed class EmbyConnector : IMediaServerConnector
                 ItemId = itemId,
                 MediaSourceId = itemId,
                 PlaySessionId = playSessionId,
-                UserId = userId
+                UserId = userId,
+                PositionTicks = positionTicks
             };
             using var response = await PostWithRetryAsync("Sessions/Playing/Stopped", body, cancellationToken);
             _logger.LogDebug("Reported PlaybackStopped for item={ItemId} session={Session}", itemId, playSessionId);

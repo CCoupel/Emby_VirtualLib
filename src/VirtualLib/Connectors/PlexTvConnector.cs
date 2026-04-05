@@ -324,10 +324,10 @@ public sealed class PlexTvConnector : IMediaServerConnector
         await inner.ReportPlaybackProgressAsync(itemId, playSessionId, positionTicks, isPaused, cancellationToken);
     }
 
-    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
-        await inner.ReportPlaybackStoppedAsync(itemId, playSessionId, cancellationToken);
+        await inner.ReportPlaybackStoppedAsync(itemId, playSessionId, positionTicks, cancellationToken);
     }
 
     public void Dispose()
