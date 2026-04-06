@@ -48,6 +48,25 @@
                     <input type="number" id="proxyTimeout" class="emby-input" min="5" max="300" value="30" />
                 </div>
 
+                <div style="margin-top:1em">
+                    <div class="inputLabel inputLabelUnfocused" style="margin-bottom:0.4em">Shared Library Name (SharedByType mode)</div>
+                    <div style="display:flex;gap:0.5em;align-items:center">
+                        <div class="inputContainer" style="flex:1;margin:0">
+                            <label class="inputLabel inputLabelUnfocused" for="sharedLibraryPrefix">Prefix</label>
+                            <input type="text" id="sharedLibraryPrefix" class="emby-input" placeholder='e.g. "[VL] "' />
+                        </div>
+                        <span style="padding-top:1.4em;opacity:0.5">LibraryType</span>
+                        <div class="inputContainer" style="flex:1;margin:0">
+                            <label class="inputLabel inputLabelUnfocused" for="sharedLibrarySuffix">Suffix</label>
+                            <input type="text" id="sharedLibrarySuffix" class="emby-input" placeholder='e.g. " (VL)"' />
+                        </div>
+                    </div>
+                    <div class="fieldDescription">
+                        When a connector uses <strong>Shared by Type</strong>, this prefix/suffix wraps the content-type name to form the Emby library name.<br/>
+                        Example: prefix <code>[VL] </code> → <em>[VL] Movies</em>, <em>[VL] TvShows</em>…
+                    </div>
+                </div>
+
 
                 <div style="margin-top:1em">
                     <button id="btnSaveGlobal" is="emby-button" class="raised emby-button">

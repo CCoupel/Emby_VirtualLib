@@ -833,6 +833,8 @@ define([], function () {
                 q('proxyBaseUrl').value = s.ProxyBaseUrl || '';
                 q('syncInterval').value = s.SyncIntervalHours || 6;
                 q('proxyTimeout').value = s.ProxyTimeoutSeconds || 30;
+                q('sharedLibraryPrefix').value = s.SharedLibraryPrefix || '';
+                q('sharedLibrarySuffix').value = s.SharedLibrarySuffix || '';
             }).catch(function (e) {
                 console.error('VirtualLib: failed to load settings', e);
             });
@@ -857,7 +859,9 @@ define([], function () {
                     VirtualLibraryRootPath: q('virtualLibRoot').value.trim(),
                     ProxyBaseUrl: q('proxyBaseUrl').value.trim(),
                     SyncIntervalHours: parseInt(q('syncInterval').value, 10) || 6,
-                    ProxyTimeoutSeconds: parseInt(q('proxyTimeout').value, 10) || 30
+                    ProxyTimeoutSeconds: parseInt(q('proxyTimeout').value, 10) || 30,
+                    SharedLibraryPrefix: q('sharedLibraryPrefix').value,
+                    SharedLibrarySuffix: q('sharedLibrarySuffix').value
                 };
                 apiPut('/virtuallib/settings', payload)
                     .then(function () { setStatus(statusEl, 'Settings saved.', false); })
