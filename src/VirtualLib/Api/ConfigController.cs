@@ -127,6 +127,8 @@ public sealed class SaveSettings : IReturn<GlobalSettings>
     public string ProxyBaseUrl { get; set; } = string.Empty;
     public int SyncIntervalHours { get; set; } = 6;
     public int ProxyTimeoutSeconds { get; set; } = 30;
+    public string SharedLibraryPrefix { get; set; } = string.Empty;
+    public string SharedLibrarySuffix { get; set; } = string.Empty;
 }
 
 [Route("/virtuallib/sync", "POST", Summary = "Sync all enabled connectors")]
@@ -193,6 +195,8 @@ public sealed class GlobalSettings
     public string ProxyBaseUrl { get; set; } = string.Empty;
     public int SyncIntervalHours { get; set; } = 6;
     public int ProxyTimeoutSeconds { get; set; } = 30;
+    public string SharedLibraryPrefix { get; set; } = string.Empty;
+    public string SharedLibrarySuffix { get; set; } = string.Empty;
 }
 
 public sealed class LibraryStats
@@ -378,11 +382,19 @@ public sealed class ConfigController : BaseApiService
             var addedIds   = request.LibraryIds.Except(existing.LibraryIds).ToList();
             var removedIds = existing.LibraryIds.Except(request.LibraryIds).ToList();
 
+            var globalConfig = Plugin.Instance!.Configuration;
             foreach (var lib in updated.KnownLibraries.Where(l => addedIds.Contains(l.Id)))
-                _libraryProvisioner.EnsureVirtualFolder(updated.DisplayName, lib.Name, lib.Type, virtualLibRoot, updated.MetadataMode);
+                _libraryProvisioner.EnsureVirtualFolder(updated.DisplayName, lib.Name, lib.Type, virtualLibRoot, updated.MetadataMode,
+                    updated.LibraryOrganization, globalConfig.SharedLibraryPrefix, globalConfig.SharedLibrarySuffix);
 
             foreach (var lib in existing.KnownLibraries.Where(l => removedIds.Contains(l.Id)))
-                _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name, virtualLibRoot);
+            {
+                var removeShared = existing.LibraryOrganization == LibraryOrganization.SharedByType
+                    && NoRemainingSharedLibraries(config, lib.Type);
+                _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name, virtualLibRoot,
+                    lib.Type, existing.LibraryOrganization, removeShared,
+                    globalConfig.SharedLibraryPrefix, globalConfig.SharedLibrarySuffix);
+            }
         }
 
         return ResultFactory.GetResult(Request, updated, NoHeaders);
@@ -402,10 +414,16 @@ public sealed class ConfigController : BaseApiService
         config.Connectors.Remove(existing);
         Plugin.Instance.SaveConfiguration();
 
-        // Remove all virtual folders for this connector's libraries (including files on disk)
+        // Remove all virtual folders for this connector's selected libraries (including files on disk)
         var virtualLibRoot = config.VirtualLibraryRootPath;
-        foreach (var lib in existing.KnownLibraries)
-            _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name, virtualLibRoot);
+        foreach (var lib in existing.KnownLibraries.Where(l => existing.LibraryIds.Contains(l.Id)))
+        {
+            var removeShared = existing.LibraryOrganization == LibraryOrganization.SharedByType
+                && NoRemainingSharedLibraries(config, lib.Type);
+            _libraryProvisioner.RemoveVirtualFolder(existing.DisplayName, lib.Name, virtualLibRoot,
+                lib.Type, existing.LibraryOrganization, removeShared,
+                config.SharedLibraryPrefix, config.SharedLibrarySuffix);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -419,7 +437,9 @@ public sealed class ConfigController : BaseApiService
             VirtualLibraryRootPath = config.VirtualLibraryRootPath,
             ProxyBaseUrl = config.ProxyBaseUrl,
             SyncIntervalHours = config.SyncIntervalHours,
-            ProxyTimeoutSeconds = config.ProxyTimeoutSeconds
+            ProxyTimeoutSeconds = config.ProxyTimeoutSeconds,
+            SharedLibraryPrefix = config.SharedLibraryPrefix,
+            SharedLibrarySuffix = config.SharedLibrarySuffix
         }, NoHeaders);
     }
 
@@ -455,6 +475,8 @@ public sealed class ConfigController : BaseApiService
         config.ProxyBaseUrl = request.ProxyBaseUrl;
         config.SyncIntervalHours = request.SyncIntervalHours;
         config.ProxyTimeoutSeconds = request.ProxyTimeoutSeconds;
+        config.SharedLibraryPrefix = request.SharedLibraryPrefix;
+        config.SharedLibrarySuffix = request.SharedLibrarySuffix;
         Plugin.Instance.SaveConfiguration();
 
         // Update the scheduled task trigger to reflect the new interval
@@ -477,7 +499,9 @@ public sealed class ConfigController : BaseApiService
             VirtualLibraryRootPath = config.VirtualLibraryRootPath,
             ProxyBaseUrl = config.ProxyBaseUrl,
             SyncIntervalHours = config.SyncIntervalHours,
-            ProxyTimeoutSeconds = config.ProxyTimeoutSeconds
+            ProxyTimeoutSeconds = config.ProxyTimeoutSeconds,
+            SharedLibraryPrefix = config.SharedLibraryPrefix,
+            SharedLibrarySuffix = config.SharedLibrarySuffix
         }, NoHeaders);
     }
 
@@ -713,9 +737,11 @@ public sealed class ConfigController : BaseApiService
         var virtualLibRoot = config.VirtualLibraryRootPath;
         if (!string.IsNullOrEmpty(virtualLibRoot))
         {
+            var gc = Plugin.Instance!.Configuration;
             foreach (var lib in connectorConfig.KnownLibraries.Where(l => connectorConfig.LibraryIds.Contains(l.Id)))
                 _libraryProvisioner.EnsureVirtualFolder(
-                    connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, connectorConfig.MetadataMode);
+                    connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, connectorConfig.MetadataMode,
+                    connectorConfig.LibraryOrganization, gc.SharedLibraryPrefix, gc.SharedLibrarySuffix);
         }
 
         return ResultFactory.GetResult(Request, libList, NoHeaders);
@@ -903,6 +929,20 @@ public sealed class ConfigController : BaseApiService
         }
     }
 
+    /// <summary>
+    /// Returns true if no connector in the current configuration (after updates/deletions)
+    /// has a SharedByType-selected library whose normalized type matches <paramref name="libraryType"/>.
+    /// Used to decide whether to remove the shared Emby virtual folder when the last library of a type is removed.
+    /// </summary>
+    private static bool NoRemainingSharedLibraries(PluginConfiguration config, string libraryType)
+    {
+        var normalized = LibraryProvisioner.NormalizeLibraryType(libraryType);
+        return !config.Connectors
+            .Where(c => c.LibraryOrganization == LibraryOrganization.SharedByType)
+            .SelectMany(c => c.KnownLibraries.Where(kl => c.LibraryIds.Contains(kl.Id)))
+            .Any(kl => LibraryProvisioner.NormalizeLibraryType(kl.Type) == normalized);
+    }
+
     private void ProvisionEnabledLibraries(ConnectorConfig connectorConfig, string virtualLibRoot)
     {
         if (string.IsNullOrEmpty(virtualLibRoot)) return;
@@ -910,8 +950,10 @@ public sealed class ConfigController : BaseApiService
         var enabledLibs = connectorConfig.KnownLibraries
             .Where(l => connectorConfig.LibraryIds.Contains(l.Id));
 
+        var gc = Plugin.Instance?.Configuration;
         foreach (var lib in enabledLibs)
             _libraryProvisioner.EnsureVirtualFolder(
-                connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, connectorConfig.MetadataMode);
+                connectorConfig.DisplayName, lib.Name, lib.Type, virtualLibRoot, connectorConfig.MetadataMode,
+                connectorConfig.LibraryOrganization, gc?.SharedLibraryPrefix ?? "", gc?.SharedLibrarySuffix ?? "");
     }
 }

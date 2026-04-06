@@ -96,17 +96,30 @@ public class PluginConfiguration : BasePluginConfiguration
     public int ProxyTimeoutSeconds { get; set; } = 30;
     // Override de l'URL de base pour les .strm (utile derrière un reverse proxy)
     public string ProxyBaseUrl { get; set; } = string.Empty;
+    // Préfixe/suffixe du nom des médiathèques Emby partagées (mode SharedByType)
+    public string SharedLibraryPrefix { get; set; } = string.Empty;
+    public string SharedLibrarySuffix { get; set; } = string.Empty;
 }
 
 public class ConnectorConfig
 {
     public string Id { get; set; }              // GUID unique
     public string DisplayName { get; set; }
-    public string ServerType { get; set; }      // "Emby" | "Plex"
+    public string ServerType { get; set; }      // "Emby" | "Plex" | "PlexTV"
     public string ServerUrl { get; set; }
+    public AuthMode AuthMode { get; set; }      // ApiKey | UserCredentials
     public string ApiKey { get; set; }
+    public string Username { get; set; }
+    public string Password { get; set; }
+    public MetadataMode MetadataMode { get; set; }  // RemoteSync | RemoteSyncFull | LocalScraping
     public List<string> LibraryIds { get; set; } = new();
+    public List<KnownLibrary> KnownLibraries { get; set; } = new();
     public bool Enabled { get; set; } = true;
+    public int MaxParallelLibraries { get; set; } = 4;
+    // Isolated : médiathèque Emby dédiée par bibliothèque distante
+    // SharedByType : médiathèque Emby partagée par type (Movies, TvShows…)
+    // Dans les deux cas, fichiers physiques dans virtualLibRoot/ConnectorName/LibraryName/
+    public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
 }
 ```
 

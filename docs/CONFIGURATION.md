@@ -91,18 +91,31 @@ Cliquer **"Test Connection"** pour valider avant de sauvegarder.
 | **Remote Sync Full** | Identique à Remote Sync mais réécrit tous les `.nfo` et re-télécharge les images à chaque sync. |
 | **Local Scraping** | Seuls les `.strm` sont créés. Emby utilise ses propres scrapers (TMDB, TVDB, FanArt) pour enrichir la bibliothèque. Nécessite un accès internet. |
 
-### Étape 4 : Sélectionner les bibliothèques à synchroniser
+### Étape 4 : Choisir le mode d'organisation des bibliothèques
+
+Chaque connecteur dispose d'un paramètre **Library Organization** :
+
+| Mode | Description |
+|---|---|
+| **Isolated** (défaut) | Une médiathèque Emby dédiée par bibliothèque distante, nommée `ConnectorName — LibraryName` |
+| **Shared by Type** | Une médiathèque Emby partagée par type de contenu (Movies, TvShows…). Toutes les bibliothèques distantes du même type convergent dans la même médiathèque Emby. |
+
+> **Important** : dans les deux modes, les fichiers `.strm`/`.nfo` sont toujours générés dans `{racine}/{ConnectorName}/{LibraryName}/`. Le mode d'organisation n'affecte que la médiathèque Emby visible dans le dashboard, pas la structure des fichiers sur disque.
+
+En mode **Shared by Type**, le nom de la médiathèque Emby est `{Prefix}{Type}{Suffix}` (ex. `Movies`, `[VL] Movies`, `Movies (VL)`). Configurer le préfixe/suffixe dans les **paramètres globaux** (section Settings).
+
+### Étape 5 : Sélectionner les bibliothèques à synchroniser
 
 Après un test de connexion réussi, la liste des bibliothèques disponibles s'affiche. Cocher celles à inclure — les dossiers virtuels Emby sont créés automatiquement.
 
-### Étape 5 : Configurer la synchronisation automatique
+### Étape 6 : Configurer la synchronisation automatique
 
 ```
 Intervalle de synchronisation : 6 heures  (recommandé)
 Timeout proxy stream :          30 secondes
 ```
 
-### Étape 6 : Lancer la première synchronisation
+### Étape 7 : Lancer la première synchronisation
 
 Cliquer **"Synchronise Now"** pour déclencher la première sync manuellement. Toutes les bibliothèques activées sont synchronisées en parallèle. L'avancement est affiché en temps réel dans l'arbre des connecteurs :
 - **Barre bleue** : Phase 1 (génération des `.strm` / `.nfo` / artwork)
@@ -173,6 +186,19 @@ Ce proxy est utilisé automatiquement dans les `.strm` générés. Il est transp
 - Le token API du serveur source n'est jamais exposé aux clients
 - Le serveur A peut transcoder à la volée
 - Les clients n'ont pas besoin d'accès réseau direct au serveur source
+
+### Shared Library Prefix / Suffix (paramètres globaux)
+
+En mode **Shared by Type**, le nom de la médiathèque Emby est construit comme `{Prefix}{Type}{Suffix}`.
+
+Exemples :
+| Prefix | Suffix | Résultat |
+|---|---|---|
+| *(vide)* | *(vide)* | `Movies`, `TvShows`, `Music`… |
+| `[VL] ` | *(vide)* | `[VL] Movies`, `[VL] TvShows`… |
+| *(vide)* | ` (VL)` | `Movies (VL)`, `TvShows (VL)`… |
+
+Configurer dans **Settings → Shared Library Prefix / Suffix**. Modifier ces valeurs après la création des médiathèques nécessite de les supprimer et recréer (le nom Emby ne sera plus trouvé).
 
 ### Proxy Base URL (paramètre global)
 

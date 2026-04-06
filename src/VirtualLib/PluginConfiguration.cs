@@ -33,6 +33,18 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public string ProxyBaseUrl { get; set; } = string.Empty;
     public int SyncIntervalHours { get; set; } = 6;
     public int ProxyTimeoutSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// Prefix prepended to the Emby library name when LibraryOrganization = SharedByType.
+    /// e.g. "[VL] " → "[VL] Movies". Leave empty for no prefix.
+    /// </summary>
+    public string SharedLibraryPrefix { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Suffix appended to the Emby library name when LibraryOrganization = SharedByType.
+    /// e.g. " (VL)" → "Movies (VL)". Leave empty for no suffix.
+    /// </summary>
+    public string SharedLibrarySuffix { get; set; } = string.Empty;
 }
 
 public sealed class KnownLibrary
@@ -78,9 +90,10 @@ public sealed class ConnectorConfig
     public int MaxParallelLibraries { get; set; } = 4;
 
     /// <summary>
-    /// Controls how generated folders are organised under VirtualLibraryRootPath.
-    /// Isolated (default): Root/ConnectorName/LibraryName/
-    /// SharedByType: Root/LibraryType/ConnectorName/LibraryName/
+    /// Controls how the Emby virtual library is named and shared.
+    /// Physical files are always at Root/ConnectorName/LibraryName/ in both modes.
+    /// Isolated (default): one dedicated Emby library per remote library, named "ConnectorName — LibraryName".
+    /// SharedByType: one shared Emby library per content type (Movies, TvShows…); each remote library adds its path.
     /// </summary>
     public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
 }

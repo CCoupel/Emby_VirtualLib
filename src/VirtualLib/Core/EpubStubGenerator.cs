@@ -52,11 +52,8 @@ public sealed class EpubStubGenerator
     {
         var safeConnector = StrmGenerator.SanitizeName(connectorName);
         var safeLibrary   = StrmGenerator.SanitizeName(libraryName);
-        var typeFolder    = string.IsNullOrWhiteSpace(libraryType) ? "Unknown" : libraryType;
-
-        var libraryBase = organization == LibraryOrganization.SharedByType
-            ? Path.Combine(virtualLibRoot, typeFolder, safeConnector, safeLibrary)
-            : Path.Combine(virtualLibRoot, safeConnector, safeLibrary);
+        // Physical path is always virtualLibRoot/ConnectorName/LibraryName/ regardless of organization mode.
+        var libraryBase = Path.Combine(virtualLibRoot, safeConnector, safeLibrary);
 
         var folderName = item.Year.HasValue
             ? $"{StrmGenerator.SanitizeName(item.Title)} ({item.Year})"

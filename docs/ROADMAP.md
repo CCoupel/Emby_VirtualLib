@@ -162,6 +162,24 @@
 
 ---
 
+## Phase 8 — Organisation des bibliothèques (SharedByType) ✅ Terminé (v1.8.0) — issue #36
+
+### Fonctionnalité
+- [x] **`LibraryOrganization`** enum par connecteur : `Isolated` (défaut) / `SharedByType`
+  - `Isolated` : une médiathèque Emby dédiée par paire connecteur–bibliothèque (`ConnectorName — LibraryName`)
+  - `SharedByType` : une médiathèque Emby partagée par type de contenu (Movies, TvShows…), chaque bibliothèque distante y ajoute son propre chemin
+- [x] **`SharedLibraryPrefix` / `SharedLibrarySuffix`** (paramètres globaux) : personnalisation du nom de la médiathèque partagée (ex. préfixe `[VL] ` → `[VL] Movies`)
+- [x] **Cohérence du chemin physique** : les fichiers `.strm`/`.nfo` sont toujours placés dans `virtualLibRoot/ConnectorName/LibraryName/`, **identique** pour les deux modes — le mode d'organisation ne change que le nom de la médiathèque Emby, pas la structure sur disque
+- [x] **Ajout incrémental des chemins** (`AddMediaPaths`) : chaque bibliothèque distante ajoute son chemin individuellement à la médiathèque partagée existante
+- [x] **Suppression sélective** : en mode SharedByType, la suppression d'une bibliothèque retire uniquement son chemin via `RemoveMediaPath(long itemId, string path)` ; la médiathèque partagée n'est supprimée que si aucun connecteur ne l'utilise plus (`NoRemainingSharedLibraries`)
+- [x] **Bouton "Cancel Sync"** : annulation d'une synchronisation en cours depuis l'UI
+
+### Corrections d'API Emby découvertes pendant l'implémentation
+- [x] **`ApplyLibraryOptions` préserve les `PathInfos`** : `UpdateLibraryOptions` réinitialise la liste des chemins si on ne les ré-injecte pas explicitement — `_libraryManager.GetLibraryOptions(collectionFolder)?.PathInfos` doit être préservé avant chaque appel
+- [x] **`RemoveMediaPath(long, string)`** : signature réelle Emby — premier argument = itemId (`long`), pas de paramètre `refreshLibrary` (contrairement à `AddMediaPaths` / `RemoveVirtualFolder`)
+
+---
+
 ## Phase 7 — Backpropagation de la lecture ✅ Terminé (v1.7.0) — issue #34
 
 - [x] **`PlaybackEventForwarder`** (`IServerEntryPoint`) : s'abonne aux events `ISessionManager` (Start / Progress / Stop) et propage les notifications vers le serveur distant via le connecteur correspondant
