@@ -3,6 +3,7 @@ using VirtualLib.Core.Models;
 
 namespace VirtualLib.Core;
 
+
 public sealed class StrmGenerator
 {
     private static readonly char[] InvalidChars = Path.GetInvalidFileNameChars();
@@ -18,9 +19,11 @@ public sealed class StrmGenerator
         string libraryId,
         string libraryName,
         string virtualLibRoot,
-        string proxyBaseUrl = "")
+        string proxyBaseUrl = "",
+        LibraryOrganization organization = LibraryOrganization.Isolated,
+        string libraryType = "")
     {
-        var dirPath = GetDirectoryPath(item, connectorName, libraryName, virtualLibRoot);
+        var dirPath = GetDirectoryPath(item, connectorName, libraryName, virtualLibRoot, organization, libraryType);
         var fileName = GetFileName(item);
         var filePath = Path.Combine(dirPath, fileName + ".strm");
         var baseUrl = string.IsNullOrEmpty(proxyBaseUrl) ? "http://localhost:8096" : proxyBaseUrl;
@@ -32,16 +35,27 @@ public sealed class StrmGenerator
         return filePath;
     }
 
-    public string GetDirectoryPath(MediaItem item, string connectorName, string libraryName, string virtualLibRoot)
+    public string GetDirectoryPath(
+        MediaItem item,
+        string connectorName,
+        string libraryName,
+        string virtualLibRoot,
+        LibraryOrganization organization = LibraryOrganization.Isolated,
+        string libraryType = "")
     {
         var safeConnector = SanitizeName(connectorName);
         var safeLibrary = SanitizeName(libraryName);
+
+        var typeFolder = string.IsNullOrWhiteSpace(libraryType) ? "Unknown" : libraryType;
+        var libraryBase = organization == LibraryOrganization.SharedByType
+            ? Path.Combine(virtualLibRoot, typeFolder, safeConnector, safeLibrary)
+            : Path.Combine(virtualLibRoot, safeConnector, safeLibrary);
 
         if (item.Type == MediaType.Episode)
         {
             var seriesName = SanitizeName(item.SeriesName ?? item.Title);
             var season = item.SeasonNumber ?? 0;
-            return Path.Combine(virtualLibRoot, safeConnector, safeLibrary, seriesName, $"Season {season:D2}");
+            return Path.Combine(libraryBase, seriesName, $"Season {season:D2}");
         }
         else if (item.Type == MediaType.AudioBook && !string.IsNullOrEmpty(item.SeriesName))
         {
@@ -49,14 +63,14 @@ public sealed class StrmGenerator
             var bookFolder = item.Year.HasValue
                 ? $"{SanitizeName(item.SeriesName)} ({item.Year})"
                 : SanitizeName(item.SeriesName);
-            return Path.Combine(virtualLibRoot, safeConnector, safeLibrary, bookFolder);
+            return Path.Combine(libraryBase, bookFolder);
         }
         else
         {
             var folderName = item.Year.HasValue
                 ? $"{SanitizeName(item.Title)} ({item.Year})"
                 : SanitizeName(item.Title);
-            return Path.Combine(virtualLibRoot, safeConnector, safeLibrary, folderName);
+            return Path.Combine(libraryBase, folderName);
         }
     }
 

@@ -19,9 +19,11 @@ public sealed class EpubStubGenerator
         string libraryId,
         string libraryName,
         string virtualLibRoot,
-        string proxyBaseUrl = "")
+        string proxyBaseUrl = "",
+        LibraryOrganization organization = LibraryOrganization.Isolated,
+        string libraryType = "")
     {
-        var dirPath = GetDirectoryPath(item, connectorName, libraryName, virtualLibRoot);
+        var dirPath = GetDirectoryPath(item, connectorName, libraryName, virtualLibRoot, organization, libraryType);
         var fileName = GetFileName(item);
         var filePath = Path.Combine(dirPath, fileName + ".epub");
 
@@ -40,16 +42,26 @@ public sealed class EpubStubGenerator
             ? $"{item.Title} ({item.Year})"
             : item.Title);
 
-    public static string GetDirectoryPath(MediaItem item, string connectorName, string libraryName, string virtualLibRoot)
+    public static string GetDirectoryPath(
+        MediaItem item,
+        string connectorName,
+        string libraryName,
+        string virtualLibRoot,
+        LibraryOrganization organization = LibraryOrganization.Isolated,
+        string libraryType = "")
     {
+        var safeConnector = StrmGenerator.SanitizeName(connectorName);
+        var safeLibrary   = StrmGenerator.SanitizeName(libraryName);
+        var typeFolder    = string.IsNullOrWhiteSpace(libraryType) ? "Unknown" : libraryType;
+
+        var libraryBase = organization == LibraryOrganization.SharedByType
+            ? Path.Combine(virtualLibRoot, typeFolder, safeConnector, safeLibrary)
+            : Path.Combine(virtualLibRoot, safeConnector, safeLibrary);
+
         var folderName = item.Year.HasValue
             ? $"{StrmGenerator.SanitizeName(item.Title)} ({item.Year})"
             : StrmGenerator.SanitizeName(item.Title);
-        return Path.Combine(
-            virtualLibRoot,
-            StrmGenerator.SanitizeName(connectorName),
-            StrmGenerator.SanitizeName(libraryName),
-            folderName);
+        return Path.Combine(libraryBase, folderName);
     }
 
     private static string BuildProxyUrl(string proxyBaseUrl, string connectorId, string libraryId, string itemId)

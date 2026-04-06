@@ -239,6 +239,18 @@
                     </div>
                 </div>
 
+                <div class="inputContainer" style="margin-top:1em">
+                    <label class="inputLabel inputLabelUnfocused" for="connectorLibraryOrganization">Folder Organisation</label>
+                    <select id="connectorLibraryOrganization" is="emby-select" class="emby-select-withcolor emby-input">
+                        <option value="Isolated">Isolated — one Emby library per remote library</option>
+                        <option value="SharedByType">Shared by Type — one Emby library per content type (Movies, TvShows…)</option>
+                    </select>
+                    <div class="fieldDescription">
+                        <strong>Isolated</strong> (default): files go to <code>Root/ConnectorName/LibraryName/</code> — each remote library needs its own Emby library.<br/>
+                        <strong>Shared by Type</strong>: files go to <code>Root/LibraryType/ConnectorName/LibraryName/</code> — all connectors' Movies share a single <code>Root/Movies/</code> Emby library, etc.
+                    </div>
+                </div>
+
                 <div style="margin-top:0.75em">
                     <button id="btnTestConnection" is="emby-button" class="raised emby-button">
                         <span>Test Connection</span>
@@ -267,9 +279,12 @@
                     .strm and .nfo files are generated in the root path configured above.
                 </p>
 
-                <div style="margin-top:0.75em">
+                <div style="margin-top:0.75em;display:flex;align-items:center;gap:0.75em">
                     <button id="btnSyncAll" is="emby-button" class="raised emby-button">
                         <span>Synchronise Now</span>
+                    </button>
+                    <button id="btnCancelSync" is="emby-button" class="emby-button" style="display:none;color:var(--theme-error-color,#e53935)">
+                        <span>Cancel Sync</span>
                     </button>
                 </div>
 
