@@ -84,6 +84,49 @@ Parsé depuis l'élément `<Media>` enfant du `<Video>` :
 
 ---
 
+## Reporting de lecture (PlaybackEventForwarder)
+
+Plex utilise deux endpoints pour le suivi de lecture :
+
+| Endpoint | Rôle |
+|---|---|
+| `GET /:/timeline` | Met à jour le statut "Now Playing" (dashboard Plex, sessions actives) |
+| `GET /:/progress` | **Persiste le `viewOffset`** en base (barre de progression, "Continuer la lecture") |
+
+> **Important** : `/:/timeline` seul ne persiste pas le `viewOffset`. Il faut appeler `/:/progress` pour que la position soit sauvegardée côté Plex.
+
+### Paramètres `/:/timeline`
+
+```
+GET /:/timeline?hasMDE=1&ratingKey={itemId}&key=/library/metadata/{itemId}&state={playing|paused|stopped}&time={positionMs}&X-Plex-Token={token}
+Header: X-Plex-Session-Identifier: {playSessionId}
+```
+
+### Paramètres `/:/progress`
+
+```
+GET /:/progress?key={ratingKey}&identifier=com.plexapp.plugins.library&time={positionMs}&state={stopped|paused}&X-Plex-Token={token}
+```
+
+> **Piège** : `key` dans `/:/progress` doit être le **ratingKey numérique** (`31004`), PAS le chemin complet (`/library/metadata/31004`) — qui renvoie 500.
+
+### Conversion ticks → ms
+
+```csharp
+positionMs = positionTicks / 10_000L;   // 1 tick = 100 ns, 1 ms = 10 000 ticks
+```
+
+### Appels par état
+
+| État | `/:/timeline` | `/:/progress` |
+|---|---|---|
+| Start | `state=playing&time=0` | — |
+| Progress (playing) | `state=playing&time={ms}` | — |
+| Progress (paused) | `state=paused&time={ms}` | `state=paused&time={ms}` |
+| Stop | `state=stopped&time={ms}` | `state=stopped&time={ms}` |
+
+---
+
 ## Pièges et points d'attention
 
 | Piège | Description |

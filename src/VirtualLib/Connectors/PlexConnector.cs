@@ -370,12 +370,85 @@ public sealed class PlexConnector : IMediaServerConnector
         }
     }
 
-    // Plex playback reporting requires full client session tracking — no-op
-    public Task ReportPlaybackStartAsync(string itemId, CancellationToken cancellationToken = default)
-        => Task.CompletedTask;
+    // -------------------------------------------------------------------------
+    // Playback reporting — Plex /:/timeline endpoint
+    // -------------------------------------------------------------------------
 
-    public Task ReportPlaybackStoppedAsync(string itemId, CancellationToken cancellationToken = default)
-        => Task.CompletedTask;
+    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
+    {
+        try { await ReportTimelineAsync(itemId, "playing", 0L, playSessionId, cancellationToken); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Failed to report PlaybackStart for item {ItemId}", itemId); }
+    }
+
+    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var state = isPaused ? "paused" : "playing";
+            await ReportTimelineAsync(itemId, state, positionTicks / 10_000L, playSessionId, cancellationToken);
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Failed to report PlaybackProgress for item {ItemId}", itemId); }
+    }
+
+    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default)
+    {
+        try { await ReportTimelineAsync(itemId, "stopped", positionTicks / 10_000L, playSessionId, cancellationToken); }
+        catch (Exception ex) { _logger.LogDebug(ex, "Failed to report PlaybackStopped for item {ItemId}", itemId); }
+    }
+
+    /// <summary>
+    /// Appelle GET /:/timeline sur le serveur Plex.
+    /// Plex utilise cet endpoint pour mettre à jour le statut de lecture (state),
+    /// la position (time en ms) et la progression (viewOffset).
+    /// X-Plex-Session-Identifier est envoyé par requête car chaque session a son propre ID.
+    /// </summary>
+    private async Task ReportTimelineAsync(string itemId, string state, long positionMs, string playSessionId, CancellationToken ct)
+    {
+        await EnsureAuthenticatedAsync(ct);
+
+        var baseUrl = _config.ServerUrl.TrimEnd('/');
+
+        // /:/timeline — met à jour le statut "Now Playing" (visible dans le dashboard Plex)
+        var timelineUrl = $"{baseUrl}/:/timeline" +
+                          $"?hasMDE=1" +
+                          $"&ratingKey={itemId}" +
+                          $"&key=/library/metadata/{itemId}" +
+                          $"&state={state}" +
+                          $"&time={positionMs}" +
+                          $"&X-Plex-Token={_plexToken}";
+
+        using var timelineRequest = new HttpRequestMessage(HttpMethod.Get, timelineUrl);
+        timelineRequest.Headers.TryAddWithoutValidation("X-Plex-Session-Identifier", playSessionId);
+        using var timelineResponse = await _httpClient.SendAsync(timelineRequest, ct);
+
+        var timelineBody = timelineResponse.IsSuccessStatusCode ? string.Empty
+                           : await timelineResponse.Content.ReadAsStringAsync(ct);
+        Console.Error.WriteLine(
+            $"[VirtualLib] Plex timeline state={state} item={itemId} pos={positionMs}ms → {(int)timelineResponse.StatusCode}" +
+            (string.IsNullOrEmpty(timelineBody) ? string.Empty : $" body={timelineBody}"));
+
+        // /:/progress — persiste le viewOffset en base (pour "Continuer la lecture")
+        // key = ratingKey numérique (PAS /library/metadata/id), state requis
+        // Appelé pour paused et stopped uniquement
+        if (state != "playing" && positionMs > 0)
+        {
+            var progressUrl = $"{baseUrl}/:/progress" +
+                              $"?key={itemId}" +
+                              $"&identifier=com.plexapp.plugins.library" +
+                              $"&time={positionMs}" +
+                              $"&state={state}" +
+                              $"&X-Plex-Token={_plexToken}";
+
+            using var progressRequest = new HttpRequestMessage(HttpMethod.Get, progressUrl);
+            using var progressResponse = await _httpClient.SendAsync(progressRequest, ct);
+
+            var progressBody = progressResponse.IsSuccessStatusCode ? string.Empty
+                               : await progressResponse.Content.ReadAsStringAsync(ct);
+            Console.Error.WriteLine(
+                $"[VirtualLib] Plex progress item={itemId} pos={positionMs}ms → {(int)progressResponse.StatusCode}" +
+                (string.IsNullOrEmpty(progressBody) ? string.Empty : $" body={progressBody}"));
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Private helpers
