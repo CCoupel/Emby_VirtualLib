@@ -392,6 +392,7 @@ define([], function () {
             q('connectorPassword').value = '';
             q('connectorMetadataMode').value = 'RemoteSync';
             q('connectorMaxParallel').value = 4;
+            q('connectorLibraryOrganization').value = 'Isolated';
             q('plexTwoFactorPin').value = '';
             resetPlexServerPicker();
             clearStatus(q('plexServersStatus'));
@@ -427,6 +428,7 @@ define([], function () {
                 q('connectorPassword').value = c.Password || '';
                 q('connectorMetadataMode').value = c.MetadataMode || 'RemoteSync';
                 q('connectorMaxParallel').value = c.MaxParallelLibraries || 4;
+                q('connectorLibraryOrganization').value = c.LibraryOrganization || 'Isolated';
 
                 // Restore PlexTV machine picker with saved identifier
                 var sel = q('plexMachineId');
@@ -490,6 +492,9 @@ define([], function () {
 
         function setSyncMode(active) {
             q('btnSyncAll').disabled = active;
+            var cancelBtn = q('btnCancelSync');
+            cancelBtn.style.display = active ? '' : 'none';
+            if (active) { cancelBtn.style.opacity = ''; cancelBtn.style.pointerEvents = ''; }
             view.querySelectorAll('[data-sync-btn]').forEach(function (btn) {
                 if (active) {
                     btn.disabled = true;
@@ -757,6 +762,8 @@ define([], function () {
                 Username: c.Username || '',
                 Password: '',  // empty = preserve existing on server side
                 MetadataMode: c.MetadataMode || 'RemoteSync',
+                MaxParallelLibraries: c.MaxParallelLibraries || 4,
+                LibraryOrganization: c.LibraryOrganization || 'Isolated',
                 LibraryIds: ids,
                 Enabled: c.Enabled
             };
@@ -935,8 +942,9 @@ define([], function () {
                 var apiKey      = q('connectorApiKey').value.trim();
                 var username    = q('connectorUsername').value.trim();
                 var password    = q('connectorPassword').value;
-                var metadataMode = q('connectorMetadataMode').value;
-                var maxParallel  = parseInt(q('connectorMaxParallel').value, 10) || 4;
+                var metadataMode          = q('connectorMetadataMode').value;
+                var maxParallel           = parseInt(q('connectorMaxParallel').value, 10) || 4;
+                var libraryOrganization   = q('connectorLibraryOrganization').value;
 
                 if (!displayName) {
                     setStatus(statusEl, 'Name is required.', true);
@@ -975,6 +983,7 @@ define([], function () {
                             Password: password,  // empty = preserve existing on server side
                             MetadataMode: metadataMode,
                             MaxParallelLibraries: maxParallel,
+                            LibraryOrganization: libraryOrganization,
                             LibraryIds: existing ? (existing.LibraryIds || []) : [],
                             Enabled: true
                         };
@@ -1000,6 +1009,7 @@ define([], function () {
                         Password: password,
                         MetadataMode: metadataMode,
                         MaxParallelLibraries: maxParallel,
+                        LibraryOrganization: libraryOrganization,
                         LibraryIds: [],
                         Enabled: true
                     };
@@ -1014,6 +1024,13 @@ define([], function () {
 
             q('btnSyncAll').addEventListener('click', function () {
                 startSync('/virtuallib/sync');
+            });
+
+            q('btnCancelSync').addEventListener('click', function () {
+                this.style.opacity = '0.4';
+                this.style.pointerEvents = 'none';
+                q('syncGlobalLabel').textContent = 'Cancelling\u2026';
+                apiPost('/virtuallib/sync/cancel').catch(function () {});
             });
         });
     };

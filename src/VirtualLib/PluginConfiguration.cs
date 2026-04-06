@@ -4,6 +4,14 @@ namespace VirtualLib;
 
 public enum AuthMode { ApiKey, UserCredentials }
 
+public enum LibraryOrganization
+{
+    /// <summary>Root / ConnectorName / LibraryName / Item  (one Emby library per remote library).</summary>
+    Isolated,
+    /// <summary>Root / LibraryType / ConnectorName / LibraryName / Item  (one Emby library per content type).</summary>
+    SharedByType
+}
+
 public enum MetadataMode
 {
     /// <summary>Plugin fetches metadata/images from the remote server, skips items that already have a .nfo file.</summary>
@@ -68,4 +76,11 @@ public sealed class ConnectorConfig
     /// Across all connectors everything runs in parallel; this caps concurrency per connector.
     /// </summary>
     public int MaxParallelLibraries { get; set; } = 4;
+
+    /// <summary>
+    /// Controls how generated folders are organised under VirtualLibraryRootPath.
+    /// Isolated (default): Root/ConnectorName/LibraryName/
+    /// SharedByType: Root/LibraryType/ConnectorName/LibraryName/
+    /// </summary>
+    public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
 }

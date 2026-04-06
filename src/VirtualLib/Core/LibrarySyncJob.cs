@@ -72,6 +72,11 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
                 known?.Name ?? libId, known?.Type ?? string.Empty);
         }
 
+        // Link Emby's own cancellation with the UI cancel button
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken, SyncState.CancellationToken);
+        var ct = linkedCts.Token;
+
         int totalLibs = enabledConnectors.Sum(c => c.LibraryIds.Count);
         int doneLibs  = 0;
 
@@ -87,19 +92,24 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
             .SelectMany(conn => conn.LibraryIds.Select(libId => Task.Run(async () =>
             {
                 await SyncLibraryAutonomousAsync(conn, libId, root, proxyUrl, syncSvc, libMon,
-                    semaphores[conn.Id], results, cancellationToken);
+                    semaphores[conn.Id], results, ct);
 
                 var done = Interlocked.Increment(ref doneLibs);
                 progress.Report(done * 100.0 / Math.Max(totalLibs, 1));
-            }, cancellationToken)))
+            }, ct)))
             .ToList();
 
-        await Task.WhenAll(allTasks);
-
-        config.Connectors = Plugin.Instance?.Configuration.Connectors ?? config.Connectors;
-        Plugin.Instance?.SaveConfiguration();
-
-        SyncState.Finish(results.ToList());
+        try
+        {
+            await Task.WhenAll(allTasks);
+            config.Connectors = Plugin.Instance?.Configuration.Connectors ?? config.Connectors;
+            Plugin.Instance?.SaveConfiguration();
+        }
+        catch (OperationCanceledException) { /* tasks already marked failed */ }
+        finally
+        {
+            SyncState.Finish(results.ToList());
+        }
         progress.Report(100);
     }
 

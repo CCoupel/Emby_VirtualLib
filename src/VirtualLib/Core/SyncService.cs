@@ -171,6 +171,7 @@ public sealed class SyncService
         }
 
         var libraryNameMap = allLibraries.ToDictionary(l => l.Id, l => l.Name);
+        var libraryTypeMap = allLibraries.ToDictionary(l => l.Id, l => l.Type.ToString());
 
         // --- 2b. Merge newly discovered libraries into KnownLibraries ---
         if (allLibraries.Count > 0)
@@ -207,22 +208,22 @@ public sealed class SyncService
             var libraryName = libraryNameMap.TryGetValue(libraryId, out var name)
                 ? name
                 : libraryId;
+            var libraryType = libraryTypeMap.TryGetValue(libraryId, out var ltype)
+                ? ltype
+                : (config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId)?.Type ?? string.Empty);
 
             _logger.LogInformation(
                 "Syncing library '{LibraryName}' ({LibraryId}) for connector {ConnectorId}",
                 libraryName, libraryId, config.Id);
 
-            var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, progress, ct);
+            var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, libraryType, virtualLibRoot, proxyBaseUrl, progress, ct);
             libraryResults.Add(libResult);
             created += libResult.ItemsCreated;
             skipped += libResult.ItemsSkipped;
             failed += libResult.ItemsFailed;
 
             // Compute the folder path for this library (used by caller for targeted scan)
-            var libFolderPath = Path.Combine(
-                virtualLibRoot,
-                StrmGenerator.SanitizeName(config.DisplayName),
-                StrmGenerator.SanitizeName(libraryName));
+            var libFolderPath = GetLibraryFolderPath(virtualLibRoot, config, libraryName, libraryType);
 
             pendingByLibrary.Add(new LibraryPendingMetadata
             {
@@ -281,14 +282,13 @@ public sealed class SyncService
         if (!testResult.Success)
             return (SyncResult.Failure(config.DisplayName, $"Connection test failed: {testResult.ErrorMessage}", DateTime.UtcNow - startTime), new List<LibraryPendingMetadata>());
 
-        var libraryName = config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId)?.Name ?? libraryId;
+        var knownLib    = config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId);
+        var libraryName = knownLib?.Name ?? libraryId;
+        var libraryType = knownLib?.Type ?? string.Empty;
 
-        var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, progress, ct);
+        var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, libraryType, virtualLibRoot, proxyBaseUrl, progress, ct);
 
-        var libFolderPath = Path.Combine(
-            virtualLibRoot,
-            StrmGenerator.SanitizeName(config.DisplayName),
-            StrmGenerator.SanitizeName(libraryName));
+        var libFolderPath = GetLibraryFolderPath(virtualLibRoot, config, libraryName, libraryType);
 
         var pending = new List<LibraryPendingMetadata>
         {
@@ -309,11 +309,23 @@ public sealed class SyncService
     // Private helpers
     // -----------------------------------------------------------------
 
+    private static string GetLibraryFolderPath(string virtualLibRoot, ConnectorConfig config, string libraryName, string libraryType)
+    {
+        var safeConnector = StrmGenerator.SanitizeName(config.DisplayName);
+        var safeLibrary   = StrmGenerator.SanitizeName(libraryName);
+        var typeFolder    = string.IsNullOrWhiteSpace(libraryType) ? "Unknown" : libraryType;
+
+        return config.LibraryOrganization == LibraryOrganization.SharedByType
+            ? Path.Combine(virtualLibRoot, typeFolder, safeConnector, safeLibrary)
+            : Path.Combine(virtualLibRoot, safeConnector, safeLibrary);
+    }
+
     private async Task<(LibrarySyncResult Result, List<(string StrmPath, MediaItem Item)> PendingStrms)> SyncLibraryItemsAsync(
         IMediaServerConnector connector,
         ConnectorConfig config,
         string libraryId,
         string libraryName,
+        string libraryType,
         string virtualLibRoot,
         string proxyBaseUrl,
         IProgress<SyncProgress>? progress,
@@ -357,7 +369,7 @@ public sealed class SyncService
                 // organised under the book folder, and fetch book-level NFO/artwork once.
                 if (item.Type == MediaType.AudioBook && !string.IsNullOrEmpty(item.SeriesName))
                 {
-                    var chapterPath  = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl);
+                    var chapterPath  = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, config.LibraryOrganization, libraryType);
                     var bookDir      = Path.GetDirectoryName(chapterPath)!;
                     var bookNfoPath  = Path.Combine(bookDir, "album.nfo");
                     var bookId       = item.SeriesId ?? item.RemoteId;
@@ -433,7 +445,7 @@ public sealed class SyncService
                 // Fall back to an epub stub if the download fails so the item stays visible.
                 if (item.Type is MediaType.Book)
                 {
-                    var bookDir      = EpubStubGenerator.GetDirectoryPath(item, config.DisplayName, libraryName, virtualLibRoot);
+                    var bookDir      = EpubStubGenerator.GetDirectoryPath(item, config.DisplayName, libraryName, virtualLibRoot, config.LibraryOrganization, libraryType);
                     var bookBaseName = _epubStubGenerator.GetFileName(item);
                     var bookPathNoExt = Path.Combine(bookDir, bookBaseName);
                     var bookNfoPath  = bookPathNoExt + ".nfo";
@@ -464,7 +476,7 @@ public sealed class SyncService
                         catch (Exception ex)
                         {
                             _logger.LogWarning(ex, "Failed to download book '{Title}' — creating epub stub as fallback", item.Title);
-                            _epubStubGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl);
+                            _epubStubGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, config.LibraryOrganization, libraryType);
                         }
                     }
 
@@ -493,7 +505,7 @@ public sealed class SyncService
                 // ---- All other media types -------------------------------------------
 
                 // Always regenerate the .strm (cheap — just a URL line).
-                var strmPath   = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl);
+                var strmPath   = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, config.LibraryOrganization, libraryType);
                 var nfoDir     = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
                 var mediaFileName = _strmGenerator.GetFileName(item);
 

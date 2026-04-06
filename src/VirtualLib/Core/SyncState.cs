@@ -37,12 +37,16 @@ public static class SyncState
 {
     private static int _isSyncing;
     private static readonly ConcurrentDictionary<string, LibrarySyncEntry> _libraries = new();
+    private static CancellationTokenSource? _cts;
 
     public static bool     IsSyncing  => Volatile.Read(ref _isSyncing) == 1;
     public static DateTime? StartedAt { get; private set; }
     public static List<SyncResult>? LastResults { get; private set; }
 
     public static ICollection<LibrarySyncEntry> Libraries => _libraries.Values;
+
+    /// <summary>CancellationToken for the current sync run. Valid only while IsSyncing.</summary>
+    public static CancellationToken CancellationToken => _cts?.Token ?? CancellationToken.None;
 
     public static string MakeKey(string connectorId, string libraryId) =>
         $"{connectorId}::{libraryId}";
@@ -52,10 +56,14 @@ public static class SyncState
     {
         if (Interlocked.CompareExchange(ref _isSyncing, 1, 0) != 0) return false;
         _libraries.Clear();
+        _cts        = new CancellationTokenSource();
         StartedAt   = DateTime.UtcNow;
         LastResults = null;
         return true;
     }
+
+    /// <summary>Request cancellation of the current sync. No-op if not syncing.</summary>
+    public static void RequestCancel() => _cts?.Cancel();
 
     public static void RegisterLibrary(
         string connectorId, string connectorName,
@@ -120,6 +128,9 @@ public static class SyncState
     {
         LastResults = results;
         StartedAt   = null;
+        var cts = _cts;
+        _cts = null;
+        cts?.Dispose();
         Volatile.Write(ref _isSyncing, 0);
     }
 }

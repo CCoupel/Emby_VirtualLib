@@ -36,6 +36,7 @@ public sealed class CreateConnector : IReturn<ConnectorConfig>
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
     public int MaxParallelLibraries { get; set; } = 4;
+    public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
 }
 
 [Route("/virtuallib/connectors/{Id}", "PUT", Summary = "Update an existing connector")]
@@ -55,6 +56,7 @@ public sealed class UpdateConnector : IReturn<ConnectorConfig>
     public List<string> LibraryIds { get; set; } = new();
     public bool Enabled { get; set; } = true;
     public int MaxParallelLibraries { get; set; } = 4;
+    public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
 }
 
 [Route("/virtuallib/connectors/{Id}", "DELETE", Summary = "Remove a connector")]
@@ -134,6 +136,10 @@ public sealed class SyncAll : IReturn<List<SyncResult>> { }
 [Route("/virtuallib/sync/status", "GET", Summary = "Get current sync status")]
 [Authenticated]
 public sealed class GetSyncStatus : IReturn<SyncStatusResult> { }
+
+[Route("/virtuallib/sync/cancel", "POST", Summary = "Cancel the running sync")]
+[Authenticated]
+public sealed class CancelSync : IReturnVoid { }
 
 [Route("/virtuallib/plex/servers", "POST", Summary = "List Plex servers visible on plex.tv for the given credentials")]
 [Authenticated]
@@ -319,7 +325,8 @@ public sealed class ConfigController : BaseApiService
             MetadataMode = request.MetadataMode,
             LibraryIds = request.LibraryIds,
             Enabled = request.Enabled,
-            MaxParallelLibraries = Math.Max(1, request.MaxParallelLibraries)
+            MaxParallelLibraries = Math.Max(1, request.MaxParallelLibraries),
+            LibraryOrganization = request.LibraryOrganization
         };
 
         config.Connectors.Add(connector);
@@ -357,7 +364,8 @@ public sealed class ConfigController : BaseApiService
             LibraryIds = request.LibraryIds,
             Enabled = request.Enabled,
             KnownLibraries = existing.KnownLibraries,
-            MaxParallelLibraries = Math.Max(1, request.MaxParallelLibraries)
+            MaxParallelLibraries = Math.Max(1, request.MaxParallelLibraries),
+            LibraryOrganization = request.LibraryOrganization
         };
 
         config.Connectors.Add(updated);
@@ -427,6 +435,14 @@ public sealed class ConfigController : BaseApiService
             LastResults = SyncState.LastResults,
             Libraries   = SyncState.Libraries.ToList()
         }, NoHeaders);
+    }
+
+    // -----------------------------------------------------------------------
+    // POST /virtuallib/sync/cancel
+    // -----------------------------------------------------------------------
+    public void Post(CancelSync request)
+    {
+        SyncState.RequestCancel();
     }
 
     // -----------------------------------------------------------------------
@@ -565,9 +581,16 @@ public sealed class ConfigController : BaseApiService
         _ = Task.Run(async () =>
         {
             var results = new System.Collections.Concurrent.ConcurrentBag<SyncResult>();
-            await SyncLibraryAutonomousAsync(conn, libraryId, root, proxyUrl, syncSvc, libMon,
-                new SemaphoreSlim(1, 1), results, CancellationToken.None);
-            SyncState.Finish(results.ToList());
+            try
+            {
+                await SyncLibraryAutonomousAsync(conn, libraryId, root, proxyUrl, syncSvc, libMon,
+                    new SemaphoreSlim(1, 1), results, SyncState.CancellationToken);
+            }
+            catch (OperationCanceledException) { /* tasks already marked failed */ }
+            finally
+            {
+                SyncState.Finish(results.ToList());
+            }
         });
 
         return ResultFactory.GetResult(Request, new SyncStartResult { AlreadyRunning = false }, NoHeaders);
@@ -734,13 +757,19 @@ public sealed class ConfigController : BaseApiService
             var allTasks = conns
                 .SelectMany(conn => conn.LibraryIds.Select(libId =>
                     SyncLibraryAutonomousAsync(conn, libId, root, proxyUrl, syncSvc, libMon,
-                        semaphores[conn.Id], results, CancellationToken.None)))
+                        semaphores[conn.Id], results, SyncState.CancellationToken)))
                 .ToList();
 
-            await Task.WhenAll(allTasks);
-
-            Plugin.Instance?.SaveConfiguration();
-            SyncState.Finish(results.ToList());
+            try
+            {
+                await Task.WhenAll(allTasks);
+                Plugin.Instance?.SaveConfiguration();
+            }
+            catch (OperationCanceledException) { /* tasks already marked failed */ }
+            finally
+            {
+                SyncState.Finish(results.ToList());
+            }
         });
 
         return ResultFactory.GetResult(Request, new SyncStartResult { AlreadyRunning = false }, NoHeaders);
@@ -780,13 +809,19 @@ public sealed class ConfigController : BaseApiService
 
             var tasks = conn.LibraryIds
                 .Select(libId => SyncLibraryAutonomousAsync(conn, libId, root, proxyUrl, syncSvc, libMon,
-                    semaphore, results, CancellationToken.None))
+                    semaphore, results, SyncState.CancellationToken))
                 .ToList();
 
-            await Task.WhenAll(tasks);
-
-            Plugin.Instance?.SaveConfiguration();
-            SyncState.Finish(results.ToList());
+            try
+            {
+                await Task.WhenAll(tasks);
+                Plugin.Instance?.SaveConfiguration();
+            }
+            catch (OperationCanceledException) { /* tasks already marked failed */ }
+            finally
+            {
+                SyncState.Finish(results.ToList());
+            }
         });
 
         return ResultFactory.GetResult(Request, new SyncStartResult { AlreadyRunning = false }, NoHeaders);
