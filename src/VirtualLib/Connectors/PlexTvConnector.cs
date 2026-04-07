@@ -16,6 +16,9 @@ public sealed class PlexTvConnector : IMediaServerConnector
 {
     private const string PlexTvBase = "https://plex.tv";
 
+    private static readonly string PluginVersion =
+        typeof(PlexTvConnector).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
     private readonly ConnectorConfig _config;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILoggerFactory _loggerFactory;
@@ -247,7 +250,7 @@ public sealed class PlexTvConnector : IMediaServerConnector
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Plex-Product",          "VirtualLib");
         client.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", "virtuallib-plugin");
-        client.DefaultRequestHeaders.Add("X-Plex-Version",           "1.0.0");
+        client.DefaultRequestHeaders.Add("X-Plex-Version",           PluginVersion);
         client.DefaultRequestHeaders.Add("Accept",                   "application/json");
         return client;
     }

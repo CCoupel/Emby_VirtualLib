@@ -13,9 +13,26 @@ public sealed class EmbyConnector : IMediaServerConnector
     private const int PageSize = 100;
     private const string EmbyTokenHeader = "X-Emby-Token";
 
+    private static readonly string PluginVersion =
+        typeof(EmbyConnector).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
     private readonly ConnectorConfig _config;
     private readonly HttpClient _httpClient;
     private readonly ILogger<EmbyConnector> _logger;
+
+    /// <summary>
+    /// Human-readable device name shown on the remote server.
+    /// "VirtualLib for &lt;username&gt;" in UserCredentials mode,
+    /// "VirtualLib for &lt;DisplayName&gt;" in ApiKey mode.
+    /// </summary>
+    private string ClientDeviceName =>
+        "VirtualLib for " + (_config.AuthMode == AuthMode.UserCredentials && !string.IsNullOrEmpty(_config.Username)
+            ? _config.Username
+            : _config.DisplayName);
+
+    /// <summary>Builds the X-Emby-Authorization header value for the given deviceId.</summary>
+    private string EmbyAuthHeader(string deviceId) =>
+        $"MediaBrowser Client=\"VirtualLib\", Device=\"{ClientDeviceName}\", DeviceId=\"{deviceId}\", Version=\"{PluginVersion}\"";
 
     // User-credentials session state
     private string? _sessionToken;
@@ -73,7 +90,7 @@ public sealed class EmbyConnector : IMediaServerConnector
             var authRequest = new HttpRequestMessage(HttpMethod.Post, "Users/AuthenticateByName");
             authRequest.Headers.TryAddWithoutValidation(
                 "X-Emby-Authorization",
-                "MediaBrowser Client=\"VirtualLib\", Device=\"VirtualLib Plugin\", DeviceId=\"VirtualLib\", Version=\"1.0.0\"");
+                EmbyAuthHeader(_config.Id));
             authRequest.Content = new StringContent(bodyJson, System.Text.Encoding.UTF8, "application/json");
 
             using var response = await _httpClient.SendAsync(authRequest, ct);
@@ -515,7 +532,7 @@ public sealed class EmbyConnector : IMediaServerConnector
         // on the remote Emby server, preventing sessions from overwriting each other.
         request.Headers.TryAddWithoutValidation(
             "X-Emby-Authorization",
-            $"MediaBrowser Client=\"VirtualLib\", Device=\"VirtualLib Plugin\", DeviceId=\"{playSessionId}\", Version=\"1.0.0\"");
+            EmbyAuthHeader(playSessionId));
 
         return await _httpClient.SendAsync(request, ct);
     }

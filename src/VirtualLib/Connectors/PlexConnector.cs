@@ -11,6 +11,9 @@ public sealed class PlexConnector : IMediaServerConnector
     private const int PageSize = 100;
     private const string PlexTokenHeader = "X-Plex-Token";
 
+    private static readonly string PluginVersion =
+        typeof(PlexConnector).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
     private readonly ConnectorConfig _config;
     private readonly HttpClient _httpClient;
     private readonly ILogger<PlexConnector> _logger;
@@ -36,8 +39,8 @@ public sealed class PlexConnector : IMediaServerConnector
         _httpClient.Timeout = TimeSpan.FromSeconds(120);
 
         _httpClient.DefaultRequestHeaders.Add("X-Plex-Product", "VirtualLib");
-        _httpClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", "virtuallib-plugin");
-        _httpClient.DefaultRequestHeaders.Add("X-Plex-Version", "1.0.0");
+        _httpClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", config.Id);
+        _httpClient.DefaultRequestHeaders.Add("X-Plex-Version", PluginVersion);
 
         _plexToken = config.AuthMode == AuthMode.ApiKey ? config.ApiKey : string.Empty;
         if (!string.IsNullOrEmpty(_plexToken))
@@ -62,8 +65,8 @@ public sealed class PlexConnector : IMediaServerConnector
 
             using var plexTvClient = new HttpClient();
             plexTvClient.DefaultRequestHeaders.Add("X-Plex-Product", "VirtualLib");
-            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", "virtuallib-plugin");
-            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Version", "1.0.0");
+            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", _config.Id);
+            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Version", PluginVersion);
             plexTvClient.DefaultRequestHeaders.Add("Accept", "application/xml");
 
             var form = new FormUrlEncodedContent(new[]
