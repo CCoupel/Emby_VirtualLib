@@ -439,7 +439,7 @@ public sealed class EmbyConnector : IMediaServerConnector
                 CanSeek = true,
                 QueueableMediaTypes = new[] { "Video" }
             };
-            using var response = await PostWithRetryAsync("Sessions/Playing", body, cancellationToken);
+            using var response = await PostPlaybackAsync("Sessions/Playing", body, playSessionId, cancellationToken);
             _logger.LogDebug("Reported PlaybackStart for item={ItemId} session={Session}", itemId, playSessionId);
         }
         catch (Exception ex)
@@ -463,7 +463,7 @@ public sealed class EmbyConnector : IMediaServerConnector
                 PositionTicks = positionTicks,
                 IsPaused = isPaused
             };
-            using var response = await PostWithRetryAsync("Sessions/Playing/Progress", body, cancellationToken);
+            using var response = await PostPlaybackAsync("Sessions/Playing/Progress", body, playSessionId, cancellationToken);
             _logger.LogDebug("Reported PlaybackProgress for item={ItemId} pos={Ticks}", itemId, positionTicks);
         }
         catch (Exception ex)
@@ -486,13 +486,38 @@ public sealed class EmbyConnector : IMediaServerConnector
                 UserId = userId,
                 PositionTicks = positionTicks
             };
-            using var response = await PostWithRetryAsync("Sessions/Playing/Stopped", body, cancellationToken);
+            using var response = await PostPlaybackAsync("Sessions/Playing/Stopped", body, playSessionId, cancellationToken);
             _logger.LogDebug("Reported PlaybackStopped for item={ItemId} session={Session}", itemId, playSessionId);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to report PlaybackStopped for item {ItemId}", itemId);
         }
+    }
+
+    /// <summary>
+    /// Posts a playback event (Start/Progress/Stopped) with a per-session DeviceId in
+    /// X-Emby-Authorization so that concurrent streams appear as distinct devices on the
+    /// remote server. Without this, all streams from the same connector share a single
+    /// hardcoded DeviceId and the remote server conflates them into one active session.
+    /// </summary>
+    private async Task<HttpResponseMessage> PostPlaybackAsync<T>(
+        string url, T body, string playSessionId, CancellationToken ct)
+    {
+        var bodyJson = System.Text.Json.JsonSerializer.Serialize(body);
+        var content  = new StringContent(bodyJson, System.Text.Encoding.UTF8, "application/json");
+
+        await EnsureAuthenticatedAsync(ct);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        request.Content = content;
+        // Use playSessionId as DeviceId: each concurrent stream is a distinct "device"
+        // on the remote Emby server, preventing sessions from overwriting each other.
+        request.Headers.TryAddWithoutValidation(
+            "X-Emby-Authorization",
+            $"MediaBrowser Client=\"VirtualLib\", Device=\"VirtualLib Plugin\", DeviceId=\"{playSessionId}\", Version=\"1.0.0\"");
+
+        return await _httpClient.SendAsync(request, ct);
     }
 
     // -------------------------------------------------------------------------
