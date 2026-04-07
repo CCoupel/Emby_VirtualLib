@@ -530,7 +530,7 @@ public sealed class SyncService
                             }
 
                             // Sync favorite/played state for the show folder itself
-                            SyncUserFlagsForFolder(showFolder, showMeta, ct);
+                            SyncUserFlagsForFolder(showFolder, showMeta, ct, config.LocalUserId);
                         }
                         catch (OperationCanceledException) { throw; }
                         catch (Exception ex)
@@ -561,7 +561,7 @@ public sealed class SyncService
                         }
 
                         // Sync favorite/played state for the season folder itself
-                        SyncUserFlagsForFolder(nfoDir, seasonMeta, ct);
+                        SyncUserFlagsForFolder(nfoDir, seasonMeta, ct, config.LocalUserId);
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
@@ -692,7 +692,8 @@ public sealed class SyncService
         List<(string StrmPath, MediaItem Item)> pending,
         string libraryName,
         IProgress<SyncProgress>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? localUserId = null)
     {
         if (_libraryManager is null || pending.Count == 0) return;
 
@@ -783,7 +784,7 @@ public sealed class SyncService
                             "VirtualLib: SaveMediaStreams SKIPPED for '{Title}' — _itemRepository={R} Technical={T}",
                             item.Title, _itemRepository is not null, item.Technical is not null);
 
-                    // Sync played/favorite/resume-position for all local users
+                    // Sync played/favorite/resume-position for the linked local user only
                     _logger.LogDebug(
                         "VirtualLib: user flags from source — '{Title}': played={P} count={PC} pos={Pos} fav={F}",
                         item.Title, item.IsPlayed, item.PlayCount, item.PlaybackPositionTicks, item.IsFavorite);
@@ -791,7 +792,7 @@ public sealed class SyncService
                     if (_userDataManager is not null && _userManager is not null
                         && (item.IsPlayed || item.IsFavorite || item.PlayCount > 0 || item.PlaybackPositionTicks > 0))
                     {
-                        SyncUserFlags(baseItem, item, ct);
+                        SyncUserFlags(baseItem, item, ct, localUserId);
                     }
 
                     // Patch NFO with <fileinfo><streamdetails> as additional persistence.
@@ -888,7 +889,7 @@ public sealed class SyncService
     /// Finds a folder item by path in the local library and syncs its user flags.
     /// No-op if the folder isn't in Emby yet (first sync) or if all flags are unset.
     /// </summary>
-    private void SyncUserFlagsForFolder(string folderPath, MediaItem item, CancellationToken ct)
+    private void SyncUserFlagsForFolder(string folderPath, MediaItem item, CancellationToken ct, string? localUserId = null)
     {
         if (_libraryManager is null || _userDataManager is null || _userManager is null) return;
         if (!item.IsPlayed && !item.IsFavorite && item.PlayCount == 0 && item.PlaybackPositionTicks == 0) return;
@@ -897,7 +898,7 @@ public sealed class SyncService
         {
             var folder = _libraryManager.FindByPath(folderPath, true);
             if (folder is null) return; // not yet scanned — will be picked up on next sync
-            SyncUserFlags(folder, item, ct);
+            SyncUserFlags(folder, item, ct, localUserId);
         }
         catch (Exception ex)
         {
@@ -906,22 +907,38 @@ public sealed class SyncService
     }
 
     /// <summary>
-    /// Copies played/favorite state from the remote item to all local Emby users.
+    /// Copies played/favourite state from the remote item to the linked local Emby user.
+    /// When <paramref name="localUserId"/> is null or empty, the sync is skipped entirely.
     /// Only called when at least one flag is set on the remote side.
     /// </summary>
-    private void SyncUserFlags(BaseItem baseItem, MediaItem item, CancellationToken ct)
+    private void SyncUserFlags(BaseItem baseItem, MediaItem item, CancellationToken ct, string? localUserId = null)
     {
+        if (string.IsNullOrEmpty(localUserId))
+        {
+            _logger.LogDebug(
+                "VirtualLib: SyncUserFlags skipped for '{Title}' — no LocalUserId configured on connector",
+                item.Title);
+            return;
+        }
+
         _logger.LogInformation(
-            "VirtualLib: SyncUserFlags '{Title}' — played={P} playCount={PC} positionTicks={Pos} favorite={F}",
-            item.Title, item.IsPlayed, item.PlayCount, item.PlaybackPositionTicks, item.IsFavorite);
+            "VirtualLib: SyncUserFlags '{Title}' — played={P} playCount={PC} positionTicks={Pos} favorite={F} → localUser={U}",
+            item.Title, item.IsPlayed, item.PlayCount, item.PlaybackPositionTicks, item.IsFavorite, localUserId);
 
         try
         {
 #pragma warning disable CS0618 // IUserManager.Users is deprecated but the replacement (GetUsers) requires a UserQuery filter
-            foreach (var user in _userManager!.Users)
+            var normalizedTarget = Guid.TryParse(localUserId, out var tg) ? tg.ToString("N") : localUserId;
+            var user = _userManager!.Users.FirstOrDefault(u =>
+                string.Equals(u.Id.ToString("N"), normalizedTarget, StringComparison.OrdinalIgnoreCase));
 #pragma warning restore CS0618
+            if (user is null)
             {
-                var userData = _userDataManager!.GetUserData(user, baseItem);
+                _logger.LogWarning("VirtualLib: SyncUserFlags — local user '{UserId}' not found, skipping", localUserId);
+                return;
+            }
+
+            var userData = _userDataManager!.GetUserData(user, baseItem);
 
                 // Only update if the remote state differs (avoid unnecessary writes)
                 bool changed = false;
@@ -955,7 +972,6 @@ public sealed class SyncService
 
                 if (changed)
                     _userDataManager.SaveUserData(user, baseItem, userData, EmbyUserDataSaveReason.Import, ct);
-            }
         }
         catch (Exception ex)
         {

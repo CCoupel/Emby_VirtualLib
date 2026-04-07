@@ -98,7 +98,12 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
 
         var positionTicks = e.PlaybackPositionTicks ?? 0L;
         var isPaused      = e.IsPaused;
-        var sessionKey    = $"{connectorId}:{remoteItemId}";
+        // Normalize both sides to "N" (no-dash) GUID format for reliable comparison
+        var rawUserId   = e.Session?.UserId ?? "";
+        var localUserId = Guid.TryParse(rawUserId, out var sessionGuid) ? sessionGuid.ToString("N") : rawUserId;
+        var sessionKey  = $"{connectorId}:{remoteItemId}:{localUserId}";
+        var configUserId = Guid.TryParse(connectorConfig.LocalUserId ?? "", out var cfgGuid) ? cfgGuid.ToString("N") : (connectorConfig.LocalUserId ?? "");
+        var isLinkedUser = !string.IsNullOrEmpty(configUserId) && configUserId == localUserId;
 
         try
         {
@@ -113,7 +118,7 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
                     break;
 
                 case PlaybackEvent.Stop:
-                    HandleStop(connector, remoteItemId, sessionKey, positionTicks);
+                    HandleStop(connector, remoteItemId, sessionKey, positionTicks, isLinkedUser);
                     break;
             }
         }
@@ -173,16 +178,18 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
 
     private void HandleStop(
         IMediaServerConnector connector, string remoteItemId, string sessionKey,
-        long positionTicks)
+        long positionTicks, bool isLinkedUser)
     {
         if (!_sessions.TryGetValue(sessionKey, out var session)) return;
 
         // Annuler un Stop pending précédent
         session.PendingStopCts?.Cancel();
 
-        var stopCts         = new CancellationTokenSource();
-        var capturedId      = session.PlaySessionId;   // pour la vérification anti-race
-        var capturedPos     = positionTicks;
+        var stopCts     = new CancellationTokenSource();
+        var capturedId  = session.PlaySessionId;   // pour la vérification anti-race
+        // Seul le user lié au connecteur sauvegarde sa position sur le distant.
+        // Les autres users ferment la session proprement mais sans écraser le resume point distant.
+        var capturedPos = isLinkedUser ? positionTicks : 0L;
 
         _sessions[sessionKey] = session with { PendingStopCts = stopCts };
 
@@ -200,7 +207,7 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
                 {
                     s.HeartbeatCts.Cancel();
                     await connector.ReportPlaybackStoppedAsync(remoteItemId, s.PlaySessionId, capturedPos).ConfigureAwait(false);
-                    Console.Error.WriteLine($"[VirtualLib] Stop confirmé → item={remoteItemId} pos={capturedPos}");
+                    Console.Error.WriteLine($"[VirtualLib] Stop confirmé → item={remoteItemId} pos={capturedPos} linked={isLinkedUser}");
                 }
             }
             catch (OperationCanceledException)

@@ -37,6 +37,7 @@ public sealed class CreateConnector : IReturn<ConnectorConfig>
     public bool Enabled { get; set; } = true;
     public int MaxParallelLibraries { get; set; } = 4;
     public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
+    public string LocalUserId { get; set; } = string.Empty;
 }
 
 [Route("/virtuallib/connectors/{Id}", "PUT", Summary = "Update an existing connector")]
@@ -57,6 +58,7 @@ public sealed class UpdateConnector : IReturn<ConnectorConfig>
     public bool Enabled { get; set; } = true;
     public int MaxParallelLibraries { get; set; } = 4;
     public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
+    public string LocalUserId { get; set; } = string.Empty;
 }
 
 [Route("/virtuallib/connectors/{Id}", "DELETE", Summary = "Remove a connector")]
@@ -330,7 +332,8 @@ public sealed class ConfigController : BaseApiService
             LibraryIds = request.LibraryIds,
             Enabled = request.Enabled,
             MaxParallelLibraries = Math.Max(1, request.MaxParallelLibraries),
-            LibraryOrganization = request.LibraryOrganization
+            LibraryOrganization = request.LibraryOrganization,
+            LocalUserId = request.LocalUserId
         };
 
         config.Connectors.Add(connector);
@@ -369,7 +372,8 @@ public sealed class ConfigController : BaseApiService
             Enabled = request.Enabled,
             KnownLibraries = existing.KnownLibraries,
             MaxParallelLibraries = Math.Max(1, request.MaxParallelLibraries),
-            LibraryOrganization = request.LibraryOrganization
+            LibraryOrganization = request.LibraryOrganization,
+            LocalUserId = request.LocalUserId
         };
 
         config.Connectors.Add(updated);
@@ -910,7 +914,7 @@ public sealed class ConfigController : BaseApiService
                 var prog2 = new Progress<SyncProgress>(p =>
                     SyncState.UpdatePhase2(conn.Id, libraryId, p.Current, p.Total));
 
-                await syncSvc.PushMetadataAsync(lp.Items, lp.LibraryName, prog2, ct);
+                await syncSvc.PushMetadataAsync(lp.Items, lp.LibraryName, prog2, ct, conn.LocalUserId);
             }
 
             SyncState.MarkDone(conn.Id, libraryId);

@@ -251,6 +251,18 @@
                 </div>
 
                 <div class="inputContainer" style="margin-top:1em">
+                    <label class="inputLabel inputLabelUnfocused" for="connectorLocalUserId">Linked Local User</label>
+                    <select id="connectorLocalUserId" is="emby-select" class="emby-select-withcolor emby-input">
+                        <option value="">— None (personal data sync disabled) —</option>
+                    </select>
+                    <div class="fieldDescription">
+                        Local Emby user whose personal data (played, favourite, resume position) is synchronised
+                        with this connector. Playback sessions are forwarded for <strong>all</strong> local users,
+                        but only this user's stop position is saved on the remote server.
+                    </div>
+                </div>
+
+                <div class="inputContainer" style="margin-top:1em">
                     <label class="inputLabel inputLabelUnfocused" for="connectorMaxParallel">Max Parallel Libraries</label>
                     <input type="number" id="connectorMaxParallel" class="emby-input" min="1" max="16" value="4" />
                     <div class="fieldDescription">
