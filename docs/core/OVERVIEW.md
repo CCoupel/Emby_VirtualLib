@@ -120,6 +120,10 @@ public class ConnectorConfig
     // SharedByType : médiathèque Emby partagée par type (Movies, TvShows…)
     // Dans les deux cas, fichiers physiques dans virtualLibRoot/ConnectorName/LibraryName/
     public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
+    // User local dont les données personnelles (vu, favori, position) sont synchronisées
+    // avec ce connecteur. Les autres users ont leurs sessions forwardées mais leurs
+    // données personnelles restent locales (issue #41).
+    public string LocalUserId { get; set; } = string.Empty;
 }
 ```
 

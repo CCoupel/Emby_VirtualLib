@@ -11,6 +11,9 @@ public sealed class PlexConnector : IMediaServerConnector
     private const int PageSize = 100;
     private const string PlexTokenHeader = "X-Plex-Token";
 
+    private static readonly string PluginVersion =
+        typeof(PlexConnector).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
     private readonly ConnectorConfig _config;
     private readonly HttpClient _httpClient;
     private readonly ILogger<PlexConnector> _logger;
@@ -36,8 +39,8 @@ public sealed class PlexConnector : IMediaServerConnector
         _httpClient.Timeout = TimeSpan.FromSeconds(120);
 
         _httpClient.DefaultRequestHeaders.Add("X-Plex-Product", "VirtualLib");
-        _httpClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", "virtuallib-plugin");
-        _httpClient.DefaultRequestHeaders.Add("X-Plex-Version", "1.0.0");
+        _httpClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", config.Id);
+        _httpClient.DefaultRequestHeaders.Add("X-Plex-Version", PluginVersion);
 
         _plexToken = config.AuthMode == AuthMode.ApiKey ? config.ApiKey : string.Empty;
         if (!string.IsNullOrEmpty(_plexToken))
@@ -62,8 +65,8 @@ public sealed class PlexConnector : IMediaServerConnector
 
             using var plexTvClient = new HttpClient();
             plexTvClient.DefaultRequestHeaders.Add("X-Plex-Product", "VirtualLib");
-            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", "virtuallib-plugin");
-            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Version", "1.0.0");
+            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", _config.Id);
+            plexTvClient.DefaultRequestHeaders.Add("X-Plex-Version", PluginVersion);
             plexTvClient.DefaultRequestHeaders.Add("Accept", "application/xml");
 
             var form = new FormUrlEncodedContent(new[]
@@ -374,25 +377,25 @@ public sealed class PlexConnector : IMediaServerConnector
     // Playback reporting — Plex /:/timeline endpoint
     // -------------------------------------------------------------------------
 
-    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, string deviceName, CancellationToken cancellationToken = default)
     {
-        try { await ReportTimelineAsync(itemId, "playing", 0L, playSessionId, cancellationToken); }
+        try { await ReportTimelineAsync(itemId, "playing", 0L, playSessionId, deviceName, cancellationToken); }
         catch (Exception ex) { _logger.LogDebug(ex, "Failed to report PlaybackStart for item {ItemId}", itemId); }
     }
 
-    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, string deviceName, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
     {
         try
         {
             var state = isPaused ? "paused" : "playing";
-            await ReportTimelineAsync(itemId, state, positionTicks / 10_000L, playSessionId, cancellationToken);
+            await ReportTimelineAsync(itemId, state, positionTicks / 10_000L, playSessionId, deviceName, cancellationToken);
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Failed to report PlaybackProgress for item {ItemId}", itemId); }
     }
 
-    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, string deviceName, long positionTicks, CancellationToken cancellationToken = default)
     {
-        try { await ReportTimelineAsync(itemId, "stopped", positionTicks / 10_000L, playSessionId, cancellationToken); }
+        try { await ReportTimelineAsync(itemId, "stopped", positionTicks / 10_000L, playSessionId, deviceName, cancellationToken); }
         catch (Exception ex) { _logger.LogDebug(ex, "Failed to report PlaybackStopped for item {ItemId}", itemId); }
     }
 
@@ -402,7 +405,7 @@ public sealed class PlexConnector : IMediaServerConnector
     /// la position (time en ms) et la progression (viewOffset).
     /// X-Plex-Session-Identifier est envoyé par requête car chaque session a son propre ID.
     /// </summary>
-    private async Task ReportTimelineAsync(string itemId, string state, long positionMs, string playSessionId, CancellationToken ct)
+    private async Task ReportTimelineAsync(string itemId, string state, long positionMs, string playSessionId, string deviceName, CancellationToken ct)
     {
         await EnsureAuthenticatedAsync(ct);
 
@@ -419,6 +422,8 @@ public sealed class PlexConnector : IMediaServerConnector
 
         using var timelineRequest = new HttpRequestMessage(HttpMethod.Get, timelineUrl);
         timelineRequest.Headers.TryAddWithoutValidation("X-Plex-Session-Identifier", playSessionId);
+        if (!string.IsNullOrEmpty(deviceName))
+            timelineRequest.Headers.TryAddWithoutValidation("X-Plex-Device-Name", deviceName);
         using var timelineResponse = await _httpClient.SendAsync(timelineRequest, ct);
 
         var timelineBody = timelineResponse.IsSuccessStatusCode ? string.Empty

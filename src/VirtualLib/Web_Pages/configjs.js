@@ -381,6 +381,24 @@ define([], function () {
             sel.appendChild(opt);
         }
 
+        function loadLocalUsers(selectedId) {
+            ApiClient.getUsers().then(function (users) {
+                var sel = q('connectorLocalUserId');
+                while (sel.firstChild) sel.removeChild(sel.firstChild);
+                var none = document.createElement('option');
+                none.value = '';
+                none.textContent = '\u2014 None (personal data sync disabled) \u2014';
+                sel.appendChild(none);
+                users.forEach(function (u) {
+                    var opt = document.createElement('option');
+                    opt.value = u.Id;
+                    opt.textContent = u.Name;
+                    sel.appendChild(opt);
+                });
+                sel.value = selectedId || '';
+            }).catch(function () { /* best-effort — leave placeholder */ });
+        }
+
         function openAddConnector() {
             q('connectorId').value = '';
             q('connectorName').value = '';
@@ -393,6 +411,7 @@ define([], function () {
             q('connectorMetadataMode').value = 'RemoteSync';
             q('connectorMaxParallel').value = 4;
             q('connectorLibraryOrganization').value = 'Isolated';
+            loadLocalUsers('');
             q('plexTwoFactorPin').value = '';
             resetPlexServerPicker();
             clearStatus(q('plexServersStatus'));
@@ -429,6 +448,7 @@ define([], function () {
                 q('connectorMetadataMode').value = c.MetadataMode || 'RemoteSync';
                 q('connectorMaxParallel').value = c.MaxParallelLibraries || 4;
                 q('connectorLibraryOrganization').value = c.LibraryOrganization || 'Isolated';
+                loadLocalUsers(c.LocalUserId || '');
 
                 // Restore PlexTV machine picker with saved identifier
                 var sel = q('plexMachineId');
@@ -949,6 +969,7 @@ define([], function () {
                 var metadataMode          = q('connectorMetadataMode').value;
                 var maxParallel           = parseInt(q('connectorMaxParallel').value, 10) || 4;
                 var libraryOrganization   = q('connectorLibraryOrganization').value;
+                var localUserId           = q('connectorLocalUserId').value;
 
                 if (!displayName) {
                     setStatus(statusEl, 'Name is required.', true);
@@ -988,6 +1009,7 @@ define([], function () {
                             MetadataMode: metadataMode,
                             MaxParallelLibraries: maxParallel,
                             LibraryOrganization: libraryOrganization,
+                            LocalUserId: localUserId,
                             LibraryIds: existing ? (existing.LibraryIds || []) : [],
                             Enabled: true
                         };
@@ -1014,6 +1036,7 @@ define([], function () {
                         MetadataMode: metadataMode,
                         MaxParallelLibraries: maxParallel,
                         LibraryOrganization: libraryOrganization,
+                        LocalUserId: localUserId,
                         LibraryIds: [],
                         Enabled: true
                     };

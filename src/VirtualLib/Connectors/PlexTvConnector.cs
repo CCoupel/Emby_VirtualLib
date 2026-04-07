@@ -16,6 +16,9 @@ public sealed class PlexTvConnector : IMediaServerConnector
 {
     private const string PlexTvBase = "https://plex.tv";
 
+    private static readonly string PluginVersion =
+        typeof(PlexTvConnector).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
     private readonly ConnectorConfig _config;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILoggerFactory _loggerFactory;
@@ -247,7 +250,7 @@ public sealed class PlexTvConnector : IMediaServerConnector
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Plex-Product",          "VirtualLib");
         client.DefaultRequestHeaders.Add("X-Plex-Client-Identifier", "virtuallib-plugin");
-        client.DefaultRequestHeaders.Add("X-Plex-Version",           "1.0.0");
+        client.DefaultRequestHeaders.Add("X-Plex-Version",           PluginVersion);
         client.DefaultRequestHeaders.Add("Accept",                   "application/json");
         return client;
     }
@@ -312,22 +315,22 @@ public sealed class PlexTvConnector : IMediaServerConnector
         return await inner.GetArtworkStreamAsync(itemId, artworkType, cancellationToken);
     }
 
-    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, string deviceName, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
-        await inner.ReportPlaybackStartAsync(itemId, playSessionId, cancellationToken);
+        await inner.ReportPlaybackStartAsync(itemId, playSessionId, deviceName, cancellationToken);
     }
 
-    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, string deviceName, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
-        await inner.ReportPlaybackProgressAsync(itemId, playSessionId, positionTicks, isPaused, cancellationToken);
+        await inner.ReportPlaybackProgressAsync(itemId, playSessionId, deviceName, positionTicks, isPaused, cancellationToken);
     }
 
-    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, string deviceName, long positionTicks, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
-        await inner.ReportPlaybackStoppedAsync(itemId, playSessionId, positionTicks, cancellationToken);
+        await inner.ReportPlaybackStoppedAsync(itemId, playSessionId, deviceName, positionTicks, cancellationToken);
     }
 
     public void Dispose()

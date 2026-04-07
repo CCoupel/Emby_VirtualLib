@@ -71,17 +71,19 @@ public interface IMediaServerConnector : IDisposable
     /// Notifie le serveur distant qu'une lecture vient de démarrer.
     /// <paramref name="playSessionId"/> est un GUID unique par session de lecture,
     /// à réutiliser dans les appels Progress et Stopped correspondants.
+    /// <paramref name="deviceName"/> identifie le client local sous la forme "user@app"
+    /// (ex: "cyril@Emby Web") tel qu'il apparaîtra dans le tableau de bord du serveur distant.
     /// </summary>
-    Task ReportPlaybackStartAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default);
+    Task ReportPlaybackStartAsync(string itemId, string playSessionId, string deviceName, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Envoie la position de lecture courante au serveur distant (~toutes les 10s).
     /// </summary>
-    Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default);
+    Task ReportPlaybackProgressAsync(string itemId, string playSessionId, string deviceName, long positionTicks, bool isPaused, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Notifie le serveur distant que la lecture s'est arrêtée.
     /// <paramref name="positionTicks"/> est la position finale (en ticks) pour sauvegarder l'avancement.
     /// </summary>
-    Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default);
+    Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, string deviceName, long positionTicks, CancellationToken cancellationToken = default);
 }

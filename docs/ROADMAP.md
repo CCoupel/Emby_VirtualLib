@@ -180,6 +180,18 @@
 
 ---
 
+## Phase 7.1 — Isolation multi-utilisateur de la lecture ✅ Terminé (v1.8.1) — issue #41
+
+- [x] **`sessionKey` inclut le `userId` local** : `{connectorId}:{remoteItemId}:{localUserId}` — élimine la race condition quand 2 users regardent le même item simultanément
+- [x] **`LocalUserId` dans `ConnectorConfig`** : champ permettant de lier un connecteur à un user local spécifique ; sélecteur dans l'UI de configuration
+- [x] **Sessions isolées sur le distant** : `playSessionId` utilisé comme `DeviceId` dans `X-Emby-Authorization` → chaque stream apparaît comme une session distincte sur le dashboard du serveur distant
+- [x] **Identité dynamique** : `deviceName` au format `user@client` (ex: `cyril@Emby Web`) propagé dans tous les appels playback (Emby + Plex)
+- [x] **Isolation des Progress** : seul le user lié (A) envoie ses Progress au distant ; les autres users (B) maintiennent leur position localement (évite l'oscillation de `UserData.PlaybackPositionTicks`)
+- [x] **Restauration de position au Stop(B)** (`ResolveLinkedUserPosition`) : au Stop d'un user non-lié, on envoie la position de A (depuis session active ou `IUserDataManager.GetUserData`) au lieu de 0 — préserve le resume point de A sur le serveur distant
+- [x] **`SyncUserFlags` ciblé** : sync des états vu/favori/position uniquement vers le user lié (`LocalUserId`), plus vers tous les users locaux
+
+---
+
 ## Phase 7 — Backpropagation de la lecture ✅ Terminé (v1.7.0) — issue #34
 
 - [x] **`PlaybackEventForwarder`** (`IServerEntryPoint`) : s'abonne aux events `ISessionManager` (Start / Progress / Stop) et propage les notifications vers le serveur distant via le connecteur correspondant

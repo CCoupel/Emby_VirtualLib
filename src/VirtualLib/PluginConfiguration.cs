@@ -90,6 +90,15 @@ public sealed class ConnectorConfig
     public int MaxParallelLibraries { get; set; } = 4;
 
     /// <summary>
+    /// ID of the local Emby user whose personal data (played, favourite, resume position)
+    /// is synchronised with this connector.
+    /// Playback sessions are forwarded to the remote server for ALL local users,
+    /// but only this user's stop position is persisted on the remote side.
+    /// Leave empty to disable personal-data sync entirely.
+    /// </summary>
+    public string LocalUserId { get; set; } = string.Empty;
+
+    /// <summary>
     /// Controls how the Emby virtual library is named and shared.
     /// Physical files are always at Root/ConnectorName/LibraryName/ in both modes.
     /// Isolated (default): one dedicated Emby library per remote library, named "ConnectorName — LibraryName".
