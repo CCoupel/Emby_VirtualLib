@@ -30,7 +30,10 @@ public sealed class StrmGenerator
         var streamUrl = $"{baseUrl.TrimEnd('/')}/virtuallib/proxy/{connectorId}/{libraryId}/{item.RemoteId}";
 
         Directory.CreateDirectory(dirPath);
-        File.WriteAllText(filePath, streamUrl);
+        // N'écrire que si le contenu change — évite de modifier le mtime du fichier,
+        // ce qui déclencherait un re-scan Emby et effacerait les MediaStream en DB.
+        if (!File.Exists(filePath) || File.ReadAllText(filePath) != streamUrl)
+            File.WriteAllText(filePath, streamUrl);
 
         return filePath;
     }

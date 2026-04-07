@@ -67,9 +67,11 @@ Emby ne lance pas ffprobe sur les `.strm` (fichiers HTTP). Sans injection :
 Phase 1 (NFO `<fileinfo>`) crée les `MediaStream` lors du scan Emby.
 Phase 2 (`UpdateItem` + `SaveMediaStreams`) complète `RunTimeTicks`, `Size`, et les streams directement sur l'item en DB.
 
-### Pourquoi le .strm est toujours régénéré ?
+### Génération idempotente du .strm
 
-Sa date de modification change → Emby détecte le changement et lance un rescan partiel, ce qui permet au NFO patché d'être relu et les nouveaux `<fileinfo>` d'être appliqués.
+Le `.strm` n'est écrit que si son contenu change (URL différente ou fichier absent). Si l'URL est inchangée, le fichier n'est pas touché → son `mtime` reste stable → Emby ne le re-scanne pas lors d'un scan manuel.
+
+**Pourquoi c'est important :** quand Emby détecte un fichier `.strm` modifié lors d'un "Scan library files", il tente de le re-prober via ffprobe (échec), puis appelle `SaveMediaStreams([])` → les entrées codec/résolution en DB sont effacées. En rendant la génération idempotente, les scans manuels entre deux syncs VirtualLib ne corrompent plus les MediaStream injectés.
 
 ---
 

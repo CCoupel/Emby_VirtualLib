@@ -180,6 +180,12 @@
 
 ---
 
+## v1.8.2 — Fix perte des MediaStream lors d'un scan manuel ✅ Terminé
+
+- [x] **`StrmGenerator` idempotent** : le `.strm` n'est écrit que si son contenu change (URL différente ou fichier absent). Évite de modifier le `mtime`, ce qui déclenchait un re-scan Emby → `SaveMediaStreams([])` → perte des infos codec/résolution/audio en DB lors de chaque "Scan library files" manuel entre deux syncs VirtualLib.
+
+---
+
 ## Phase 7.1 — Isolation multi-utilisateur de la lecture ✅ Terminé (v1.8.1) — issue #41
 
 - [x] **`sessionKey` inclut le `userId` local** : `{connectorId}:{remoteItemId}:{localUserId}` — élimine la race condition quand 2 users regardent le même item simultanément
