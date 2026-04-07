@@ -104,13 +104,15 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
         var sessionKey  = $"{connectorId}:{remoteItemId}:{localUserId}";
         var configUserId = Guid.TryParse(connectorConfig.LocalUserId ?? "", out var cfgGuid) ? cfgGuid.ToString("N") : (connectorConfig.LocalUserId ?? "");
         var isLinkedUser = !string.IsNullOrEmpty(configUserId) && configUserId == localUserId;
+        // "cyril@Emby Web" — identifie le client local tel qu'il apparaît côté serveur distant
+        var deviceName = $"{e.Session?.UserName ?? localUserId}@{e.Session?.Client ?? "VirtualLib"}";
 
         try
         {
             switch (eventType)
             {
                 case PlaybackEvent.Start:
-                    await HandleStartAsync(connector, remoteItemId, sessionKey, positionTicks, isPaused);
+                    await HandleStartAsync(connector, remoteItemId, sessionKey, positionTicks, isPaused, deviceName);
                     break;
 
                 case PlaybackEvent.Progress:
@@ -134,7 +136,7 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
 
     private async Task HandleStartAsync(
         IMediaServerConnector connector, string remoteItemId, string sessionKey,
-        long positionTicks, bool isPaused)
+        long positionTicks, bool isPaused, string deviceName)
     {
         if (_sessions.TryRemove(sessionKey, out var prev))
         {
@@ -142,9 +144,9 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
             prev.HeartbeatCts.Cancel();
         }
 
-        var session = OpenSession(sessionKey, positionTicks, isPaused);
-        await connector.ReportPlaybackStartAsync(remoteItemId, session.PlaySessionId).ConfigureAwait(false);
-        Console.Error.WriteLine($"[VirtualLib] Start OK → item={remoteItemId} session={session.PlaySessionId}");
+        var session = OpenSession(sessionKey, positionTicks, isPaused, deviceName);
+        await connector.ReportPlaybackStartAsync(remoteItemId, session.PlaySessionId, session.DeviceName).ConfigureAwait(false);
+        Console.Error.WriteLine($"[VirtualLib] Start OK → item={remoteItemId} session={session.PlaySessionId} device={session.DeviceName}");
         _ = Task.Run(() => HeartbeatLoopAsync(connector, remoteItemId, sessionKey, session.HeartbeatCts.Token));
     }
 
@@ -157,10 +159,10 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
         if (session is null)
         {
             // Session absente : debounce expiré, pod redémarré, ou host n'a pas renvoyé Start.
-            // Réouvrir transparentement.
+            // Réouvrir transparentement sans deviceName connu — fallback vide.
             Console.Error.WriteLine($"[VirtualLib] Progress sans session active — réouverture pour item={remoteItemId}");
-            session = OpenSession(sessionKey, positionTicks, isPaused);
-            await connector.ReportPlaybackStartAsync(remoteItemId, session.PlaySessionId).ConfigureAwait(false);
+            session = OpenSession(sessionKey, positionTicks, isPaused, "VirtualLib");
+            await connector.ReportPlaybackStartAsync(remoteItemId, session.PlaySessionId, session.DeviceName).ConfigureAwait(false);
             _ = Task.Run(() => HeartbeatLoopAsync(connector, remoteItemId, sessionKey, session.HeartbeatCts.Token));
         }
         else if (session.PendingStopCts != null)
@@ -173,7 +175,7 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
         }
 
         _sessions[sessionKey] = session with { PositionTicks = positionTicks, IsPaused = isPaused };
-        await connector.ReportPlaybackProgressAsync(remoteItemId, session.PlaySessionId, positionTicks, isPaused).ConfigureAwait(false);
+        await connector.ReportPlaybackProgressAsync(remoteItemId, session.PlaySessionId, session.DeviceName, positionTicks, isPaused).ConfigureAwait(false);
     }
 
     private void HandleStop(
@@ -185,11 +187,12 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
         // Annuler un Stop pending précédent
         session.PendingStopCts?.Cancel();
 
-        var stopCts     = new CancellationTokenSource();
-        var capturedId  = session.PlaySessionId;   // pour la vérification anti-race
+        var stopCts        = new CancellationTokenSource();
+        var capturedId     = session.PlaySessionId;   // pour la vérification anti-race
+        var capturedDevice = session.DeviceName;
         // Seul le user lié au connecteur sauvegarde sa position sur le distant.
         // Les autres users ferment la session proprement mais sans écraser le resume point distant.
-        var capturedPos = isLinkedUser ? positionTicks : 0L;
+        var capturedPos    = isLinkedUser ? positionTicks : 0L;
 
         _sessions[sessionKey] = session with { PendingStopCts = stopCts };
 
@@ -206,7 +209,7 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
                     && _sessions.TryRemove(sessionKey, out var s))
                 {
                     s.HeartbeatCts.Cancel();
-                    await connector.ReportPlaybackStoppedAsync(remoteItemId, s.PlaySessionId, capturedPos).ConfigureAwait(false);
+                    await connector.ReportPlaybackStoppedAsync(remoteItemId, s.PlaySessionId, capturedDevice, capturedPos).ConfigureAwait(false);
                     Console.Error.WriteLine($"[VirtualLib] Stop confirmé → item={remoteItemId} pos={capturedPos} linked={isLinkedUser}");
                 }
             }
@@ -236,7 +239,7 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
                 if (ct.IsCancellationRequested || !_sessions.TryGetValue(sessionKey, out var session)) break;
 
                 await connector.ReportPlaybackProgressAsync(
-                    remoteItemId, session.PlaySessionId, session.PositionTicks, session.IsPaused, ct)
+                    remoteItemId, session.PlaySessionId, session.DeviceName, session.PositionTicks, session.IsPaused, ct)
                     .ConfigureAwait(false);
 
                 Console.Error.WriteLine($"[VirtualLib] Heartbeat → item={remoteItemId} pos={session.PositionTicks} paused={session.IsPaused}");
@@ -250,9 +253,9 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
     // Helpers
     // -------------------------------------------------------------------------
 
-    private ActiveSession OpenSession(string sessionKey, long positionTicks, bool isPaused)
+    private ActiveSession OpenSession(string sessionKey, long positionTicks, bool isPaused, string deviceName)
     {
-        var session = new ActiveSession(Guid.NewGuid().ToString("N"), positionTicks, isPaused, new CancellationTokenSource());
+        var session = new ActiveSession(Guid.NewGuid().ToString("N"), deviceName, positionTicks, isPaused, new CancellationTokenSource());
         _sessions[sessionKey] = session;
         return session;
     }
@@ -284,6 +287,7 @@ public sealed class PlaybackEventForwarder : IServerEntryPoint
 
     private sealed record ActiveSession(
         string PlaySessionId,
+        string DeviceName,
         long PositionTicks,
         bool IsPaused,
         CancellationTokenSource HeartbeatCts,

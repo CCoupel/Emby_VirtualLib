@@ -377,25 +377,25 @@ public sealed class PlexConnector : IMediaServerConnector
     // Playback reporting — Plex /:/timeline endpoint
     // -------------------------------------------------------------------------
 
-    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, string deviceName, CancellationToken cancellationToken = default)
     {
-        try { await ReportTimelineAsync(itemId, "playing", 0L, playSessionId, cancellationToken); }
+        try { await ReportTimelineAsync(itemId, "playing", 0L, playSessionId, deviceName, cancellationToken); }
         catch (Exception ex) { _logger.LogDebug(ex, "Failed to report PlaybackStart for item {ItemId}", itemId); }
     }
 
-    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, string deviceName, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
     {
         try
         {
             var state = isPaused ? "paused" : "playing";
-            await ReportTimelineAsync(itemId, state, positionTicks / 10_000L, playSessionId, cancellationToken);
+            await ReportTimelineAsync(itemId, state, positionTicks / 10_000L, playSessionId, deviceName, cancellationToken);
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Failed to report PlaybackProgress for item {ItemId}", itemId); }
     }
 
-    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, string deviceName, long positionTicks, CancellationToken cancellationToken = default)
     {
-        try { await ReportTimelineAsync(itemId, "stopped", positionTicks / 10_000L, playSessionId, cancellationToken); }
+        try { await ReportTimelineAsync(itemId, "stopped", positionTicks / 10_000L, playSessionId, deviceName, cancellationToken); }
         catch (Exception ex) { _logger.LogDebug(ex, "Failed to report PlaybackStopped for item {ItemId}", itemId); }
     }
 
@@ -405,7 +405,7 @@ public sealed class PlexConnector : IMediaServerConnector
     /// la position (time en ms) et la progression (viewOffset).
     /// X-Plex-Session-Identifier est envoyé par requête car chaque session a son propre ID.
     /// </summary>
-    private async Task ReportTimelineAsync(string itemId, string state, long positionMs, string playSessionId, CancellationToken ct)
+    private async Task ReportTimelineAsync(string itemId, string state, long positionMs, string playSessionId, string deviceName, CancellationToken ct)
     {
         await EnsureAuthenticatedAsync(ct);
 
@@ -422,6 +422,8 @@ public sealed class PlexConnector : IMediaServerConnector
 
         using var timelineRequest = new HttpRequestMessage(HttpMethod.Get, timelineUrl);
         timelineRequest.Headers.TryAddWithoutValidation("X-Plex-Session-Identifier", playSessionId);
+        if (!string.IsNullOrEmpty(deviceName))
+            timelineRequest.Headers.TryAddWithoutValidation("X-Plex-Device-Name", deviceName);
         using var timelineResponse = await _httpClient.SendAsync(timelineRequest, ct);
 
         var timelineBody = timelineResponse.IsSuccessStatusCode ? string.Empty

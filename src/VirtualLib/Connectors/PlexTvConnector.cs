@@ -315,22 +315,22 @@ public sealed class PlexTvConnector : IMediaServerConnector
         return await inner.GetArtworkStreamAsync(itemId, artworkType, cancellationToken);
     }
 
-    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, string deviceName, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
-        await inner.ReportPlaybackStartAsync(itemId, playSessionId, cancellationToken);
+        await inner.ReportPlaybackStartAsync(itemId, playSessionId, deviceName, cancellationToken);
     }
 
-    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, string deviceName, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
-        await inner.ReportPlaybackProgressAsync(itemId, playSessionId, positionTicks, isPaused, cancellationToken);
+        await inner.ReportPlaybackProgressAsync(itemId, playSessionId, deviceName, positionTicks, isPaused, cancellationToken);
     }
 
-    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, string deviceName, long positionTicks, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
-        await inner.ReportPlaybackStoppedAsync(itemId, playSessionId, positionTicks, cancellationToken);
+        await inner.ReportPlaybackStoppedAsync(itemId, playSessionId, deviceName, positionTicks, cancellationToken);
     }
 
     public void Dispose()

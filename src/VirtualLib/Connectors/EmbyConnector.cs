@@ -30,9 +30,12 @@ public sealed class EmbyConnector : IMediaServerConnector
             ? _config.Username
             : _config.DisplayName);
 
-    /// <summary>Builds the X-Emby-Authorization header value for the given deviceId.</summary>
-    private string EmbyAuthHeader(string deviceId) =>
-        $"MediaBrowser Client=\"VirtualLib\", Device=\"{ClientDeviceName}\", DeviceId=\"{deviceId}\", Version=\"{PluginVersion}\"";
+    /// <summary>
+    /// Builds the X-Emby-Authorization header value.
+    /// <paramref name="deviceName"/> overrides the connector-level name when provided (e.g. "cyril@Emby Web").
+    /// </summary>
+    private string EmbyAuthHeader(string deviceId, string? deviceName = null) =>
+        $"MediaBrowser Client=\"VirtualLib\", Device=\"{deviceName ?? ClientDeviceName}\", DeviceId=\"{deviceId}\", Version=\"{PluginVersion}\"";
 
     // User-credentials session state
     private string? _sessionToken;
@@ -441,7 +444,7 @@ public sealed class EmbyConnector : IMediaServerConnector
         }
     }
 
-    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStartAsync(string itemId, string playSessionId, string deviceName, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -456,7 +459,7 @@ public sealed class EmbyConnector : IMediaServerConnector
                 CanSeek = true,
                 QueueableMediaTypes = new[] { "Video" }
             };
-            using var response = await PostPlaybackAsync("Sessions/Playing", body, playSessionId, cancellationToken);
+            using var response = await PostPlaybackAsync("Sessions/Playing", body, playSessionId, deviceName, cancellationToken);
             _logger.LogDebug("Reported PlaybackStart for item={ItemId} session={Session}", itemId, playSessionId);
         }
         catch (Exception ex)
@@ -465,7 +468,7 @@ public sealed class EmbyConnector : IMediaServerConnector
         }
     }
 
-    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackProgressAsync(string itemId, string playSessionId, string deviceName, long positionTicks, bool isPaused, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -480,7 +483,7 @@ public sealed class EmbyConnector : IMediaServerConnector
                 PositionTicks = positionTicks,
                 IsPaused = isPaused
             };
-            using var response = await PostPlaybackAsync("Sessions/Playing/Progress", body, playSessionId, cancellationToken);
+            using var response = await PostPlaybackAsync("Sessions/Playing/Progress", body, playSessionId, deviceName, cancellationToken);
             _logger.LogDebug("Reported PlaybackProgress for item={ItemId} pos={Ticks}", itemId, positionTicks);
         }
         catch (Exception ex)
@@ -489,7 +492,7 @@ public sealed class EmbyConnector : IMediaServerConnector
         }
     }
 
-    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, long positionTicks, CancellationToken cancellationToken = default)
+    public async Task ReportPlaybackStoppedAsync(string itemId, string playSessionId, string deviceName, long positionTicks, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -503,7 +506,7 @@ public sealed class EmbyConnector : IMediaServerConnector
                 UserId = userId,
                 PositionTicks = positionTicks
             };
-            using var response = await PostPlaybackAsync("Sessions/Playing/Stopped", body, playSessionId, cancellationToken);
+            using var response = await PostPlaybackAsync("Sessions/Playing/Stopped", body, playSessionId, deviceName, cancellationToken);
             _logger.LogDebug("Reported PlaybackStopped for item={ItemId} session={Session}", itemId, playSessionId);
         }
         catch (Exception ex)
@@ -513,13 +516,12 @@ public sealed class EmbyConnector : IMediaServerConnector
     }
 
     /// <summary>
-    /// Posts a playback event (Start/Progress/Stopped) with a per-session DeviceId in
-    /// X-Emby-Authorization so that concurrent streams appear as distinct devices on the
-    /// remote server. Without this, all streams from the same connector share a single
-    /// hardcoded DeviceId and the remote server conflates them into one active session.
+    /// Posts a playback event with a per-session DeviceId and per-session Device name in
+    /// X-Emby-Authorization. Each concurrent stream appears as a distinct device on the
+    /// remote server (DeviceId = playSessionId) with a human-readable name (deviceName).
     /// </summary>
     private async Task<HttpResponseMessage> PostPlaybackAsync<T>(
-        string url, T body, string playSessionId, CancellationToken ct)
+        string url, T body, string playSessionId, string deviceName, CancellationToken ct)
     {
         var bodyJson = System.Text.Json.JsonSerializer.Serialize(body);
         var content  = new StringContent(bodyJson, System.Text.Encoding.UTF8, "application/json");
@@ -528,11 +530,9 @@ public sealed class EmbyConnector : IMediaServerConnector
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url);
         request.Content = content;
-        // Use playSessionId as DeviceId: each concurrent stream is a distinct "device"
-        // on the remote Emby server, preventing sessions from overwriting each other.
         request.Headers.TryAddWithoutValidation(
             "X-Emby-Authorization",
-            EmbyAuthHeader(playSessionId));
+            EmbyAuthHeader(playSessionId, deviceName));
 
         return await _httpClient.SendAsync(request, ct);
     }
