@@ -158,6 +158,7 @@
     .feat-card:nth-child(1)::after,.feat-card:nth-child(4)::after{background:var(--gold)}
     .feat-card:nth-child(2)::after,.feat-card:nth-child(5)::after{background:var(--teal)}
     .feat-card:nth-child(3)::after,.feat-card:nth-child(6)::after{background:var(--blue)}
+    .feat-card:nth-child(7)::after{background:var(--purple)}
     .feat-card:hover::after{transform:scaleX(1)}
     .feat-emoji{font-size:2.2rem;margin-bottom:1.25rem;display:block}
     .feat-title{font-family:var(--fh);font-size:1.05rem;font-weight:700;color:#fff;margin-bottom:.6rem}
@@ -166,6 +167,7 @@
     .pill-gold{border-color:rgba(255,194,75,.3);color:var(--gold)}
     .pill-teal{border-color:rgba(0,224,204,.3);color:var(--teal)}
     .pill-blue{border-color:rgba(79,138,255,.3);color:var(--blue)}
+    .pill-purple{border-color:rgba(168,85,247,.3);color:var(--purple)}
 
     /* ARCHITECTURE DIAGRAM */
     .arch-section{background:var(--bg)}
@@ -328,8 +330,8 @@
       <span class="en-only">Your media servers,<br/><em>finally unified.</em><br/><span class="dim">In a single Emby.</span></span>
     </h1>
     <p class="hero-sub">
-      <span class="fr-only">VirtualLib agrège <strong>toutes vos bibliothèques distantes</strong> — Emby, Jellyfin, Plex — comme si elles étaient locales.<br/>Pas de copie. Proxy transparent. Sync automatique.</span>
-      <span class="en-only">VirtualLib aggregates <strong>all your remote libraries</strong> — Emby, Jellyfin, Plex — as if they were local.<br/>No file copying. Transparent proxy. Automatic sync.</span>
+      <span class="fr-only">VirtualLib agrège <strong>toutes vos bibliothèques distantes</strong> — Emby, Jellyfin, Plex — comme si elles étaient locales.<br/>Pas de copie. Proxy transparent. Sync automatique. <strong>Cache local intelligent.</strong></span>
+      <span class="en-only">VirtualLib aggregates <strong>all your remote libraries</strong> — Emby, Jellyfin, Plex — as if they were local.<br/>No file copying. Transparent proxy. Automatic sync. <strong>Smart local cache.</strong></span>
     </p>
     <div class="hero-btns">
       <a id="hero-dl-btn" href="https://github.com/CCoupel/Emby_VirtualLib/releases" target="_blank" rel="noopener" class="btn-gold">
@@ -584,6 +586,15 @@
         </p>
         <span class="feat-pill pill-blue"><span class="fr-only">N serveurs simultanés</span><span class="en-only">N concurrent servers</span></span>
       </div>
+      <div class="feat-card">
+        <span class="feat-emoji">💾</span>
+        <div class="feat-title"><span class="fr-only">Cache local intelligent</span><span class="en-only">Smart local cache</span></div>
+        <p class="feat-desc">
+          <span class="fr-only">Les médias sont mis en cache par segments alignés sur les chunks (2 MiB). Les clients concurrents partagent le même téléchargement en cours — zéro double-fetch. Si le média dépasse le seuil de complétion configuré (défaut 90 %), le téléchargement continue automatiquement jusqu'à la fin, même si le client s'arrête.</span>
+          <span class="en-only">Media is cached in chunk-aligned segments (2 MiB). Concurrent clients share the same in-progress download — zero double-fetch. If the media exceeds the configured completion threshold (default 90%), the download continues automatically to the end, even if the client stops.</span>
+        </p>
+        <span class="feat-pill pill-purple"><span class="fr-only">Complétion auto · v1.9.0</span><span class="en-only">Auto-completion · v1.9.0</span></span>
+      </div>
     </div>
   </div>
 </section>
@@ -631,7 +642,7 @@
             <span class="arch-hub-icon">🏠</span>
             <span class="arch-hub-label">Emby A</span>
             <span class="arch-hub-sub">VirtualLib</span>
-            <span class="arch-hub-sub">Proxy · Sync</span>
+            <span class="arch-hub-sub">Proxy · Sync · Cache</span>
           </div>
         </div>
 
