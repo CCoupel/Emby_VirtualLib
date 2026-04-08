@@ -78,6 +78,14 @@ public interface ICacheManager
     /// </summary>
     Task ValidateItemAsync(string connectorId, string itemId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Waits until the pending segment at <paramref name="segStart"/> is committed or discarded.
+    /// Returns true if committed (data is now in cache), false if discarded or no pending segment.
+    /// Returns immediately with false if no pending segment exists at that offset.
+    /// </summary>
+    Task<bool> WaitForPendingSegmentAsync(
+        string connectorId, string itemId, long segStart, CancellationToken ct = default);
+
     /// <summary>Removes all cache files and the manifest for the given item.</summary>
     Task InvalidateAsync(string connectorId, string itemId);
 

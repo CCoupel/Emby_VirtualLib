@@ -347,3 +347,27 @@ Après le traitement de tous les segments, `manifest.ChunkSize` est mis à jour 
 | Paramètre | Type | Défaut | Description |
 |-----------|------|--------|-------------|
 | `CacheEnabled` | `bool` | `true` | Active ou désactive le cache pour ce connecteur uniquement. N'a d'effet que si le `CacheEnabled` global est `true`. |
+
+---
+
+## Optimisations identifiées
+
+### Pending segments (implémenté)
+
+**Problème** : si N clients demandent simultanément le même chunk non encore caché, chacun ouvre une connexion vers le serveur source et télécharge les mêmes octets N fois.
+
+**Mécanisme** : à l'ouverture du fichier `.tmp` dans `CopyWithCacheAsync`, une `TaskCompletionSource<bool>` est enregistrée dans `_pendingSegments` (clé `connectorId:itemId:segStart`). Avant d'ouvrir une connexion vers la source, `ProxyController` appelle `WaitForPendingSegmentAsync` : si une TCS existe, le client attend sans consommer de bande passante. À la fin du commit (`CommitSegmentAsync` → rename `.tmp` → `.bin`), la TCS est résolue à `true` ; si le segment est jeté (tail non-légitimé ou discard), elle est résolue à `false`.
+
+**Règle des 50%** : en cas de déconnexion client (`IOException` / `OperationCanceledException`), si le chunk est rempli à plus de 50 % **ou** qu'un autre client attend, le download continue depuis la source (avec `CancellationToken.None`) jusqu'à la frontière du chunk. Cela évite de jeter un travail presque terminé.
+
+**Comportement des waiters** : `WaitForPendingSegmentAsync` attend la TCS partagée sans l'annuler si son propre `CancellationToken` est révoqué (un `cancelTcs` personnel est utilisé avec `Task.WhenAny`). En cas d'annulation ou d'exception, la méthode retourne `false` : le caller retombe dans le chemin proxy normal.
+
+**Impact** : bande passante source divisée par N pour des accès concurrents au même chunk ; latence légèrement augmentée pour les waiters (ils attendent la fin du chunk, typiquement < 1 s pour un chunk de 2 Mo).
+
+### Retry cache mid-stream (planifié)
+
+**Problème** : quand `CopyWithCacheAsync` vient de commettre le chunk `[A, A+chunkSize)` et que le chunk suivant `[A+chunkSize, ...)` a déjà été caché par une requête précédente, on continue quand même à lire depuis la source au lieu de servir depuis le cache.
+
+**Mécanisme envisagé** : juste avant d'ouvrir le prochain `.tmp`, vérifier `IsRangeCached(manifest, segStart, segStart + flushIntervalBytes - 1)`. Si vrai, interrompre la boucle source et renvoyer au client les octets restants depuis le cache. Gain marginal (~3 lignes de code).
+
+**Priorité** : faible — le cas se produit rarement en pratique (la plupart des lectures sont séquentielles depuis le début).

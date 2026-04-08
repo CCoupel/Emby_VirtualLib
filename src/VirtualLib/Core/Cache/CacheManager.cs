@@ -19,6 +19,12 @@ public sealed class CacheManager : ICacheManager
     private readonly ConcurrentDictionary<string, ChunkManifest> _manifests     = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _manifestLocks = new();
 
+    /// <summary>Signals waiters when a segment being downloaded by another client is committed.</summary>
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> _pendingSegments = new();
+
+    /// <summary>Number of active waiters per pending segment key (used for the 50% finish rule).</summary>
+    private readonly ConcurrentDictionary<string, int> _pendingWaiters = new();
+
     private static readonly JsonSerializerOptions _jsonOpts = new() { WriteIndented = true };
     private const int ReadBufferSize = 65_536;
 
@@ -264,6 +270,7 @@ public sealed class CacheManager : ICacheManager
         var tmpName       = string.Empty;
         var tmpPath       = string.Empty;
         FileStream? tmpStream = null;
+        string pendingKey = string.Empty;
 
         var buffer = ArrayPool<byte>.Shared.Rent(ReadBufferSize);
         try
@@ -294,6 +301,11 @@ public sealed class CacheManager : ICacheManager
                             tmpName   = MakeTmpName(segStart);
                             tmpPath   = Path.Combine(dir, tmpName);
                             tmpStream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None);
+
+                            // Register a pending entry so other clients can wait instead of fetching source
+                            pendingKey = PendingKey(connectorId, itemId, segStart);
+                            _pendingSegments.TryAdd(pendingKey,
+                                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
                         }
 
                         var spaceLeft = flushIntervalBytes - (int)segBytes;
@@ -311,6 +323,11 @@ public sealed class CacheManager : ICacheManager
                             tmpStream = null;
 
                             await CommitSegmentAsync(manifest, connectorId, itemId, dir, segStart, segBytes, tmpPath, CancellationToken.None);
+
+                            // Signal waiters: chunk is committed
+                            if (_pendingSegments.TryRemove(pendingKey, out var flushTcs))
+                                flushTcs.TrySetResult(true);
+                            pendingKey = string.Empty;
 
                             segStart += flushIntervalBytes;
                             segBytes  = 0;
@@ -333,25 +350,74 @@ public sealed class CacheManager : ICacheManager
                         || segStart + segBytes >= manifest.TotalSize;
 
                     if (isFileTail)
+                    {
                         await CommitSegmentAsync(manifest, connectorId, itemId, dir, segStart, segBytes, tmpPath, CancellationToken.None);
+                        if (_pendingSegments.TryRemove(pendingKey, out var tailTcs))
+                            tailTcs.TrySetResult(true);
+                        pendingKey = string.Empty;
+                    }
                     else
                     {
                         _logger.LogDebug(
                             "CacheManager: discarding partial tail [{Start},{End}) for {ItemId} — not file end",
                             segStart, segStart + segBytes, itemId);
+                        if (_pendingSegments.TryRemove(pendingKey, out var discardTcs))
+                            discardTcs.TrySetResult(false);
+                        pendingKey = string.Empty;
                         try { File.Delete(tmpPath); } catch { }
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                if (tmpStream != null) { try { await tmpStream.DisposeAsync(); } catch { } }
+                // On client disconnect: apply 50% rule — finish the current chunk if
+                // more than half is done OR someone is waiting for it.
+                var isClientDisconnect = ex is IOException || ex is OperationCanceledException;
+                if (isClientDisconnect && tmpStream != null && segBytes > 0 && !string.IsNullOrEmpty(pendingKey))
+                {
+                    var hasWaiter = _pendingWaiters.TryGetValue(pendingKey, out var wn) && wn > 0;
+                    var shouldFinish = segBytes > flushIntervalBytes / 2 || hasWaiter;
+
+                    if (shouldFinish)
+                    {
+                        try
+                        {
+                            // Continue reading from source (ignore client ct) until chunk boundary
+                            int r;
+                            while (segBytes < flushIntervalBytes &&
+                                   (r = await source.ReadAsync(buffer.AsMemory(), CancellationToken.None)) > 0)
+                            {
+                                var space = flushIntervalBytes - (int)segBytes;
+                                var toCopy = Math.Min(r, space);
+                                await tmpStream.WriteAsync(buffer.AsMemory(0, toCopy), CancellationToken.None);
+                                segBytes += toCopy;
+                            }
+
+                            if (segBytes >= flushIntervalBytes)
+                            {
+                                await tmpStream.FlushAsync(CancellationToken.None);
+                                await tmpStream.DisposeAsync();
+                                tmpStream = null;
+                                await CommitSegmentAsync(manifest, connectorId, itemId, dir, segStart, segBytes, tmpPath, CancellationToken.None);
+                                if (_pendingSegments.TryRemove(pendingKey, out var finishTcs))
+                                    finishTcs.TrySetResult(true);
+                                pendingKey = string.Empty;
+                            }
+                        }
+                        catch { /* best effort — fall through to cleanup below */ }
+                    }
+                }
+
+                if (tmpStream != null) { try { await tmpStream.DisposeAsync(); } catch { } tmpStream = null; }
                 if (!string.IsNullOrEmpty(tmpPath)) { try { if (File.Exists(tmpPath)) File.Delete(tmpPath); } catch { } }
                 throw;
             }
             finally
             {
                 if (tmpStream != null) { try { await tmpStream.DisposeAsync(); } catch { } }
+                // Safety net: always signal pending (in case of unhandled path)
+                if (!string.IsNullOrEmpty(pendingKey) && _pendingSegments.TryRemove(pendingKey, out var safeTcs))
+                    safeTcs.TrySetResult(false);
             }
         }
         finally
@@ -476,6 +542,32 @@ public sealed class CacheManager : ICacheManager
         finally
         {
             manifestLock.Release();
+        }
+    }
+
+    public async Task<bool> WaitForPendingSegmentAsync(
+        string connectorId, string itemId, long segStart, CancellationToken ct = default)
+    {
+        var key = PendingKey(connectorId, itemId, segStart);
+        if (!_pendingSegments.TryGetValue(key, out var tcs)) return false;
+
+        _pendingWaiters.AddOrUpdate(key, 1, (_, v) => v + 1);
+        try
+        {
+            // Wait without cancelling the shared TCS (other waiters must not be affected)
+            if (ct.CanBeCanceled)
+            {
+                var cancelTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using var reg = ct.Register(() => cancelTcs.TrySetCanceled(ct));
+                var winner = await Task.WhenAny(tcs.Task, cancelTcs.Task).ConfigureAwait(false);
+                if (winner != tcs.Task) return false;
+            }
+            return await tcs.Task.ConfigureAwait(false);
+        }
+        catch { return false; }
+        finally
+        {
+            _pendingWaiters.AddOrUpdate(key, 0, (_, v) => Math.Max(0, v - 1));
         }
     }
 
@@ -901,6 +993,9 @@ public sealed class CacheManager : ICacheManager
         => _manifestLocks.GetOrAdd(ManifestKey(connectorId, itemId), _ => new SemaphoreSlim(1, 1));
 
     // ── Segment name helpers ──────────────────────────────────────────────────
+
+    private static string PendingKey(string connectorId, string itemId, long segStart)
+        => $"{connectorId}:{itemId}:{segStart}";
 
     private static string MakeTmpName(long segStart)
         => $"seg_{segStart:D20}_{Guid.NewGuid():N}.tmp";

@@ -271,6 +271,63 @@ public sealed class ProxyController : BaseApiService
 
         // ── Proxy path: fetch from source (+ write-through to cache if enabled) ──
 
+        // ── Pending segment: wait if another client is already downloading this range ──
+        if (cacheEnabled && Plugin.Cache != null)
+        {
+            var chunkSize    = config.CacheChunkSizeMb * 1024 * 1024;
+            var rangeStart   = ParseRangeStart(range);
+            var alignedStart = rangeStart / chunkSize * chunkSize;
+
+            var committed = await Plugin.Cache.WaitForPendingSegmentAsync(
+                connectorConfig.Id, request.ItemId, alignedStart, CancellationToken.None);
+
+            if (committed)
+            {
+                var freshManifest = await Plugin.Cache.GetManifestAsync(connectorConfig.Id, request.ItemId);
+                if (freshManifest?.TotalSize > 0)
+                {
+                    var (ps, pe) = ParseRangeHeader(range, freshManifest.TotalSize);
+                    if (Plugin.Cache.IsRangeCached(freshManifest, ps, pe))
+                    {
+                        _logger.LogInformation(
+                            "Pending hit — item={ItemId} range={Start}-{End} (served after wait)",
+                            request.ItemId, ps, pe);
+
+                        var pLen    = pe - ps + 1;
+                        var pStatus = string.IsNullOrEmpty(range) ? HttpStatusCode.OK : HttpStatusCode.PartialContent;
+                        var pHdrs   = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ["Content-Length"] = pLen.ToString(),
+                            ["Accept-Ranges"]  = "bytes",
+                        };
+                        if (!string.IsNullOrEmpty(range))
+                            pHdrs["Content-Range"] = $"bytes {ps}-{pe}/{freshManifest.TotalSize}";
+
+                        return new ProxyStreamResult(pStatus, freshManifest.ContentType, Request,
+                            async (response, innerCt) =>
+                            {
+                                response.StatusCode = (int)pStatus;
+                                foreach (var h in pHdrs) response.AddHeader(h.Key, h.Value);
+                                var output = response.OutputWriter.AsStream(leaveOpen: false);
+                                try
+                                {
+                                    await Plugin.Cache.ServeCachedRangeAsync(
+                                        freshManifest, connectorConfig.Id, request.ItemId,
+                                        ps, pe, output, innerCt);
+                                }
+                                catch (OperationCanceledException) { }
+                                catch (IOException ex) when (!innerCt.IsCancellationRequested)
+                                {
+                                    _logger.LogDebug("Broken pipe (pending→cache) item={ItemId}: {Msg}", request.ItemId, ex.Message);
+                                }
+                                finally { try { await output.DisposeAsync(); } catch { } }
+                                _ = Plugin.Cache?.ValidateItemAsync(connectorConfig.Id, request.ItemId, CancellationToken.None);
+                            });
+                    }
+                }
+            }
+        }
+
         // Connector lifetime extends into the write-body lambda (for playback reporting).
         var connector = _connectorFactory.Create(connectorConfig);
         string remoteUrl;
@@ -389,6 +446,20 @@ public sealed class ProxyController : BaseApiService
 
                 connector.Dispose();
             });
+    }
+
+    /// <summary>Returns the start byte from a Range header, or 0 if absent/unparseable.</summary>
+    private static long ParseRangeStart(string? rangeHeader)
+    {
+        if (!string.IsNullOrEmpty(rangeHeader) &&
+            rangeHeader.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase))
+        {
+            var spec = rangeHeader["bytes=".Length..];
+            var dash = spec.IndexOf('-');
+            if (dash > 0 && long.TryParse(spec[..dash], out var start))
+                return start;
+        }
+        return 0L;
     }
 
     /// <summary>
