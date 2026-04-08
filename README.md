@@ -6,6 +6,7 @@ Agrège les bibliothèques de serveurs médias distants comme bibliothèques vir
 
 - **Bibliothèques virtuelles** — films, séries, livres audio, ebooks et photos d'un serveur distant apparaissent comme des bibliothèques natives
 - **Proxy transparent** — le streaming transite par le serveur hôte, permettant le transcodage
+- **Cache local** — les médias sont mis en cache par segments alignés sur les chunks ; les clients concurrents partagent le même téléchargement en cours, sans double-fetch de la source ; si le média dépasse le seuil de complétion configuré (défaut 90 %), le téléchargement se poursuit automatiquement jusqu'à la fin même si le client s'arrête
 - **Sync automatique** — détection des ajouts sur les serveurs sources, sync incrémentale ou forcée
 - **Métadonnées complètes** — titre, synopsis, artwork, cast, identifiants TMDB/IMDB sans re-scraping
 - **Infos techniques** — résolution, codec, durée injectés sans re-probe (via `<fileinfo>` NFO)
@@ -43,6 +44,7 @@ Voir [docs/CONFIGURATION.md](docs/CONFIGURATION.md) pour le guide d'installation
 | [docs/core/OVERVIEW.md](docs/core/OVERVIEW.md) | Architecture, flux, sécurité |
 | [docs/core/SYNC.md](docs/core/SYNC.md) | Algorithme de sync, NFO, états utilisateur |
 | [docs/core/PROXY.md](docs/core/PROXY.md) | ProxyController, Range, pièges |
+| [docs/core/CACHE.md](docs/core/CACHE.md) | Cache local — segments, chunks, pending, seuil de complétion |
 | [docs/core/API_EMBY.md](docs/core/API_EMBY.md) | Référence endpoints Emby REST |
 | [docs/connectors/SPEC.md](docs/connectors/SPEC.md) | Interface IMediaServerConnector, modèles |
 | [docs/connectors/EMBY.md](docs/connectors/EMBY.md) | EmbyConnector |
