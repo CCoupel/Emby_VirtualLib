@@ -45,6 +45,32 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     /// e.g. " (VL)" → "Movies (VL)". Leave empty for no suffix.
     /// </summary>
     public string SharedLibrarySuffix { get; set; } = string.Empty;
+
+    // ── Cache ──────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Enables local chunk-based caching of proxied media streams.
+    /// Each connector can further override this with its own CacheEnabled flag.
+    /// </summary>
+    public bool CacheEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Root directory for the cache. Leave empty to use the Emby cache path
+    /// (applicationPaths.CachePath/virtuallib-cache).
+    /// </summary>
+    public string CacheRootPath { get; set; } = string.Empty;
+
+    /// <summary>Maximum total cache size in gigabytes. Not yet enforced (Phase 2).</summary>
+    public long CacheMaxSizeGb { get; set; } = 50;
+
+    /// <summary>
+    /// How often data is flushed to disk during streaming (in MB).
+    /// Smaller values save more data on early disconnects; larger values mean fewer files before merge.
+    /// </summary>
+    public int CacheChunkSizeMb { get; set; } = 2;
+
+    /// <summary>Days before an unused cache entry is eligible for eviction (Phase 2).</summary>
+    public int CacheTtlDays { get; set; } = 30;
 }
 
 public sealed class KnownLibrary
@@ -105,4 +131,10 @@ public sealed class ConnectorConfig
     /// SharedByType: one shared Emby library per content type (Movies, TvShows…); each remote library adds its path.
     /// </summary>
     public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
+
+    /// <summary>
+    /// Enables local caching for streams from this connector.
+    /// Only effective when the global CacheEnabled is also true.
+    /// </summary>
+    public bool CacheEnabled { get; set; } = true;
 }

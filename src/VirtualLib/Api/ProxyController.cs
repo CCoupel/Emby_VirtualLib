@@ -11,6 +11,7 @@ using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using VirtualLib.Core;
+using VirtualLib.Core.Cache;
 
 namespace VirtualLib.Api;
 
@@ -75,12 +76,13 @@ internal sealed class ProxyStreamResult : IHttpResult, IAsyncStreamWriter
 /// <summary>
 /// Transparent HTTP proxy between Emby clients and remote media servers.
 ///
-/// Flow:
+/// Flow (cache disabled or miss):
 ///   Client → GET /virtuallib/proxy/{connectorId}/{itemId}
 ///   ProxyController → GET {remoteServerUrl}/Items/{itemId}/Download (with Range)
-///   Remote response piped back to client (supports seek via Range headers)
+///   Remote response piped back to client + written to local chunk cache
 ///
-/// Future extension: check local cache before hitting the remote server.
+/// Flow (cache hit — all requested chunks present):
+///   Client → ProxyController → reads directly from disk, no source contact
 /// </summary>
 public sealed class ProxyController : BaseApiService
 {
@@ -213,6 +215,62 @@ public sealed class ProxyController : BaseApiService
             throw new UnauthorizedAccessException("Authentication required.");
         }
 
+        // ── Cache: serve entirely from disk if all requested chunks are present ──
+        var cacheEnabled = config.CacheEnabled && connectorConfig.CacheEnabled && Plugin.Cache != null;
+
+        if (cacheEnabled)
+        {
+            await Plugin.Cache!.ValidateItemAsync(connectorConfig.Id, request.ItemId);
+            var manifest = await Plugin.Cache!.GetManifestAsync(connectorConfig.Id, request.ItemId);
+            if (manifest?.TotalSize > 0)
+            {
+                var (cachedStart, cachedEnd) = ParseRangeHeader(range, manifest.TotalSize);
+                if (Plugin.Cache.IsRangeCached(manifest, cachedStart, cachedEnd))
+                {
+                    _logger.LogInformation(
+                        "Cache hit — item={ItemId} range={Start}-{End} (serving from disk)",
+                        request.ItemId, cachedStart, cachedEnd);
+
+                    var cachedLength  = cachedEnd - cachedStart + 1;
+                    var cachedStatus  = string.IsNullOrEmpty(range)
+                        ? HttpStatusCode.OK : HttpStatusCode.PartialContent;
+                    var cachedHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["Content-Length"]  = cachedLength.ToString(),
+                        ["Accept-Ranges"]   = "bytes",
+                    };
+                    if (!string.IsNullOrEmpty(range))
+                        cachedHeaders["Content-Range"] = $"bytes {cachedStart}-{cachedEnd}/{manifest.TotalSize}";
+
+                    // Connector not needed for a cache hit (not yet created)
+                    return new ProxyStreamResult(cachedStatus, manifest.ContentType, Request,
+                        async (response, ct) =>
+                        {
+                            response.StatusCode = (int)cachedStatus;
+                            foreach (var h in cachedHeaders) response.AddHeader(h.Key, h.Value);
+
+                            var output = response.OutputWriter.AsStream(leaveOpen: false);
+                            try
+                            {
+                                await Plugin.Cache.ServeCachedRangeAsync(
+                                    manifest, connectorConfig.Id, request.ItemId,
+                                    cachedStart, cachedEnd, output, ct);
+                            }
+                            catch (OperationCanceledException) { }
+                            catch (IOException ex) when (!ct.IsCancellationRequested)
+                            {
+                                _logger.LogDebug("Broken pipe (cache) item={ItemId}: {Msg}", request.ItemId, ex.Message);
+                            }
+                            finally { try { await output.DisposeAsync(); } catch { } }
+
+                            _ = Plugin.Cache?.ValidateItemAsync(connectorConfig.Id, request.ItemId, CancellationToken.None);
+                        });
+                }
+            }
+        }
+
+        // ── Proxy path: fetch from source (+ write-through to cache if enabled) ──
+
         // Connector lifetime extends into the write-body lambda (for playback reporting).
         var connector = _connectorFactory.Create(connectorConfig);
         string remoteUrl;
@@ -228,12 +286,10 @@ public sealed class ProxyController : BaseApiService
 
         _logger.LogDebug("Remote URL resolved: {RemoteUrl}", remoteUrl);
 
-        // Build remote request, forwarding Range for seek support
         var remoteRequest = new HttpRequestMessage(HttpMethod.Get, remoteUrl);
         if (!string.IsNullOrEmpty(range))
             remoteRequest.Headers.TryAddWithoutValidation("Range", range);
 
-        // Send to remote — ResponseHeadersRead starts streaming immediately
         HttpResponseMessage remoteResponse;
         try
         {
@@ -246,24 +302,29 @@ public sealed class ProxyController : BaseApiService
             throw new Exception($"Upstream connection failed: {ex.Message}", ex);
         }
 
-        var statusCode = remoteResponse.StatusCode;
-        var contentType = remoteResponse.Content.Headers.ContentType?.ToString()
-                          ?? "application/octet-stream";
+        var statusCode   = remoteResponse.StatusCode;
+        var contentType  = remoteResponse.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
         var contentLength = remoteResponse.Content.Headers.ContentLength;
 
         _logger.LogInformation(
             "Upstream response — status={StatusCode} type={ContentType} length={ContentLength} item={ItemId}",
             (int)statusCode, contentType, contentLength?.ToString() ?? "unknown", request.ItemId);
 
-        // Collect headers to forward (Content-Length, Content-Range, Accept-Ranges)
+        // Initialise cache manifest from upstream headers (idempotent)
+        ChunkManifest? cacheManifest = null;
+        if (cacheEnabled && contentLength is { } totalLen && totalLen > 0)
+        {
+            cacheManifest = await Plugin.Cache!.EnsureManifestAsync(
+                connectorConfig.Id, request.ItemId,
+                totalLen, contentType, remoteUrl,
+                config.CacheChunkSizeMb * 1024 * 1024);
+        }
+
         var forwardHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        if (contentLength is { } cl)
-            forwardHeaders["Content-Length"] = cl.ToString();
-
+        if (contentLength is { } cl) forwardHeaders["Content-Length"] = cl.ToString();
         forwardHeaders["Accept-Ranges"] = "bytes";
 
-        // Content-Range is in Content.Headers (not response Headers) in .NET HttpClient
+        // Content-Range is in Content.Headers (not response.Headers) in .NET HttpClient
         var contentRangeHeader = remoteResponse.Content.Headers.ContentRange;
         if (contentRangeHeader != null)
             forwardHeaders["Content-Range"] = contentRangeHeader.ToString();
@@ -271,12 +332,16 @@ public sealed class ProxyController : BaseApiService
         if (forwardHeaders.TryGetValue("Content-Range", out var contentRangeValue))
             _logger.LogDebug("Content-Range forwarded: {ContentRange}", contentRangeValue);
 
+        // Capture range start for write-through offset tracking
+        var proxyRangeStart = cacheManifest != null
+            ? ParseRangeHeader(range, cacheManifest.TotalSize).Start
+            : 0L;
+
         return new ProxyStreamResult(statusCode, contentType, Request,
             async (response, ct) =>
             {
                 response.StatusCode = (int)statusCode;
-                foreach (var h in forwardHeaders)
-                    response.AddHeader(h.Key, h.Value);
+                foreach (var h in forwardHeaders) response.AddHeader(h.Key, h.Value);
 
                 _logger.LogDebug("Stream start — item={ItemId} to={ClientIp}", request.ItemId, clientIp);
                 var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -287,16 +352,25 @@ public sealed class ProxyController : BaseApiService
                     var outputStream = response.OutputWriter.AsStream(leaveOpen: false);
                     try
                     {
-                        await remoteStream.CopyToAsync(outputStream, ct);
+                        if (cacheManifest != null)
+                        {
+                            // Write-through: stream to client AND populate cache
+                            await Plugin.Cache!.CopyWithCacheAsync(
+                                remoteStream, outputStream, cacheManifest,
+                                connectorConfig.Id, request.ItemId, proxyRangeStart,
+                                config.CacheChunkSizeMb * 1024 * 1024, ct);
+                        }
+                        else
+                        {
+                            await remoteStream.CopyToAsync(outputStream, ct);
+                        }
                     }
                     catch (OperationCanceledException ex) when (ex.CancellationToken != ct)
                     {
-                        // Client (ffprobe/player) closed the connection early — not our cancellation
                         _logger.LogDebug("Client closed stream early for item={ItemId}", request.ItemId);
                     }
                     catch (IOException ex) when (!ct.IsCancellationRequested)
                     {
-                        // Broken pipe — client disconnected (normal for ffprobe seeking)
                         _logger.LogDebug("Broken pipe for item={ItemId}: {Message}", request.ItemId, ex.Message);
                     }
                     finally
@@ -310,8 +384,34 @@ public sealed class ProxyController : BaseApiService
                     "Stream complete — item={ItemId} elapsed={ElapsedMs}ms to={ClientIp}",
                     request.ItemId, sw.ElapsedMilliseconds, clientIp);
 
+                if (cacheManifest != null)
+                    _ = Plugin.Cache?.ValidateItemAsync(connectorConfig.Id, request.ItemId, CancellationToken.None);
+
                 connector.Dispose();
             });
+    }
+
+    /// <summary>
+    /// Parses a Range header (e.g. "bytes=0-1048575") into (start, end).
+    /// Returns (0, totalSize-1) for missing or open-ended ranges.
+    /// </summary>
+    private static (long Start, long End) ParseRangeHeader(string? rangeHeader, long totalSize)
+    {
+        if (!string.IsNullOrEmpty(rangeHeader) && rangeHeader.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase))
+        {
+            var spec  = rangeHeader.Substring("bytes=".Length);
+            var dash  = spec.IndexOf('-');
+            if (dash >= 0)
+            {
+                var startStr = spec[..dash];
+                var endStr   = spec[(dash + 1)..];
+                var start = string.IsNullOrEmpty(startStr) ? 0L : long.Parse(startStr);
+                var end   = string.IsNullOrEmpty(endStr)   ? (totalSize > 0 ? totalSize - 1 : long.MaxValue)
+                                                           : long.Parse(endStr);
+                return (start, end);
+            }
+        }
+        return (0L, totalSize > 0 ? totalSize - 1 : long.MaxValue);
     }
 
     /// <summary>

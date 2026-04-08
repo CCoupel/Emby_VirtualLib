@@ -2,6 +2,8 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Extensions.Logging.Abstractions;
+using VirtualLib.Core.Cache;
 
 namespace VirtualLib;
 
@@ -9,10 +11,26 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 {
     public static Plugin? Instance { get; private set; }
 
+    /// <summary>
+    /// Singleton cache manager shared by all proxy requests.
+    /// Initialised at plugin load; null only before the plugin is loaded.
+    /// </summary>
+    public static CacheManager? Cache { get; private set; }
+
     public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+
+        // Do NOT access Configuration here — it calls LoadConfiguration() → ConfigurationFilePath
+        // → Path.Combine(DataFolderPath, ...) which is null at construction time.
+        // Use applicationPaths directly for the default cache root.
+        var cacheRoot = System.IO.Path.Combine(applicationPaths.CachePath, "virtuallib-cache");
+        Cache = new CacheManager(cacheRoot, NullLogger<CacheManager>.Instance);
+
+        // Fire-and-forget startup cleanup (orphaned .tmp + manifest validation).
+        // Errors are swallowed — cache is non-critical.
+        _ = Cache.InitializeAsync();
     }
 
     public override string Name => "VirtualLib";

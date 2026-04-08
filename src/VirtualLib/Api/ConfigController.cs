@@ -131,6 +131,10 @@ public sealed class SaveSettings : IReturn<GlobalSettings>
     public int ProxyTimeoutSeconds { get; set; } = 30;
     public string SharedLibraryPrefix { get; set; } = string.Empty;
     public string SharedLibrarySuffix { get; set; } = string.Empty;
+    public bool CacheEnabled { get; set; } = false;
+    public int CacheChunkSizeMb { get; set; } = 2;
+    public long CacheMaxSizeGb { get; set; } = 50;
+    public int CacheTtlDays { get; set; } = 30;
 }
 
 [Route("/virtuallib/sync", "POST", Summary = "Sync all enabled connectors")]
@@ -199,6 +203,10 @@ public sealed class GlobalSettings
     public int ProxyTimeoutSeconds { get; set; } = 30;
     public string SharedLibraryPrefix { get; set; } = string.Empty;
     public string SharedLibrarySuffix { get; set; } = string.Empty;
+    public bool CacheEnabled { get; set; } = false;
+    public int CacheChunkSizeMb { get; set; } = 2;
+    public long CacheMaxSizeGb { get; set; } = 50;
+    public int CacheTtlDays { get; set; } = 30;
 }
 
 public sealed class LibraryStats
@@ -443,7 +451,11 @@ public sealed class ConfigController : BaseApiService
             SyncIntervalHours = config.SyncIntervalHours,
             ProxyTimeoutSeconds = config.ProxyTimeoutSeconds,
             SharedLibraryPrefix = config.SharedLibraryPrefix,
-            SharedLibrarySuffix = config.SharedLibrarySuffix
+            SharedLibrarySuffix = config.SharedLibrarySuffix,
+            CacheEnabled = config.CacheEnabled,
+            CacheChunkSizeMb = config.CacheChunkSizeMb,
+            CacheMaxSizeGb = config.CacheMaxSizeGb,
+            CacheTtlDays = config.CacheTtlDays
         }, NoHeaders);
     }
 
@@ -481,6 +493,10 @@ public sealed class ConfigController : BaseApiService
         config.ProxyTimeoutSeconds = request.ProxyTimeoutSeconds;
         config.SharedLibraryPrefix = request.SharedLibraryPrefix;
         config.SharedLibrarySuffix = request.SharedLibrarySuffix;
+        config.CacheEnabled = request.CacheEnabled;
+        config.CacheChunkSizeMb = request.CacheChunkSizeMb;
+        config.CacheMaxSizeGb = request.CacheMaxSizeGb;
+        config.CacheTtlDays = request.CacheTtlDays;
         Plugin.Instance.SaveConfiguration();
 
         // Update the scheduled task trigger to reflect the new interval
@@ -505,7 +521,11 @@ public sealed class ConfigController : BaseApiService
             SyncIntervalHours = config.SyncIntervalHours,
             ProxyTimeoutSeconds = config.ProxyTimeoutSeconds,
             SharedLibraryPrefix = config.SharedLibraryPrefix,
-            SharedLibrarySuffix = config.SharedLibrarySuffix
+            SharedLibrarySuffix = config.SharedLibrarySuffix,
+            CacheEnabled = config.CacheEnabled,
+            CacheChunkSizeMb = config.CacheChunkSizeMb,
+            CacheMaxSizeGb = config.CacheMaxSizeGb,
+            CacheTtlDays = config.CacheTtlDays
         }, NoHeaders);
     }
 
