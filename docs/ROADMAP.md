@@ -180,6 +180,38 @@
 
 ---
 
+## Phase 9 — Cache local (chunk-based) 🚧 En cours — issue #22
+
+### Objectif
+Mettre en cache localement les flux médias proxifiés pour éviter de re-fetcher le serveur source lors des lectures répétées. Optionnel par connecteur.
+
+### Phase 1 (branche `feature/proxy-cache-chunked`)
+- [x] `ChunkManifest` : modèle de données (chunks, TotalSize, PresentChunks)
+- [x] `ICacheManager` : interface complète
+- [x] `CacheManager` : implémentation singleton
+  - [x] `EnsureManifestAsync` : init depuis headers upstream
+  - [x] `IsRangeCached` : décision serve-from-cache
+  - [x] `ServeCachedRangeAsync` : lecture disque directe
+  - [x] `CopyWithCacheAsync` : write-through streaming (proxy + cache simultané)
+  - [x] `PromoteToFileAsync` : concaténation chunks → fichier unique
+  - [x] `InitializeAsync` : nettoyage au démarrage (orphelins .tmp + validation manifests)
+  - [x] Concurrence : locks per-chunk + per-item, écriture atomique `.tmp` → rename
+- [x] `PluginConfiguration` : champs cache (CacheEnabled, CacheChunkSizeMb, CacheMaxSizeGb…)
+- [x] `ConnectorConfig.CacheEnabled` : override par connecteur
+- [x] `Plugin.Cache` : singleton CacheManager initialisé au démarrage
+- [x] `ProxyController` : intégration cache
+  - [x] Cache hit → `ServeCachedRangeAsync` (0 appel réseau)
+  - [x] Cache miss → proxy direct + `CopyWithCacheAsync` (write-through)
+- [x] `docs/core/CACHE.md` : documentation architecture
+
+### Phase 2 (backlog)
+- [ ] Fetch on-demand des chunks manquants (seeks efficaces sur contenu partiellement caché)
+- [ ] Éviction LRU automatique par taille totale (`CacheMaxSizeGb`)
+- [ ] UI dashboard : progression du cache par item
+- [ ] Tests unitaires `CacheManagerTests`
+
+---
+
 ## v1.8.2 — Fix perte des MediaStream lors d'un scan manuel ✅ Terminé
 
 - [x] **`StrmGenerator` idempotent** : le `.strm` n'est écrit que si son contenu change (URL différente ou fichier absent). Évite de modifier le `mtime`, ce qui déclenchait un re-scan Emby → `SaveMediaStreams([])` → perte des infos codec/résolution/audio en DB lors de chaque "Scan library files" manuel entre deux syncs VirtualLib.

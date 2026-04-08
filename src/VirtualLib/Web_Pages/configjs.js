@@ -411,6 +411,7 @@ define([], function () {
             q('connectorMetadataMode').value = 'RemoteSync';
             q('connectorMaxParallel').value = 4;
             q('connectorLibraryOrganization').value = 'Isolated';
+            q('connectorCacheEnabled').checked = true;
             loadLocalUsers('');
             q('plexTwoFactorPin').value = '';
             resetPlexServerPicker();
@@ -448,6 +449,7 @@ define([], function () {
                 q('connectorMetadataMode').value = c.MetadataMode || 'RemoteSync';
                 q('connectorMaxParallel').value = c.MaxParallelLibraries || 4;
                 q('connectorLibraryOrganization').value = c.LibraryOrganization || 'Isolated';
+                q('connectorCacheEnabled').checked = c.CacheEnabled !== false;
                 loadLocalUsers(c.LocalUserId || '');
 
                 // Restore PlexTV machine picker with saved identifier
@@ -855,6 +857,11 @@ define([], function () {
                 q('proxyTimeout').value = s.ProxyTimeoutSeconds || 30;
                 q('sharedLibraryPrefix').value = s.SharedLibraryPrefix || '';
                 q('sharedLibrarySuffix').value = s.SharedLibrarySuffix || '';
+                q('cacheEnabled').checked = !!s.CacheEnabled;
+                q('cacheChunkSizeMb').value = s.CacheChunkSizeMb || 2;
+                q('cacheMaxSizeGb').value = s.CacheMaxSizeGb || 50;
+                q('cacheTtlDays').value = s.CacheTtlDays || 30;
+                q('cacheCompletionThresholdPercent').value = s.CacheCompletionThresholdPercent != null ? s.CacheCompletionThresholdPercent : 90;
             }).catch(function (e) {
                 console.error('VirtualLib: failed to load settings', e);
             });
@@ -881,7 +888,12 @@ define([], function () {
                     SyncIntervalHours: parseInt(q('syncInterval').value, 10) || 6,
                     ProxyTimeoutSeconds: parseInt(q('proxyTimeout').value, 10) || 30,
                     SharedLibraryPrefix: q('sharedLibraryPrefix').value,
-                    SharedLibrarySuffix: q('sharedLibrarySuffix').value
+                    SharedLibrarySuffix: q('sharedLibrarySuffix').value,
+                    CacheEnabled: q('cacheEnabled').checked,
+                    CacheChunkSizeMb: parseInt(q('cacheChunkSizeMb').value, 10) || 2,
+                    CacheMaxSizeGb: parseInt(q('cacheMaxSizeGb').value, 10) || 50,
+                    CacheTtlDays: parseInt(q('cacheTtlDays').value, 10) || 30,
+                    CacheCompletionThresholdPercent: parseInt(q('cacheCompletionThresholdPercent').value, 10) || 0
                 };
                 apiPut('/virtuallib/settings', payload)
                     .then(function () { setStatus(statusEl, 'Settings saved.', false); })
@@ -970,6 +982,7 @@ define([], function () {
                 var maxParallel           = parseInt(q('connectorMaxParallel').value, 10) || 4;
                 var libraryOrganization   = q('connectorLibraryOrganization').value;
                 var localUserId           = q('connectorLocalUserId').value;
+                var connectorCacheEnabled = q('connectorCacheEnabled').checked;
 
                 if (!displayName) {
                     setStatus(statusEl, 'Name is required.', true);
@@ -1010,6 +1023,7 @@ define([], function () {
                             MaxParallelLibraries: maxParallel,
                             LibraryOrganization: libraryOrganization,
                             LocalUserId: localUserId,
+                            CacheEnabled: connectorCacheEnabled,
                             LibraryIds: existing ? (existing.LibraryIds || []) : [],
                             Enabled: true
                         };
@@ -1037,6 +1051,7 @@ define([], function () {
                         MaxParallelLibraries: maxParallel,
                         LibraryOrganization: libraryOrganization,
                         LocalUserId: localUserId,
+                        CacheEnabled: connectorCacheEnabled,
                         LibraryIds: [],
                         Enabled: true
                     };

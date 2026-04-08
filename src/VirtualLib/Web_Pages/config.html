@@ -68,6 +68,43 @@
                 </div>
 
 
+                <div style="margin-top:1.5em;padding:1em;border:1px solid rgba(255,255,255,0.12);border-radius:6px">
+                    <div style="font-weight:bold;margin-bottom:0.8em;opacity:0.9">&#x1F4BE; Local Cache</div>
+
+                    <div style="display:flex;align-items:center;gap:0.8em;margin-bottom:0.6em">
+                        <label class="emby-checkbox-label" style="display:flex;align-items:center;gap:0.5em;cursor:pointer">
+                            <input type="checkbox" id="cacheEnabled" class="emby-checkbox" />
+                            <span>Enable local chunk cache for proxied streams</span>
+                        </label>
+                    </div>
+                    <div class="fieldDescription" style="margin-bottom:0.8em">
+                        When enabled, media chunks are cached locally on first play. Subsequent plays serve from disk (no remote call). Enable per-connector below.
+                    </div>
+
+                    <div style="display:flex;gap:1em;flex-wrap:wrap">
+                        <div class="inputContainer" style="flex:1;min-width:120px">
+                            <label class="inputLabel inputLabelUnfocused" for="cacheChunkSizeMb">Flush interval (MB)</label>
+                            <input type="number" id="cacheChunkSizeMb" class="emby-input" min="1" max="64" value="2" />
+                        </div>
+                        <div class="inputContainer" style="flex:1;min-width:120px">
+                            <label class="inputLabel inputLabelUnfocused" for="cacheMaxSizeGb">Max total size (GB)</label>
+                            <input type="number" id="cacheMaxSizeGb" class="emby-input" min="1" value="50" />
+                        </div>
+                        <div class="inputContainer" style="flex:1;min-width:120px">
+                            <label class="inputLabel inputLabelUnfocused" for="cacheTtlDays">TTL (days)</label>
+                            <input type="number" id="cacheTtlDays" class="emby-input" min="1" value="30" />
+                        </div>
+                    </div>
+                    <div class="inputContainer" style="margin-top:0.8em">
+                        <label class="inputLabel inputLabelUnfocused" for="cacheCompletionThresholdPercent">Complétion automatique (%)</label>
+                        <input id="cacheCompletionThresholdPercent" type="number" min="0" max="100"
+                               class="emby-input" value="90" />
+                        <div class="fieldDescription">
+                            Si le cache couvre déjà ce pourcentage du média, le téléchargement continue jusqu'à la fin même si le client arrête (0 = désactivé).
+                        </div>
+                    </div>
+                </div>
+
                 <div style="margin-top:1em">
                     <button id="btnSaveGlobal" is="emby-button" class="raised emby-button">
                         <span>Save Settings</span>
@@ -280,6 +317,14 @@
                         <strong>Isolated</strong> (default): files go to <code>Root/ConnectorName/LibraryName/</code> — each remote library needs its own Emby library.<br/>
                         <strong>Shared by Type</strong>: files go to <code>Root/LibraryType/ConnectorName/LibraryName/</code> — all connectors' Movies share a single <code>Root/Movies/</code> Emby library, etc.
                     </div>
+                </div>
+
+                <div style="margin-top:0.75em;display:flex;align-items:center;gap:0.8em">
+                    <label class="emby-checkbox-label" style="display:flex;align-items:center;gap:0.5em;cursor:pointer">
+                        <input type="checkbox" id="connectorCacheEnabled" class="emby-checkbox" checked />
+                        <span>Enable cache for this connector</span>
+                    </label>
+                    <span class="fieldDescription" style="margin:0">(requires global cache to be enabled)</span>
                 </div>
 
                 <div style="margin-top:0.75em">
