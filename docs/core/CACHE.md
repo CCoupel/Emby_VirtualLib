@@ -53,11 +53,17 @@ Le cache est **désactivé par défaut** (`CacheEnabled = false`) et peut être 
 | `CreatedAt` | `DateTime` | Date de création du manifest (UTC) |
 | `LastAccessAt` | `DateTime` | Date du dernier accès en lecture ou écriture (UTC) |
 
-### Champs calculés (`[JsonIgnore]`)
+### Champs calculés (sérialisés dans le JSON)
 
 | Propriété | Calcul |
 |-----------|--------|
 | `TotalChunks` | `ceil(TotalSize / ChunkSize)` ; `-1` si l'un des opérandes est ≤ 0 |
+| `CachedPercent` | `round(sum(seg.Length) * 100 / TotalSize, 1)` ; `0` si `TotalSize ≤ 0` |
+
+### Champs calculés (`[JsonIgnore]`)
+
+| Propriété | Calcul |
+|-----------|--------|
 | `IsComplete` | `TotalSize > 0 && Segments.Count == 1 && Segments[0].Start == 0 && Segments[0].Length == TotalSize` |
 
 ### Exemple complet
@@ -87,7 +93,9 @@ Le cache est **désactivé par défaut** (`CacheEnabled = false`) et peut être 
     }
   ],
   "CreatedAt": "2026-04-08T09:00:00Z",
-  "LastAccessAt": "2026-04-08T11:42:17Z"
+  "LastAccessAt": "2026-04-08T11:42:17Z",
+  "TotalChunks": 4096,
+  "CachedPercent": 17.6
 }
 ```
 
@@ -311,6 +319,12 @@ Pour chaque segment :
 
 Après le traitement de tous les segments, `manifest.ChunkSize` est mis à jour avec `newChunkSize`, la liste est re-triée, et `RefreshChunkCoverage()` est appelée.
 
+### Segments non-multiples et perte de données
+
+Quand la nouvelle `ChunkSize` n'est pas un multiple de l'ancienne (ex : passage de 2 Mo à 3 Mo), les segments existants sont rarement alignés sur les nouvelles frontières. `alignedStart` est calculé par **ceiling** (premier octet de chunk complet) et `alignedEnd` par **floor** (dernier octet de chunk complet). Pour un segment court qui ne contient aucun chunk complet à la nouvelle taille (`alignedStart >= alignedEnd`), le segment entier est supprimé.
+
+En pratique, la perte est limitée par le merge automatique : des sessions de streaming séquentielles convergent vers un segment unique couvrant une grande partie du fichier. Un tel segment large survit presque toujours à un resize, quel que soit le ratio entre ancienne et nouvelle taille. Les segments courts isolés (produits par des requêtes partielles ou des déconnexions précoces) sont en revanche candidats à la suppression.
+
 ---
 
 ## 12. API `ICacheManager`
@@ -341,6 +355,7 @@ Après le traitement de tous les segments, `manifest.ChunkSize` est mis à jour 
 | `CacheMaxSizeGb` | `long` | `50` | Taille maximale totale en Go. Non encore appliquée (éviction Phase 2). |
 | `CacheChunkSizeMb` | `int` | `2` | Taille du flush interval en Mo. Contrôle la granularité des segments. |
 | `CacheTtlDays` | `int` | `30` | Durée de vie avant éviction en jours. Non encore appliquée (Phase 2). |
+| `CacheCompletionThresholdPercent` | `int` | `90` | Si `CachedPercent >=` cette valeur lors d'une déconnexion client, le téléchargement continue jusqu'à EOF. `0` = désactivé. |
 
 ### `ConnectorConfig` (par connecteur)
 
@@ -363,6 +378,14 @@ Après le traitement de tous les segments, `manifest.ChunkSize` est mis à jour 
 **Comportement des waiters** : `WaitForPendingSegmentAsync` attend la TCS partagée sans l'annuler si son propre `CancellationToken` est révoqué (un `cancelTcs` personnel est utilisé avec `Task.WhenAny`). En cas d'annulation ou d'exception, la méthode retourne `false` : le caller retombe dans le chemin proxy normal.
 
 **Impact** : bande passante source divisée par N pour des accès concurrents au même chunk ; latence légèrement augmentée pour les waiters (ils attendent la fin du chunk, typiquement < 1 s pour un chunk de 2 Mo).
+
+### Complétion automatique au seuil (implémenté)
+
+**Problème** : quand un client se déconnecte à 91 % d'un téléchargement, jeter le travail restant gaspille la bande passante source et retarde la mise en cache complète.
+
+**Mécanisme** : à la réception d'une `IOException` ou `OperationCanceledException` dans `CopyWithCacheAsync`, si `manifest.CachedPercent >= completionThresholdPercent` (paramètre passé depuis `ProxyController` via `CacheCompletionThresholdPercent`), la boucle continue avec `CancellationToken.None` jusqu'à ce que la source retourne `read == 0` (EOF). Le `destination` stream (client) est abandonné ; seule la mise en cache continue. Une fois EOF atteint, le tail éventuel est commité normalement. Si le paramètre est à `0`, ce comportement est désactivé et la déconnexion interrompt immédiatement le téléchargement.
+
+**Interaction avec la règle des 50%** : la règle des 50% (chunk >= 50% rempli ou waiter présent) s'applique au niveau du **chunk courant** ; le seuil de complétion s'applique au niveau du **fichier entier**. Les deux mécanismes sont indépendants et complémentaires.
 
 ### Retry cache mid-stream (planifié)
 
