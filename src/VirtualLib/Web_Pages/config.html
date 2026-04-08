@@ -95,6 +95,14 @@
                             <input type="number" id="cacheTtlDays" class="emby-input" min="1" value="30" />
                         </div>
                     </div>
+                    <div class="inputContainer" style="margin-top:0.8em">
+                        <label class="inputLabel inputLabelUnfocused" for="cacheCompletionThresholdPercent">Complétion automatique (%)</label>
+                        <input id="cacheCompletionThresholdPercent" type="number" min="0" max="100"
+                               class="emby-input" value="90" />
+                        <div class="fieldDescription">
+                            Si le cache couvre déjà ce pourcentage du média, le téléchargement continue jusqu'à la fin même si le client arrête (0 = désactivé).
+                        </div>
+                    </div>
                 </div>
 
                 <div style="margin-top:1em">

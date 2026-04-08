@@ -861,6 +861,7 @@ define([], function () {
                 q('cacheChunkSizeMb').value = s.CacheChunkSizeMb || 2;
                 q('cacheMaxSizeGb').value = s.CacheMaxSizeGb || 50;
                 q('cacheTtlDays').value = s.CacheTtlDays || 30;
+                q('cacheCompletionThresholdPercent').value = s.CacheCompletionThresholdPercent != null ? s.CacheCompletionThresholdPercent : 90;
             }).catch(function (e) {
                 console.error('VirtualLib: failed to load settings', e);
             });
@@ -891,7 +892,8 @@ define([], function () {
                     CacheEnabled: q('cacheEnabled').checked,
                     CacheChunkSizeMb: parseInt(q('cacheChunkSizeMb').value, 10) || 2,
                     CacheMaxSizeGb: parseInt(q('cacheMaxSizeGb').value, 10) || 50,
-                    CacheTtlDays: parseInt(q('cacheTtlDays').value, 10) || 30
+                    CacheTtlDays: parseInt(q('cacheTtlDays').value, 10) || 30,
+                    CacheCompletionThresholdPercent: parseInt(q('cacheCompletionThresholdPercent').value, 10) || 0
                 };
                 apiPut('/virtuallib/settings', payload)
                     .then(function () { setStatus(statusEl, 'Settings saved.', false); })

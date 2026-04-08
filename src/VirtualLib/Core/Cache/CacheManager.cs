@@ -250,6 +250,7 @@ public sealed class CacheManager : ICacheManager
         Stream source, Stream destination,
         ChunkManifest manifest, string connectorId, string itemId,
         long startOffset, int flushIntervalBytes = 2 * 1024 * 1024,
+        int completionThresholdPercent = 0,
         CancellationToken ct = default)
     {
         var dir = GetItemDir(connectorId, itemId);
@@ -373,38 +374,143 @@ public sealed class CacheManager : ICacheManager
                 // On client disconnect: apply 50% rule — finish the current chunk if
                 // more than half is done OR someone is waiting for it.
                 var isClientDisconnect = ex is IOException || ex is OperationCanceledException;
-                if (isClientDisconnect && tmpStream != null && segBytes > 0 && !string.IsNullOrEmpty(pendingKey))
+                if (isClientDisconnect && !string.IsNullOrEmpty(pendingKey))
                 {
+                    // ── Règle des 50% : finir le chunk courant ──────────────────────────
                     var hasWaiter = _pendingWaiters.TryGetValue(pendingKey, out var wn) && wn > 0;
-                    var shouldFinish = segBytes > flushIntervalBytes / 2 || hasWaiter;
+                    var shouldFinish = tmpStream != null && segBytes > 0
+                                       && (segBytes > flushIntervalBytes / 2 || hasWaiter);
 
                     if (shouldFinish)
                     {
                         try
                         {
-                            // Continue reading from source (ignore client ct) until chunk boundary
                             int r;
                             while (segBytes < flushIntervalBytes &&
                                    (r = await source.ReadAsync(buffer.AsMemory(), CancellationToken.None)) > 0)
                             {
                                 var space = flushIntervalBytes - (int)segBytes;
                                 var toCopy = Math.Min(r, space);
-                                await tmpStream.WriteAsync(buffer.AsMemory(0, toCopy), CancellationToken.None);
+                                await tmpStream!.WriteAsync(buffer.AsMemory(0, toCopy), CancellationToken.None);
                                 segBytes += toCopy;
                             }
 
                             if (segBytes >= flushIntervalBytes)
                             {
-                                await tmpStream.FlushAsync(CancellationToken.None);
-                                await tmpStream.DisposeAsync();
+                                await tmpStream!.FlushAsync(CancellationToken.None);
+                                await tmpStream!.DisposeAsync();
                                 tmpStream = null;
                                 await CommitSegmentAsync(manifest, connectorId, itemId, dir, segStart, segBytes, tmpPath, CancellationToken.None);
                                 if (_pendingSegments.TryRemove(pendingKey, out var finishTcs))
                                     finishTcs.TrySetResult(true);
                                 pendingKey = string.Empty;
+                                segStart += flushIntervalBytes;
+                                segBytes  = 0;
+                            }
+                            else if (segBytes > 0)
+                            {
+                                // Source EOF reached during finish — could be file tail
+                                var isFinalTail = manifest.TotalSize <= 0 || segStart + segBytes >= manifest.TotalSize;
+                                await tmpStream!.FlushAsync(CancellationToken.None);
+                                await tmpStream!.DisposeAsync();
+                                tmpStream = null;
+                                if (isFinalTail)
+                                {
+                                    await CommitSegmentAsync(manifest, connectorId, itemId, dir, segStart, segBytes, tmpPath, CancellationToken.None);
+                                    if (_pendingSegments.TryRemove(pendingKey, out var eosTcs))
+                                        eosTcs.TrySetResult(true);
+                                }
+                                else
+                                {
+                                    try { File.Delete(tmpPath); } catch { }
+                                    if (_pendingSegments.TryRemove(pendingKey, out var eosDTcs))
+                                        eosDTcs.TrySetResult(false);
+                                }
+                                pendingKey = string.Empty;
+                                segBytes   = 0;
                             }
                         }
                         catch { /* best effort — fall through to cleanup below */ }
+                    }
+
+                    // ── Seuil de complétion : continuer tout le téléchargement ──────────
+                    var cachedNow = manifest.Segments.Sum(s => s.Length);
+                    var shouldComplete = completionThresholdPercent > 0
+                        && manifest.TotalSize > 0
+                        && tmpStream == null   // chunk courant terminé (ou pas de chunk)
+                        && (cachedNow * 100.0 / manifest.TotalSize) >= completionThresholdPercent;
+
+                    if (shouldComplete)
+                    {
+                        _logger.LogInformation(
+                            "CacheManager: completing download of {ItemId} after client disconnect ({Pct:F1}% ≥ {Threshold}%)",
+                            itemId, cachedNow * 100.0 / manifest.TotalSize, completionThresholdPercent);
+                        try
+                        {
+                            int r2;
+                            while ((r2 = await source.ReadAsync(buffer.AsMemory(), CancellationToken.None)) > 0)
+                            {
+                                var bufPos2 = 0;
+                                while (bufPos2 < r2)
+                                {
+                                    if (tmpStream == null)
+                                    {
+                                        tmpName   = MakeTmpName(segStart);
+                                        tmpPath   = Path.Combine(dir, tmpName);
+                                        tmpStream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                                        pendingKey = PendingKey(connectorId, itemId, segStart);
+                                        _pendingSegments.TryAdd(pendingKey,
+                                            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
+                                    }
+
+                                    var spaceLeft2 = flushIntervalBytes - (int)segBytes;
+                                    var toCopy2    = Math.Min(r2 - bufPos2, spaceLeft2);
+                                    await tmpStream.WriteAsync(buffer.AsMemory(bufPos2, toCopy2), CancellationToken.None);
+                                    segBytes  += toCopy2;
+                                    bufPos2   += toCopy2;
+
+                                    if (segBytes >= flushIntervalBytes)
+                                    {
+                                        await tmpStream.FlushAsync(CancellationToken.None);
+                                        await tmpStream.DisposeAsync();
+                                        tmpStream = null;
+                                        await CommitSegmentAsync(manifest, connectorId, itemId, dir, segStart, segBytes, tmpPath, CancellationToken.None);
+                                        if (_pendingSegments.TryRemove(pendingKey, out var cTcs))
+                                            cTcs.TrySetResult(true);
+                                        pendingKey = string.Empty;
+                                        segStart  += flushIntervalBytes;
+                                        segBytes   = 0;
+                                    }
+                                }
+                            }
+
+                            // Tail du fichier après complétion
+                            if (segBytes > 0 && tmpStream != null)
+                            {
+                                var isCTail = manifest.TotalSize <= 0 || segStart + segBytes >= manifest.TotalSize;
+                                await tmpStream.FlushAsync(CancellationToken.None);
+                                await tmpStream.DisposeAsync();
+                                tmpStream = null;
+                                if (isCTail)
+                                {
+                                    await CommitSegmentAsync(manifest, connectorId, itemId, dir, segStart, segBytes, tmpPath, CancellationToken.None);
+                                    if (_pendingSegments.TryRemove(pendingKey, out var cTailTcs))
+                                        cTailTcs.TrySetResult(true);
+                                }
+                                else
+                                {
+                                    try { File.Delete(tmpPath); } catch { }
+                                    if (_pendingSegments.TryRemove(pendingKey, out var cTailDTcs))
+                                        cTailDTcs.TrySetResult(false);
+                                }
+                                pendingKey = string.Empty;
+                            }
+                        }
+                        catch (Exception completionEx)
+                        {
+                            _logger.LogWarning(completionEx,
+                                "CacheManager: error during completion of {ItemId}", itemId);
+                        }
                     }
                 }
 

@@ -71,6 +71,12 @@ public sealed class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Days before an unused cache entry is eligible for eviction (Phase 2).</summary>
     public int CacheTtlDays { get; set; } = 30;
+
+    /// <summary>
+    /// If the cache already covers this percentage of a media item, the download
+    /// continues to completion after a client disconnects (0 = disabled).
+    /// </summary>
+    public int CacheCompletionThresholdPercent { get; set; } = 90;
 }
 
 public sealed class KnownLibrary

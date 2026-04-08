@@ -65,6 +65,7 @@ public interface ICacheManager
         string            itemId,
         long              startOffset,
         int               flushIntervalBytes = 2 * 1024 * 1024,
+        int               completionThresholdPercent = 0,
         CancellationToken ct = default);
 
     /// <summary>

@@ -415,7 +415,9 @@ public sealed class ProxyController : BaseApiService
                             await Plugin.Cache!.CopyWithCacheAsync(
                                 remoteStream, outputStream, cacheManifest,
                                 connectorConfig.Id, request.ItemId, proxyRangeStart,
-                                config.CacheChunkSizeMb * 1024 * 1024, ct);
+                                config.CacheChunkSizeMb * 1024 * 1024,
+                                config.CacheCompletionThresholdPercent,
+                                ct);
                         }
                         else
                         {

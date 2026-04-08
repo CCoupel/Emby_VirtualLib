@@ -72,10 +72,22 @@ public sealed class ChunkManifest
 
     // ── Computed ──────────────────────────────────────────────────────────────
 
-    [JsonIgnore]
+    /// <summary>
+    /// Total number of chunks at the configured ChunkSize, including the last partial chunk.
+    /// ceil(TotalSize / ChunkSize) — the last chunk may be smaller than ChunkSize.
+    /// -1 if TotalSize or ChunkSize is unknown.
+    /// </summary>
     public int TotalChunks => TotalSize > 0 && ChunkSize > 0
         ? (int)Math.Ceiling((double)TotalSize / ChunkSize)
         : -1;
+
+    /// <summary>
+    /// Percentage of the file currently covered by cached segments (0–100).
+    /// Computed from segment lengths vs TotalSize. Displayed in manifest.json for monitoring.
+    /// </summary>
+    public double CachedPercent => TotalSize > 0
+        ? Math.Round(Segments.Sum(s => s.Length) * 100.0 / TotalSize, 1)
+        : 0;
 
     [JsonIgnore]
     public bool IsComplete =>

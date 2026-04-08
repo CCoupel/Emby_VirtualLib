@@ -135,6 +135,7 @@ public sealed class SaveSettings : IReturn<GlobalSettings>
     public int CacheChunkSizeMb { get; set; } = 2;
     public long CacheMaxSizeGb { get; set; } = 50;
     public int CacheTtlDays { get; set; } = 30;
+    public int CacheCompletionThresholdPercent { get; set; } = 90;
 }
 
 [Route("/virtuallib/sync", "POST", Summary = "Sync all enabled connectors")]
@@ -207,6 +208,7 @@ public sealed class GlobalSettings
     public int CacheChunkSizeMb { get; set; } = 2;
     public long CacheMaxSizeGb { get; set; } = 50;
     public int CacheTtlDays { get; set; } = 30;
+    public int CacheCompletionThresholdPercent { get; set; } = 90;
 }
 
 public sealed class LibraryStats
@@ -455,7 +457,8 @@ public sealed class ConfigController : BaseApiService
             CacheEnabled = config.CacheEnabled,
             CacheChunkSizeMb = config.CacheChunkSizeMb,
             CacheMaxSizeGb = config.CacheMaxSizeGb,
-            CacheTtlDays = config.CacheTtlDays
+            CacheTtlDays = config.CacheTtlDays,
+            CacheCompletionThresholdPercent = config.CacheCompletionThresholdPercent
         }, NoHeaders);
     }
 
@@ -497,6 +500,7 @@ public sealed class ConfigController : BaseApiService
         config.CacheChunkSizeMb = request.CacheChunkSizeMb;
         config.CacheMaxSizeGb = request.CacheMaxSizeGb;
         config.CacheTtlDays = request.CacheTtlDays;
+        config.CacheCompletionThresholdPercent = request.CacheCompletionThresholdPercent;
         Plugin.Instance.SaveConfiguration();
 
         // Update the scheduled task trigger to reflect the new interval
@@ -525,7 +529,8 @@ public sealed class ConfigController : BaseApiService
             CacheEnabled = config.CacheEnabled,
             CacheChunkSizeMb = config.CacheChunkSizeMb,
             CacheMaxSizeGb = config.CacheMaxSizeGb,
-            CacheTtlDays = config.CacheTtlDays
+            CacheTtlDays = config.CacheTtlDays,
+            CacheCompletionThresholdPercent = config.CacheCompletionThresholdPercent
         }, NoHeaders);
     }
 
