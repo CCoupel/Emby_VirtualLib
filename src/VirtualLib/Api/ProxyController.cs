@@ -222,6 +222,16 @@ public sealed class ProxyController : BaseApiService
         {
             await Plugin.Cache!.ValidateItemAsync(connectorConfig.Id, request.ItemId);
             var manifest = await Plugin.Cache!.GetManifestAsync(connectorConfig.Id, request.ItemId);
+            // Reject manifests with a suspiciously small TotalSize — they were likely created from
+            // an error response (Plex returning a few hundred bytes with 200 OK) and must be
+            // re-fetched from the source so the real file size can be recorded.
+            if (manifest?.TotalSize > 0 && manifest.TotalSize < 1024)
+            {
+                Console.Error.WriteLine($"[VirtualLib] Proxy cache manifest invalid TotalSize={manifest.TotalSize} for item={request.ItemId} — purging");
+                await Plugin.Cache.InvalidateAsync(connectorConfig.Id, request.ItemId);
+                manifest = null;
+            }
+
             if (manifest?.TotalSize > 0)
             {
                 var (cachedStart, cachedEnd) = ParseRangeHeader(range, manifest.TotalSize);
@@ -284,6 +294,13 @@ public sealed class ProxyController : BaseApiService
             if (committed)
             {
                 var freshManifest = await Plugin.Cache.GetManifestAsync(connectorConfig.Id, request.ItemId);
+                if (freshManifest?.TotalSize > 0 && freshManifest.TotalSize < 1024)
+                {
+                    Console.Error.WriteLine($"[VirtualLib] Proxy pending manifest invalid TotalSize={freshManifest.TotalSize} for item={request.ItemId} — purging");
+                    await Plugin.Cache.InvalidateAsync(connectorConfig.Id, request.ItemId);
+                    freshManifest = null;
+                }
+
                 if (freshManifest?.TotalSize > 0)
                 {
                     var (ps, pe) = ParseRangeHeader(range, freshManifest.TotalSize);
@@ -341,7 +358,7 @@ public sealed class ProxyController : BaseApiService
             throw;
         }
 
-        _logger.LogDebug("Remote URL resolved: {RemoteUrl}", remoteUrl);
+        Console.Error.WriteLine($"[VirtualLib] Proxy remote URL item={request.ItemId}: {remoteUrl}");
 
         var remoteRequest = new HttpRequestMessage(HttpMethod.Get, remoteUrl);
         if (!string.IsNullOrEmpty(range))
@@ -363,13 +380,44 @@ public sealed class ProxyController : BaseApiService
         var contentType  = remoteResponse.Content.Headers.ContentType?.ToString() ?? "application/octet-stream";
         var contentLength = remoteResponse.Content.Headers.ContentLength;
 
+        // For 206 Partial Content, Content-Length is the range size, not the total file size.
+        // Use Content-Range "total" field to get the actual file size for the cache manifest.
+        var contentRangeHeader = remoteResponse.Content.Headers.ContentRange;
+        var manifestTotalSize = statusCode == HttpStatusCode.PartialContent
+                                && contentRangeHeader?.Length is { } rangeTotal
+            ? rangeTotal
+            : contentLength;
+
         _logger.LogInformation(
-            "Upstream response — status={StatusCode} type={ContentType} length={ContentLength} item={ItemId}",
-            (int)statusCode, contentType, contentLength?.ToString() ?? "unknown", request.ItemId);
+            "Upstream response — status={StatusCode} type={ContentType} length={ContentLength} totalSize={TotalSize} item={ItemId}",
+            (int)statusCode, contentType, contentLength?.ToString() ?? "unknown",
+            manifestTotalSize?.ToString() ?? "unknown", request.ItemId);
+
+        // Reject non-media upstream responses (Plex error pages in 200 OK, XML errors, etc.).
+        // If the content type is clearly not binary/video/audio, ffmpeg would receive garbage and
+        // fail with "EBML header parsing failed" or similar demuxer errors.
+        if (!IsMediaContentType(contentType))
+        {
+            connector.Dispose();
+            remoteResponse.Dispose();
+            Console.Error.WriteLine($"[VirtualLib] Proxy non-media Content-Type '{contentType}' for item={request.ItemId} url={remoteUrl}");
+            throw new Exception($"Upstream Content-Type '{contentType}' for item {request.ItemId}.");
+        }
+
+        // Guard: if upstream returned a suspiciously small response, it's likely an error page
+        // that slipped through with octet-stream content type.
+        const long MinValidMediaBytes = 1024;
+        if (manifestTotalSize is { } sz && sz < MinValidMediaBytes)
+        {
+            _logger.LogWarning(
+                "Upstream response is too small ({Size} bytes) for item={ItemId} — likely an error page, skipping cache",
+                sz, request.ItemId);
+            manifestTotalSize = null; // prevent caching a bad manifest
+        }
 
         // Initialise cache manifest from upstream headers (idempotent)
         ChunkManifest? cacheManifest = null;
-        if (cacheEnabled && contentLength is { } totalLen && totalLen > 0)
+        if (cacheEnabled && manifestTotalSize is { } totalLen && totalLen > 0)
         {
             cacheManifest = await Plugin.Cache!.EnsureManifestAsync(
                 connectorConfig.Id, request.ItemId,
@@ -382,7 +430,6 @@ public sealed class ProxyController : BaseApiService
         forwardHeaders["Accept-Ranges"] = "bytes";
 
         // Content-Range is in Content.Headers (not response.Headers) in .NET HttpClient
-        var contentRangeHeader = remoteResponse.Content.Headers.ContentRange;
         if (contentRangeHeader != null)
             forwardHeaders["Content-Range"] = contentRangeHeader.ToString();
 
@@ -430,7 +477,7 @@ public sealed class ProxyController : BaseApiService
                     }
                     catch (IOException ex) when (!ct.IsCancellationRequested)
                     {
-                        _logger.LogDebug("Broken pipe for item={ItemId}: {Message}", request.ItemId, ex.Message);
+                        Console.Error.WriteLine($"[VirtualLib] Proxy upstream closed early for item={request.ItemId}: {ex.Message}");
                     }
                     finally
                     {
@@ -516,6 +563,26 @@ public sealed class ProxyController : BaseApiService
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Returns true if the Content-Type indicates binary/video/audio data.
+    /// Rejects text/html, text/xml, application/xml and similar error-page types that
+    /// Plex (and other servers) sometimes return as 200 OK when a file is unavailable.
+    /// </summary>
+    private static bool IsMediaContentType(string? contentType)
+    {
+        if (string.IsNullOrEmpty(contentType)) return true; // unknown → let it through
+
+        var ct = contentType.Split(';')[0].Trim().ToLowerInvariant();
+        return ct.StartsWith("video/")
+            || ct.StartsWith("audio/")
+            || ct == "application/octet-stream"
+            || ct == "application/x-matroska"
+            || ct == "application/mp4"
+            || ct == "application/ogg"
+            || ct == "application/vnd.rn-realmedia"
+            || ct == "binary/octet-stream";
     }
 
     /// <summary>

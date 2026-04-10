@@ -129,7 +129,16 @@ public sealed class CacheManager : ICacheManager
         if (_manifests.TryGetValue(key, out var existing))
         {
             var dirty = false;
-            if (existing.TotalSize <= 0 && totalSize > 0) { existing.TotalSize = totalSize; dirty = true; }
+            // Update TotalSize if: (a) not yet set, or (b) existing value is suspiciously small
+            // and the new value is much larger — corrects manifests created from a Range Content-Length.
+            if (totalSize > 0 && (existing.TotalSize <= 0 || (existing.TotalSize < 1024 && totalSize > existing.TotalSize)))
+            {
+                _logger.LogInformation(
+                    "CacheManager: correcting TotalSize {Old} → {New} for item {ItemId}",
+                    existing.TotalSize, totalSize, itemId);
+                existing.TotalSize = totalSize;
+                dirty = true;
+            }
 
             if (chunkSizeBytes > 0 && existing.ChunkSize != chunkSizeBytes)
             {
