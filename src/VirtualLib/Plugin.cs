@@ -1,5 +1,6 @@
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -7,7 +8,7 @@ using VirtualLib.Core.Cache;
 
 namespace VirtualLib;
 
-public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
+public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbImage
 {
     public static Plugin? Instance { get; private set; }
 
@@ -35,18 +36,20 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     public override string Name => "VirtualLib";
 
-    public override Guid Id => new Guid("A1B2C3D4-E5F6-7890-ABCD-EF1234567890");
+    public override Guid Id => new Guid("f760af55-1af9-424d-9e85-d405a91e173d");
 
     public override string Description =>
         "Aggregate remote media server libraries as native virtual libraries on this Emby host.";
 
+    public ImageFormat ThumbImageFormat => ImageFormat.Png;
+
     /// <summary>
-    /// Returns the embedded PNG icon for this plugin.
+    /// Returns the embedded PNG icon for this plugin (IHasThumbImage).
     /// </summary>
-    public Stream? GetThumbImage()
+    public Stream GetThumbImage()
     {
         var type = GetType();
-        return type.Assembly.GetManifestResourceStream(type.Namespace + ".Images.thumb.png");
+        return type.Assembly.GetManifestResourceStream(type.Namespace + ".Images.thumb.png")!;
     }
 
     public IEnumerable<PluginPageInfo> GetPages() =>
