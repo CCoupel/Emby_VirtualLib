@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.Movies;
@@ -328,12 +329,6 @@ public sealed class SyncService
         IProgress<SyncProgress>? progress,
         CancellationToken ct)
     {
-        int libCreated = 0, libSkipped = 0, libFailed = 0;
-        var processedBookIds   = new HashSet<string>(); // avoid re-fetching book metadata per chapter
-        var processedSeriesIds = new HashSet<string>(); // avoid re-fetching show artwork per series
-        var processedSeasonIds = new HashSet<string>(); // avoid re-fetching season artwork per season
-        var pendingStrms       = new List<(string StrmPath, MediaItem Item)>();
-
         IReadOnlyList<MediaItem> items;
         try
         {
@@ -352,290 +347,278 @@ public sealed class SyncService
 
         _logger.LogInformation("Found {Count} items in library '{LibraryName}'", items.Count, libraryName);
 
-        for (var i = 0; i < items.Count; i++)
-        {
-            ct.ThrowIfCancellationRequested();
-            var item = items[i];
+        // Thread-safe accumulators — items are processed in parallel
+        int libCreated = 0, libSkipped = 0, libFailed = 0, done = 0;
+        var processedBookIds   = new ConcurrentDictionary<string, bool>();
+        var processedSeriesIds = new ConcurrentDictionary<string, bool>();
+        var processedSeasonIds = new ConcurrentDictionary<string, bool>();
+        var pendingStrms       = new ConcurrentBag<(string StrmPath, MediaItem Item)>();
+        int total = items.Count;
 
-            progress?.Report(new SyncProgress { LibraryName = libraryName, Current = i + 1, Total = items.Count, CurrentItem = item.Title });
-
-            try
+        // Max 8 concurrent metadata/artwork requests — avoids overwhelming the remote server
+        // while still providing a large speedup over fully sequential processing.
+        await Parallel.ForEachAsync(
+            items,
+            new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct },
+            async (item, itemCt) =>
             {
-                // ---- Audiobook chapters ------------------------------------------------
-                // Chapters (AudioBook type with SeriesName set): generate one STRM per chapter
-                // organised under the book folder, and fetch book-level NFO/artwork once.
-                if (item.Type == MediaType.AudioBook && !string.IsNullOrEmpty(item.SeriesName))
+                try
                 {
-                    var chapterPath  = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, config.LibraryOrganization, libraryType);
-                    var bookDir      = Path.GetDirectoryName(chapterPath)!;
-                    var bookNfoPath  = Path.Combine(bookDir, "album.nfo");
-                    var bookId       = item.SeriesId ?? item.RemoteId;
-
-                    // Fetch book-level metadata + artwork only once per book
-                    if (config.MetadataMode != MetadataMode.LocalScraping && !processedBookIds.Contains(bookId))
+                    // ---- Audiobook chapters ------------------------------------------------
+                    if (item.Type == MediaType.AudioBook && !string.IsNullOrEmpty(item.SeriesName))
                     {
-                        processedBookIds.Add(bookId);
-                        try
-                        {
-                            var bookMeta = await connector.GetMetadataAsync(bookId, ct);
+                        var chapterPath = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, config.LibraryOrganization, libraryType);
+                        var bookDir     = Path.GetDirectoryName(chapterPath)!;
+                        var bookNfoPath = Path.Combine(bookDir, "album.nfo");
+                        var bookId      = item.SeriesId ?? item.RemoteId;
 
-                            // NFO: write on first sync, or always in RemoteSyncFull mode
-                            if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(bookNfoPath))
-                            {
-                                var nfoContent = _nfoGenerator.GenerateAudioBookNfo(bookMeta);
-                                if (!string.IsNullOrEmpty(nfoContent))
-                                    File.WriteAllText(bookNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
-                            }
-
-                            // Artwork: always attempt (DownloadArtworkAsync skips files that already exist).
-                            // Use the book container's artwork; fall back to the chapter's artwork when the
-                            // container has no images (Emby often returns inherited cover art on Audio items).
-                            var artworkSource = bookMeta.AvailableArtwork.Count > 0
-                                ? (MediaItem)bookMeta
-                                : item;
-                            await DownloadArtworkAsync(connector, artworkSource, bookDir, ct, audiobook: true);
-
-                            // Push metadata directly to any existing Folder item (bypasses provider pipeline)
-                            PushAudioBookFolderMetadata(bookDir, bookMeta, ct);
-                        }
-                        catch (OperationCanceledException) { throw; }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to fetch metadata for audiobook '{Series}'", item.SeriesName);
-                        }
-                    }
-
-                    // Download chapter-specific artwork (Primary → {chapter}.jpg alongside the .strm).
-                    // Only the Primary image makes sense per-chapter; all other types belong to the book folder.
-                    if (item.AvailableArtwork.Contains(ArtworkType.Poster))
-                    {
-                        var chapterImgPath = Path.ChangeExtension(chapterPath, ".jpg");
-                        if (!File.Exists(chapterImgPath))
+                        // TryAdd returns true only for the first task that encounters this bookId
+                        if (config.MetadataMode != MetadataMode.LocalScraping && processedBookIds.TryAdd(bookId, true))
                         {
                             try
                             {
-                                var stream = await connector.GetArtworkStreamAsync(item.RemoteId, ArtworkType.Poster, ct);
-                                if (stream is not null)
+                                var bookMeta = await connector.GetMetadataAsync(bookId, itemCt);
+
+                                if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(bookNfoPath))
                                 {
-                                    await using (stream)
-                                    await using (var file = File.Create(chapterImgPath))
-                                        await stream.CopyToAsync(file, ct);
+                                    var nfoContent = _nfoGenerator.GenerateAudioBookNfo(bookMeta);
+                                    if (!string.IsNullOrEmpty(nfoContent))
+                                        File.WriteAllText(bookNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
                                 }
+
+                                var artworkSource = bookMeta.AvailableArtwork.Count > 0
+                                    ? (MediaItem)bookMeta
+                                    : item;
+                                await DownloadArtworkAsync(connector, artworkSource, bookDir, itemCt, audiobook: true);
+
+                                PushAudioBookFolderMetadata(bookDir, bookMeta, itemCt);
                             }
                             catch (OperationCanceledException) { throw; }
                             catch (Exception ex)
                             {
-                                _logger.LogDebug(ex, "Failed to download chapter artwork for '{Path}'", chapterPath);
+                                _logger.LogWarning(ex, "Failed to fetch metadata for audiobook '{Series}'", item.SeriesName);
                             }
                         }
-                    }
 
-                    // Defer chapter-level metadata push until after the library scan creates the items.
-                    pendingStrms.Add((chapterPath, item));
-
-                    libCreated++;
-                    continue;
-                }
-
-                // ---- Books (full ebook download) ---------------------------------------
-                // Emby's BookResolver ignores .strm files — download the real ebook file.
-                // Fall back to an epub stub if the download fails so the item stays visible.
-                if (item.Type is MediaType.Book)
-                {
-                    var bookDir      = EpubStubGenerator.GetDirectoryPath(item, config.DisplayName, libraryName, virtualLibRoot, config.LibraryOrganization, libraryType);
-                    var bookBaseName = _epubStubGenerator.GetFileName(item);
-                    var bookPathNoExt = Path.Combine(bookDir, bookBaseName);
-                    var bookNfoPath  = bookPathNoExt + ".nfo";
-
-                    // Skip when both a real book file and NFO already exist (RemoteSync)
-                    if (config.MetadataMode == MetadataMode.RemoteSync
-                        && !BookFileNeedsDownload(bookPathNoExt)
-                        && File.Exists(bookNfoPath))
-                    {
-                        var existingBookPath = FindExistingBookFile(bookPathNoExt);
-                        if (existingBookPath is not null)
-                            pendingStrms.Add((existingBookPath, item));
-                        libSkipped++;
-                        continue;
-                    }
-
-                    Directory.CreateDirectory(bookDir);
-
-                    // Download real file only when absent or when the existing file is a tiny stub
-                    if (BookFileNeedsDownload(bookPathNoExt))
-                    {
-                        DeleteExistingBookFiles(bookPathNoExt); // remove any previous stub
-                        try
+                        if (item.AvailableArtwork.Contains(ArtworkType.Poster))
                         {
-                            await connector.DownloadFileToPathAsync(item.RemoteId, bookPathNoExt, ct);
-                        }
-                        catch (OperationCanceledException) { throw; }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to download book '{Title}' — creating epub stub as fallback", item.Title);
-                            _epubStubGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, config.LibraryOrganization, libraryType);
-                        }
-                    }
-
-                    if (config.MetadataMode != MetadataMode.LocalScraping
-                        && (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(bookNfoPath)))
-                    {
-                        try
-                        {
-                            var bookMeta = await connector.GetMetadataAsync(item.RemoteId, ct);
-                            _nfoGenerator.Generate(bookMeta, bookDir);
-                            await DownloadArtworkAsync(connector, bookMeta, bookDir, ct);
-                        }
-                        catch (OperationCanceledException) { throw; }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to fetch metadata for book '{Title}'", item.Title);
-                        }
-                    }
-
-                    var newBookPath = FindExistingBookFile(bookPathNoExt);
-                    if (newBookPath is not null)
-                        pendingStrms.Add((newBookPath, item));
-                    libCreated++;
-                    continue;
-                }
-                // ---- All other media types -------------------------------------------
-
-                // Always regenerate the .strm (cheap — just a URL line).
-                var strmPath   = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, config.LibraryOrganization, libraryType);
-                var nfoDir     = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
-                var mediaFileName = _strmGenerator.GetFileName(item);
-
-                // ---- TV Show level artwork (once per series) --------------------------------
-                if (item.Type == MediaType.Episode
-                    && !string.IsNullOrEmpty(item.SeriesId)
-                    && config.MetadataMode != MetadataMode.LocalScraping
-                    && !processedSeriesIds.Contains(item.SeriesId))
-                {
-                    processedSeriesIds.Add(item.SeriesId);
-                    var showFolder = Path.GetDirectoryName(nfoDir); // up from Season XX → Show folder
-                    if (showFolder is not null)
-                    {
-                        try
-                        {
-                            var showMeta = await connector.GetMetadataAsync(item.SeriesId, ct);
-                            await DownloadArtworkAsync(connector, showMeta, showFolder, ct);
-
-                            var tvshowNfoPath = Path.Combine(showFolder, "tvshow.nfo");
-                            if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(tvshowNfoPath))
+                            var chapterImgPath = Path.ChangeExtension(chapterPath, ".jpg");
+                            if (!File.Exists(chapterImgPath))
                             {
-                                var nfoContent = _nfoGenerator.GenerateShowNfo(showMeta);
+                                try
+                                {
+                                    var stream = await connector.GetArtworkStreamAsync(item.RemoteId, ArtworkType.Poster, itemCt);
+                                    if (stream is not null)
+                                    {
+                                        await using (stream)
+                                        await using (var file = File.Create(chapterImgPath))
+                                            await stream.CopyToAsync(file, itemCt);
+                                    }
+                                }
+                                catch (OperationCanceledException) { throw; }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogDebug(ex, "Failed to download chapter artwork for '{Path}'", chapterPath);
+                                }
+                            }
+                        }
+
+                        pendingStrms.Add((chapterPath, item));
+                        Interlocked.Increment(ref libCreated);
+                        return;
+                    }
+
+                    // ---- Books (full ebook download) ---------------------------------------
+                    if (item.Type is MediaType.Book)
+                    {
+                        var bookDir       = EpubStubGenerator.GetDirectoryPath(item, config.DisplayName, libraryName, virtualLibRoot, config.LibraryOrganization, libraryType);
+                        var bookBaseName  = _epubStubGenerator.GetFileName(item);
+                        var bookPathNoExt = Path.Combine(bookDir, bookBaseName);
+                        var bookNfoPath   = bookPathNoExt + ".nfo";
+
+                        if (config.MetadataMode == MetadataMode.RemoteSync
+                            && !BookFileNeedsDownload(bookPathNoExt)
+                            && File.Exists(bookNfoPath))
+                        {
+                            var existingBookPath = FindExistingBookFile(bookPathNoExt);
+                            if (existingBookPath is not null)
+                                pendingStrms.Add((existingBookPath, item));
+                            Interlocked.Increment(ref libSkipped);
+                            return;
+                        }
+
+                        Directory.CreateDirectory(bookDir);
+
+                        if (BookFileNeedsDownload(bookPathNoExt))
+                        {
+                            DeleteExistingBookFiles(bookPathNoExt);
+                            try
+                            {
+                                await connector.DownloadFileToPathAsync(item.RemoteId, bookPathNoExt, itemCt);
+                            }
+                            catch (OperationCanceledException) { throw; }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to download book '{Title}' — creating epub stub as fallback", item.Title);
+                                _epubStubGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, config.LibraryOrganization, libraryType);
+                            }
+                        }
+
+                        if (config.MetadataMode != MetadataMode.LocalScraping
+                            && (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(bookNfoPath)))
+                        {
+                            try
+                            {
+                                var bookMeta = await connector.GetMetadataAsync(item.RemoteId, itemCt);
+                                _nfoGenerator.Generate(bookMeta, bookDir);
+                                await DownloadArtworkAsync(connector, bookMeta, bookDir, itemCt);
+                            }
+                            catch (OperationCanceledException) { throw; }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to fetch metadata for book '{Title}'", item.Title);
+                            }
+                        }
+
+                        var newBookPath = FindExistingBookFile(bookPathNoExt);
+                        if (newBookPath is not null)
+                            pendingStrms.Add((newBookPath, item));
+                        Interlocked.Increment(ref libCreated);
+                        return;
+                    }
+
+                    // ---- All other media types -------------------------------------------
+                    var strmPath      = _strmGenerator.Generate(item, config.Id, config.DisplayName, libraryId, libraryName, virtualLibRoot, proxyBaseUrl, config.LibraryOrganization, libraryType);
+                    var nfoDir        = Path.GetDirectoryName(strmPath) ?? Path.Combine(virtualLibRoot, libraryName);
+                    var mediaFileName = _strmGenerator.GetFileName(item);
+
+                    // TV Show level (once per series — TryAdd guarantees a single winner)
+                    if (item.Type == MediaType.Episode
+                        && !string.IsNullOrEmpty(item.SeriesId)
+                        && config.MetadataMode != MetadataMode.LocalScraping
+                        && processedSeriesIds.TryAdd(item.SeriesId, true))
+                    {
+                        var showFolder = Path.GetDirectoryName(nfoDir);
+                        if (showFolder is not null)
+                        {
+                            try
+                            {
+                                var showMeta = await connector.GetMetadataAsync(item.SeriesId, itemCt);
+                                await DownloadArtworkAsync(connector, showMeta, showFolder, itemCt);
+
+                                var tvshowNfoPath = Path.Combine(showFolder, "tvshow.nfo");
+                                if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(tvshowNfoPath))
+                                {
+                                    var nfoContent = _nfoGenerator.GenerateShowNfo(showMeta);
+                                    if (!string.IsNullOrEmpty(nfoContent))
+                                        File.WriteAllText(tvshowNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
+                                }
+
+                                SyncUserFlagsForFolder(showFolder, showMeta, itemCt, config.LocalUserId);
+                            }
+                            catch (OperationCanceledException) { throw; }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to download show artwork for series '{Series}'", item.SeriesName);
+                            }
+                        }
+                    }
+
+                    // Season level (once per season)
+                    if (item.Type == MediaType.Episode
+                        && !string.IsNullOrEmpty(item.SeasonId)
+                        && config.MetadataMode != MetadataMode.LocalScraping
+                        && processedSeasonIds.TryAdd(item.SeasonId, true))
+                    {
+                        try
+                        {
+                            var seasonMeta = await connector.GetMetadataAsync(item.SeasonId, itemCt);
+                            await DownloadArtworkAsync(connector, seasonMeta, nfoDir, itemCt);
+
+                            var seasonNfoPath = Path.Combine(nfoDir, "season.nfo");
+                            if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(seasonNfoPath))
+                            {
+                                var nfoContent = _nfoGenerator.GenerateSeasonNfo(seasonMeta);
                                 if (!string.IsNullOrEmpty(nfoContent))
-                                    File.WriteAllText(tvshowNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
+                                    File.WriteAllText(seasonNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
                             }
 
-                            // Sync favorite/played state for the show folder itself
-                            SyncUserFlagsForFolder(showFolder, showMeta, ct, config.LocalUserId);
+                            SyncUserFlagsForFolder(nfoDir, seasonMeta, itemCt, config.LocalUserId);
                         }
                         catch (OperationCanceledException) { throw; }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "Failed to download show artwork for series '{Series}'", item.SeriesName);
+                            _logger.LogWarning(ex, "Failed to download season artwork for S{Season} of '{Series}'", item.SeasonNumber, item.SeriesName);
                         }
                     }
-                }
 
-                // ---- Season level artwork (once per season) ---------------------------------
-                if (item.Type == MediaType.Episode
-                    && !string.IsNullOrEmpty(item.SeasonId)
-                    && config.MetadataMode != MetadataMode.LocalScraping
-                    && !processedSeasonIds.Contains(item.SeasonId))
-                {
-                    processedSeasonIds.Add(item.SeasonId);
-                    try
+                    if (config.MetadataMode == MetadataMode.LocalScraping)
                     {
-                        var seasonMeta = await connector.GetMetadataAsync(item.SeasonId, ct);
-                        await DownloadArtworkAsync(connector, seasonMeta, nfoDir, ct);
-
-                        var seasonNfoPath = Path.Combine(nfoDir, "season.nfo");
-                        if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(seasonNfoPath))
-                        {
-                            var nfoContent = _nfoGenerator.GenerateSeasonNfo(seasonMeta);
-                            if (!string.IsNullOrEmpty(nfoContent))
-                                File.WriteAllText(seasonNfoPath, nfoContent, new System.Text.UTF8Encoding(false));
-                        }
-
-                        // Sync favorite/played state for the season folder itself
-                        SyncUserFlagsForFolder(nfoDir, seasonMeta, ct, config.LocalUserId);
+                        pendingStrms.Add((strmPath, item));
+                        Interlocked.Increment(ref libCreated);
+                        return;
                     }
+
+                    var nfoPath = item.Type == MediaType.Movie
+                        ? Path.Combine(nfoDir, "movie.nfo")
+                        : Path.Combine(nfoDir, mediaFileName + ".nfo");
+
+                    if (config.MetadataMode == MetadataMode.RemoteSync && File.Exists(nfoPath))
+                    {
+                        var hasFileinfo = NfoHasFileinfo(nfoPath);
+                        _logger.LogDebug(
+                            "VirtualLib skip '{Title}' — nfoHasFileinfo={HasFI} itemTech={HasTech} (codec={Codec} {W}x{H})",
+                            item.Title, hasFileinfo,
+                            item.Technical is not null,
+                            item.Technical?.VideoCodec ?? item.Technical?.AudioCodec ?? "null",
+                            item.Technical?.Width, item.Technical?.Height);
+                        if (!hasFileinfo)
+                            _nfoGenerator.PatchStreamDetails(nfoPath, item.Technical, item.RuntimeTicks);
+
+                        pendingStrms.Add((strmPath, item));
+                        Interlocked.Increment(ref libSkipped);
+                        return;
+                    }
+
+                    MediaMetadata metadata;
+                    try { metadata = await connector.GetMetadataAsync(item.RemoteId, itemCt); }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to download season artwork for S{Season} of '{Series}'", item.SeasonNumber, item.SeriesName);
+                        _logger.LogWarning(ex, "Failed to get metadata for item {RemoteId} '{Title}' — will retry on next sync", item.RemoteId, item.Title);
+                        Interlocked.Increment(ref libFailed);
+                        return;
                     }
-                }
 
-                // LocalScraping: only .strm is needed — Emby handles metadata/images itself.
-                if (config.MetadataMode == MetadataMode.LocalScraping)
-                {
-                    pendingStrms.Add((strmPath, item));
-                    libCreated++;
-                    continue;
-                }
+                    _nfoGenerator.Generate(metadata, nfoDir);
+                    await DownloadArtworkAsync(connector, metadata, nfoDir, itemCt);
 
-                // RemoteSync / RemoteSyncFull: fetch metadata + write NFO + download artwork.
-                // Movies use "movie.nfo" so Emby finds it as a canonical sidecar.
-                var nfoPath = item.Type == MediaType.Movie
-                    ? Path.Combine(nfoDir, "movie.nfo")
-                    : Path.Combine(nfoDir, mediaFileName + ".nfo");
-                if (config.MetadataMode == MetadataMode.RemoteSync && File.Exists(nfoPath))
-                {
-                    // NFO already exists — patch <fileinfo> in phase 1 so the scan picks up stream details.
-                    var hasFileinfo = NfoHasFileinfo(nfoPath);
                     _logger.LogDebug(
-                        "VirtualLib skip '{Title}' — nfoHasFileinfo={HasFI} itemTech={HasTech} (codec={Codec} {W}x{H})",
-                        item.Title, hasFileinfo,
-                        item.Technical is not null,
-                        item.Technical?.VideoCodec ?? item.Technical?.AudioCodec ?? "null",
-                        item.Technical?.Width, item.Technical?.Height);
-                    if (!hasFileinfo)
-                        _nfoGenerator.PatchStreamDetails(nfoPath, item.Technical, item.RuntimeTicks);
+                        "VirtualLib NFO written for '{Title}' — Technical={HasTech} (codec={Codec} {W}x{H}) RuntimeTicks={Ticks}",
+                        metadata.Title,
+                        metadata.Technical is not null,
+                        metadata.Technical?.VideoCodec ?? metadata.Technical?.AudioCodec ?? "null",
+                        metadata.Technical?.Width,
+                        metadata.Technical?.Height,
+                        metadata.RuntimeTicks);
 
-                    pendingStrms.Add((strmPath, item));
-                    libSkipped++;
-                    continue;
+                    pendingStrms.Add((strmPath, metadata));
+                    Interlocked.Increment(ref libCreated);
                 }
-
-                MediaMetadata metadata;
-                try { metadata = await connector.GetMetadataAsync(item.RemoteId, ct); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to get metadata for item {RemoteId} '{Title}' — will retry on next sync", item.RemoteId, item.Title);
-                    libFailed++;
-                    continue; // Don't write fallback NFO — let next sync retry
+                    _logger.LogWarning(ex, "Failed to generate files for item '{Title}'", item.Title);
+                    Interlocked.Increment(ref libFailed);
                 }
+                finally
+                {
+                    var current = Interlocked.Increment(ref done);
+                    progress?.Report(new SyncProgress { LibraryName = libraryName, Current = current, Total = total, CurrentItem = item.Title });
+                }
+            });
 
-                _nfoGenerator.Generate(metadata, nfoDir);
-                await DownloadArtworkAsync(connector, metadata, nfoDir, ct);
-
-                _logger.LogDebug(
-                    "VirtualLib NFO written for '{Title}' — Technical={HasTech} (codec={Codec} {W}x{H}) RuntimeTicks={Ticks}",
-                    metadata.Title,
-                    metadata.Technical is not null,
-                    metadata.Technical?.VideoCodec ?? metadata.Technical?.AudioCodec ?? "null",
-                    metadata.Technical?.Width,
-                    metadata.Technical?.Height,
-                    metadata.RuntimeTicks);
-
-                // Use metadata (individual item call) — contains full Technical from MediaSources.
-                pendingStrms.Add((strmPath, metadata));
-                libCreated++;
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to generate files for item '{Title}'", item.Title);
-                libFailed++;
-            }
-        }
-
-        return (new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed }, pendingStrms);
+        return (new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed }, pendingStrms.ToList());
     }
 
     /// <summary>
