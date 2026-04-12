@@ -328,9 +328,11 @@ public sealed class PlexConnector : IMediaServerConnector
         if (string.IsNullOrEmpty(partKey))
             throw new InvalidOperationException($"No Part key found in metadata for item {itemId}");
 
-        // partKey is "/library/parts/{id}/file" — build absolute URL with token
+        // partKey is "/library/parts/{id}/{timestamp}/file.ext" — build absolute URL with token.
+        // &download=1 tells Plex to serve the raw file instead of going through the media pipeline,
+        // which avoids HTTP 500 errors caused by stale mtime timestamps in the Part URL.
         var baseUrl = _config.ServerUrl.TrimEnd('/');
-        return $"{baseUrl}{partKey}?X-Plex-Token={_plexToken}";
+        return $"{baseUrl}{partKey}?X-Plex-Token={_plexToken}&download=1";
     }
 
     public async Task<Stream?> GetArtworkStreamAsync(
