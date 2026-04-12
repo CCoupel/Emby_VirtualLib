@@ -235,57 +235,70 @@ public sealed class EmbyConnector : IMediaServerConnector
             return Array.Empty<MediaItem>();
         }
 
-        var items = new List<MediaItem>();
-        var startIndex = 0;
-        var totalCount = int.MaxValue;
+        var isAudiobook = IsAudiobookLibrary(libraryId);
 
-        while (startIndex < totalCount)
+        // Phase 1 — fetch page 0 to get totalCount
+        var firstPage = await FetchEmbyPageAsync(userId, libraryId, 0, cancellationToken);
+        if (firstPage is null) return Array.Empty<MediaItem>();
+
+        var totalCount = firstPage.TotalRecordCount;
+        var result = new List<MediaItem>(totalCount);
+        MapAndAdd(firstPage, isAudiobook, result);
+
+        if (result.Count >= totalCount)
+            return result;
+
+        // Phase 2 — fetch remaining pages in parallel
+        var offsets = new List<int>();
+        for (var idx = PageSize; idx < totalCount; idx += PageSize)
+            offsets.Add(idx);
+
+        var tasks = offsets.Select(idx =>
+            FetchEmbyPageAsync(userId, libraryId, idx, cancellationToken));
+        var pages = await Task.WhenAll(tasks);
+
+        // Merge in order (Task.WhenAll preserves task order)
+        foreach (var page in pages)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            try
-            {
-                var url = $"Users/{userId}/Items" +
-                          $"?ParentId={libraryId}" +
-                          $"&Recursive=true" +
-                          $"&IncludeItemTypes={GetIncludeItemTypes(libraryId)}" +
-                          $"&Fields=Overview,Genres,Studios,ProviderIds,DateCreated,Tags,Album,AlbumId,MediaSources,UserData" +
-                          $"&StartIndex={startIndex}" +
-                          $"&Limit={PageSize}";
-
-                using var response = await GetWithRetryAsync(url, cancellationToken);
-                response.EnsureSuccessStatusCode();
-
-                var page = await response.Content.ReadFromJsonAsync<EmbyItemsResponse>(cancellationToken: cancellationToken);
-                if (page is null) break;
-
-                totalCount = page.TotalRecordCount;
-                if (page.Items.Count == 0) break;
-
-                var isAudiobook = IsAudiobookLibrary(libraryId);
-                foreach (var embyItem in page.Items)
-                {
-                    var mapped = isAudiobook
-                        ? MapAudiobookChapter(embyItem)
-                        : MapItem(embyItem);
-                    if (mapped is not null)
-                        items.Add(mapped);
-                }
-
-                startIndex += page.Items.Count;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error fetching page at StartIndex={StartIndex} for library {LibraryId}", startIndex, libraryId);
-                break;
-            }
+            if (page is not null)
+                MapAndAdd(page, isAudiobook, result);
         }
+        return result;
+    }
 
-        return items;
+    private async Task<EmbyItemsResponse?> FetchEmbyPageAsync(
+        string userId, string libraryId, int startIndex, CancellationToken ct)
+    {
+        try
+        {
+            var url = $"Users/{userId}/Items" +
+                      $"?ParentId={libraryId}" +
+                      $"&Recursive=true" +
+                      $"&IncludeItemTypes={GetIncludeItemTypes(libraryId)}" +
+                      $"&Fields=Overview,Genres,Studios,ProviderIds,DateCreated,Tags,Album,AlbumId,MediaSources,UserData" +
+                      $"&StartIndex={startIndex}" +
+                      $"&Limit={PageSize}";
+            using var response = await GetWithRetryAsync(url, ct);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<EmbyItemsResponse>(cancellationToken: ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching Emby page StartIndex={StartIndex} library={LibraryId}", startIndex, libraryId);
+            return null;
+        }
+    }
+
+    private void MapAndAdd(EmbyItemsResponse page, bool isAudiobook, List<MediaItem> result)
+    {
+        foreach (var embyItem in page.Items)
+        {
+            var mapped = isAudiobook ? MapAudiobookChapter(embyItem) : MapItem(embyItem);
+            if (mapped is not null)
+                result.Add(mapped);
+        }
     }
 
     public async Task<int> GetItemCountAsync(string libraryId, CancellationToken cancellationToken = default)
