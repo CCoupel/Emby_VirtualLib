@@ -198,8 +198,6 @@ public sealed class PlexConnector : IMediaServerConnector
         try
         {
             var sectionType = await GetSectionTypeAsync(libraryId, cancellationToken);
-
-            // Episodes use type=4; music tracks use type=10; other types use default listing
             var typeParam = sectionType switch
             {
                 "show"   => "type=4&",
@@ -207,69 +205,72 @@ public sealed class PlexConnector : IMediaServerConnector
                 _        => string.Empty
             };
 
-            var items = new List<MediaItem>();
-            var offset = 0;
-            var totalSize = int.MaxValue;
+            // Phase 1 — fetch page 0 to get totalSize
+            var firstPage = await FetchPlexPageAsync(libraryId, typeParam, sectionType, 0, cancellationToken);
+            if (firstPage is null) return Array.Empty<MediaItem>();
 
-            while (offset < totalSize)
+            var totalSize  = firstPage.Value.Total;
+            var firstItems = firstPage.Value.Items;
+
+            if (firstItems.Count == 0 || firstItems.Count >= totalSize)
+                return firstItems;
+
+            // Phase 2 — fetch remaining pages in parallel
+            var offsets = new List<int>();
+            for (var off = PageSize; off < totalSize; off += PageSize)
+                offsets.Add(off);
+
+            var tasks = offsets.Select(off =>
+                FetchPlexPageAsync(libraryId, typeParam, sectionType, off, cancellationToken));
+            var pages = await Task.WhenAll(tasks);
+
+            // Merge in order (Task.WhenAll preserves task order)
+            var result = new List<MediaItem>(totalSize);
+            result.AddRange(firstItems);
+            foreach (var page in pages)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-
-                var url = $"library/sections/{libraryId}/all?{typeParam}X-Plex-Container-Start={offset}&X-Plex-Container-Size={PageSize}";
-
-                try
-                {
-                    var doc = await GetXmlAsync(url, cancellationToken);
-                    if (doc?.Root is null) break;
-
-                    var totalAttr = doc.Root.Attribute("totalSize")?.Value;
-                    if (totalAttr is not null && int.TryParse(totalAttr, out var total))
-                        totalSize = total;
-
-                    List<MediaItem?> mapped;
-                    int elementCount;
-
-                    if (sectionType == "photo")
-                    {
-                        var photos = doc.Root.Elements("Photo").ToList();
-                        elementCount = photos.Count;
-                        mapped = photos.Select(MapPhotoToItem).ToList();
-                    }
-                    else if (sectionType == "artist")
-                    {
-                        var tracks = doc.Root.Elements("Track").ToList();
-                        elementCount = tracks.Count;
-                        mapped = tracks.Select(MapTrackToItem).ToList();
-                    }
-                    else
-                    {
-                        var videos = doc.Root.Elements("Video").ToList();
-                        elementCount = videos.Count;
-                        mapped = videos.Select(MapVideoToItem).ToList<MediaItem?>();
-                    }
-
-                    if (elementCount == 0) break;
-
-                    foreach (var item in mapped)
-                        if (item is not null) items.Add(item);
-
-                    offset += elementCount;
-                }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error fetching page at offset={Offset} for library {LibraryId}", offset, libraryId);
-                    break;
-                }
+                if (page is not null)
+                    result.AddRange(page.Value.Items);
             }
-
-            return items;
+            return result;
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to list items for library {LibraryId} on connector {ConnectorId}", libraryId, ConnectorId);
             return Array.Empty<MediaItem>();
+        }
+    }
+
+    private async Task<(int Total, List<MediaItem> Items)?> FetchPlexPageAsync(
+        string libraryId, string typeParam, string sectionType, int offset, CancellationToken ct)
+    {
+        try
+        {
+            var url = $"library/sections/{libraryId}/all?{typeParam}X-Plex-Container-Start={offset}&X-Plex-Container-Size={PageSize}";
+            var doc = await GetXmlAsync(url, ct);
+            if (doc?.Root is null) return null;
+
+            var totalAttr = doc.Root.Attribute("totalSize")?.Value;
+            var total = totalAttr is not null && int.TryParse(totalAttr, out var t) ? t : 0;
+
+            List<MediaItem?> mapped;
+            if (sectionType == "photo")
+                mapped = doc.Root.Elements("Photo").Select(MapPhotoToItem).ToList();
+            else if (sectionType == "artist")
+                mapped = doc.Root.Elements("Track").Select(MapTrackToItem).ToList();
+            else
+                mapped = doc.Root.Elements("Video").Select(MapVideoToItem).ToList<MediaItem?>();
+
+            var items = mapped.Where(i => i is not null).Select(i => i!).ToList();
+            return (total, items);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching Plex page offset={Offset} library={LibraryId}", offset, libraryId);
+            return null;
         }
     }
 
