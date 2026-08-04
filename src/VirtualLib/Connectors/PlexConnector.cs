@@ -1,7 +1,9 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using VirtualLib.Core;
+using VirtualLib.Core.Filtering;
 using VirtualLib.Core.Models;
 
 namespace VirtualLib.Connectors;
@@ -10,6 +12,12 @@ public sealed class PlexConnector : IMediaServerConnector
 {
     private const int PageSize = 100;
     private const string PlexTokenHeader = "X-Plex-Token";
+
+    /// <summary>Taille de lot pour GetStreamInfoAsync (GET library/metadata/{ids}) — D6.</summary>
+    private const int PlexStreamBatchSize = 50;
+
+    /// <summary>Nombre maximal de lots émis en parallèle pour GetStreamInfoAsync — D6.</summary>
+    private const int PlexStreamMaxConcurrentBatches = 4;
 
     private static readonly string PluginVersion =
         typeof(PlexConnector).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
@@ -296,6 +304,79 @@ public sealed class PlexConnector : IMediaServerConnector
             return 0;
         }
     }
+
+    /// <summary>
+    /// Récupère les pistes des items indiqués par lots de <see cref="PlexStreamBatchSize"/> via
+    /// GET library/metadata/{ids} (D6). Sur échec HTTP 4xx d'un lot, celui-ci est re-tenté en deux
+    /// moitiés, récursivement, jusqu'à la taille 1. Un échec à la taille 1 est journalisé — l'item
+    /// concerné reste absent du dictionnaire retourné (fail-open côté SyncService).
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<MediaStreamInfo>>> GetStreamInfoAsync(
+        IReadOnlyList<string> remoteIds,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new ConcurrentDictionary<string, IReadOnlyList<MediaStreamInfo>>();
+        if (remoteIds.Count == 0) return result;
+
+        var batches = new List<List<string>>();
+        for (var i = 0; i < remoteIds.Count; i += PlexStreamBatchSize)
+            batches.Add(remoteIds.Skip(i).Take(PlexStreamBatchSize).ToList());
+
+        using var semaphore = new SemaphoreSlim(PlexStreamMaxConcurrentBatches);
+        var tasks = batches.Select(async batch =>
+        {
+            await semaphore.WaitAsync(cancellationToken);
+            try { await FetchStreamBatchAsync(batch, result, cancellationToken); }
+            finally { semaphore.Release(); }
+        });
+        await Task.WhenAll(tasks);
+
+        return result;
+    }
+
+    private async Task FetchStreamBatchAsync(
+        IReadOnlyList<string> ids,
+        ConcurrentDictionary<string, IReadOnlyList<MediaStreamInfo>> result,
+        CancellationToken ct)
+    {
+        if (ids.Count == 0) return;
+
+        try
+        {
+            var url = $"library/metadata/{string.Join(",", ids)}";
+            var doc = await GetXmlAsync(url, ct);
+            if (doc?.Root is null) return;
+
+            foreach (var element in doc.Root.Elements().Where(e => e.Name.LocalName is "Video" or "Track" or "Photo"))
+            {
+                var ratingKey = element.Attribute("ratingKey")?.Value;
+                if (string.IsNullOrEmpty(ratingKey)) continue;
+                result[ratingKey] = ParseStreamsFromVideoElement(element);
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (HttpRequestException ex) when (ids.Count > 1 && IsRetryableBatchFailure(ex))
+        {
+            var mid = ids.Count / 2;
+            var first = ids.Take(mid).ToList();
+            var second = ids.Skip(mid).ToList();
+            _logger.LogDebug(
+                "Plex stream batch of {Size} failed with {Status} — retrying as two halves ({A}/{B})",
+                ids.Count, ex.StatusCode, first.Count, second.Count);
+            await Task.WhenAll(
+                FetchStreamBatchAsync(first, result, ct),
+                FetchStreamBatchAsync(second, result, ct));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to fetch Plex stream info batch (size={Size}) — item(s) treated as information unavailable",
+                ids.Count);
+        }
+    }
+
+    private static bool IsRetryableBatchFailure(HttpRequestException ex) =>
+        ex.StatusCode.HasValue && (int)ex.StatusCode.Value is >= 400 and < 500;
 
     public async Task<MediaMetadata> GetMetadataAsync(
         string itemId,
@@ -688,15 +769,72 @@ public sealed class PlexConnector : IMediaServerConnector
             AudioCodec      = media.Attribute("audioCodec")?.Value,
             AudioChannels   = ParseInt(media, "audioChannels"),
             AudioSampleRate = sampleRate,
-            Size            = size
+            Size            = size,
+            // When <Stream> elements are already present in the supplied XML (metadata path,
+            // MapVideoToMetadata), project them here — avoids a redundant GetStreamInfoAsync
+            // round-trip for items whose streams are already known (#44 task 9).
+            Streams         = ParseStreamsFromVideoElement(video)
         };
 
         // Return null if nothing meaningful was found
         bool hasAny = result.Container is not null || result.VideoCodec is not null
                    || result.AudioCodec is not null || result.Width.HasValue
-                   || result.Height.HasValue || result.Bitrate.HasValue;
+                   || result.Height.HasValue || result.Bitrate.HasValue
+                   || result.Streams.Count > 0;
         return hasAny ? result : null;
     }
+
+    /// <summary>
+    /// Projette les &lt;Stream&gt; d'un élément &lt;Video&gt;/&lt;Track&gt;/&lt;Photo&gt; Plex
+    /// (sous Media/Part) en <see cref="MediaStreamInfo"/>. Retourne une liste vide si absents.
+    /// </summary>
+    private static IReadOnlyList<MediaStreamInfo> ParseStreamsFromVideoElement(XElement video)
+    {
+        var part = video.Element("Media")?.Element("Part");
+        if (part is null) return Array.Empty<MediaStreamInfo>();
+
+        return part.Elements("Stream").Select(MapPlexStream).ToList();
+    }
+
+    private static MediaStreamInfo MapPlexStream(XElement stream)
+    {
+        var kind = stream.Attribute("streamType")?.Value switch
+        {
+            "1" => MediaStreamKind.Video,
+            "2" => MediaStreamKind.Audio,
+            "3" => MediaStreamKind.Subtitle,
+            _   => MediaStreamKind.Other
+        };
+
+        // Plex exposes up to three language fields: languageCode (639-2/T, e.g. "fra"),
+        // languageTag (639-1, "fr") and language (display label). They must converge
+        // through LanguageMatcher (D1 point d'attention).
+        var languageCode  = stream.Attribute("languageCode")?.Value;
+        var languageTag   = stream.Attribute("languageTag")?.Value;
+        var languageLabel = stream.Attribute("language")?.Value;
+        var rawLanguage   = languageLabel ?? languageCode ?? languageTag;
+
+        return new MediaStreamInfo
+        {
+            Kind              = kind,
+            Index             = ParseInt(stream, "index"),
+            Codec             = stream.Attribute("codec")?.Value,
+            Language          = rawLanguage,
+            LanguageCode      = LanguageMatcher.Normalize(languageCode ?? languageTag ?? languageLabel),
+            IsDefault         = ParseBool(stream, "default"),
+            IsForced          = ParseBool(stream, "forced"),
+            // External (sidecar) subtitle streams carry a "key" attribute pointing to their own URL;
+            // embedded streams do not.
+            IsExternal        = stream.Attribute("key") is not null,
+            IsHearingImpaired = ParseBool(stream, "hearingImpaired"),
+            Width             = ParseInt(stream, "width"),
+            Height            = ParseInt(stream, "height"),
+            Channels          = ParseInt(stream, "channels")
+        };
+    }
+
+    private static bool ParseBool(XElement el, string attribute) =>
+        el.Attribute(attribute)?.Value == "1";
 
     private static string? ParseGuid(XElement video, string prefix) =>
         video.Elements("Guid")

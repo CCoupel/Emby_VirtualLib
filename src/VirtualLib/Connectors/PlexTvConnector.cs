@@ -291,6 +291,13 @@ public sealed class PlexTvConnector : IMediaServerConnector
         return await inner.GetItemCountAsync(libraryId, cancellationToken);
     }
 
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<MediaStreamInfo>>> GetStreamInfoAsync(
+        IReadOnlyList<string> remoteIds, CancellationToken cancellationToken = default)
+    {
+        var inner = await GetInnerAsync(cancellationToken);
+        return await inner.GetStreamInfoAsync(remoteIds, cancellationToken);
+    }
+
     public async Task<MediaMetadata> GetMetadataAsync(string itemId, CancellationToken cancellationToken = default)
     {
         var inner = await GetInnerAsync(cancellationToken);
