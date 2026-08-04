@@ -30,3 +30,26 @@ packages/
 # OS
 .DS_Store
 Thumbs.db
+
+# --- Claude Code template (managed by /init-project) ---
+
+# Répertoire source du template (fetch depuis GitHub)
+TEMPLATE_claude/
+
+# Commandes template générées depuis TEMPLATE_claude/ (*.md — jamais éditées manuellement)
+# Les commandes projet-spécifiques déjà trackées (add-connector.md, build.md, sync.md, test.md,
+# init-project.md) restent trackées : gitignore n'affecte pas les fichiers déjà suivis par git.
+.claude/commands/*.md
+.claude/commands/*.template.md
+.claude/commands/context/
+
+# Agents template générés depuis TEMPLATE_claude/ (*.template.md — jamais édités manuellement)
+# Les *.md dans agents/ (dev-plugin.md, etc.) sont des adaptations projet — trackés dans git
+.claude/agents/*.template.md
+.claude/agents/context/
+
+# Dossier de travail inter-agents (rapports et handoffs temporaires)
+_work/
+
+# Build artifacts (qualif : build/qualif/<version>/)
+build/

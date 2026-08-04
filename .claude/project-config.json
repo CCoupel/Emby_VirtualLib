@@ -1,0 +1,41 @@
+{
+  "name": "VirtualLib",
+  "team_name": "virtuallib-team",
+  "org": "CCoupel",
+  "project": "Emby_VirtualLib",
+  "description": "Plugin Emby agregant des bibliotheques de serveurs medias distants (Emby, Jellyfin, Plex) comme bibliotheques virtuelles natives, avec proxy transparent pour le streaming et le transcodage.",
+  "version": "1.9.4",
+  "initialized_at": "2026-08-04",
+  "initialized_from": "analysis",
+  "stack": {
+    "backend": null,
+    "frontend": null,
+    "mobile": null,
+    "firmware": null,
+    "plugin": { "platform": "Emby Plugin (C#/.NET 6)" },
+    "database": null
+  },
+  "infrastructure": {
+    "cicd": "github-actions",
+    "deploy": "kubernetes"
+  },
+  "testing": {
+    "backend": ["xunit", "moq"],
+    "frontend": [],
+    "e2e": []
+  },
+  "security": {
+    "concerns": ["remote-server-credentials"]
+  },
+  "commands": {
+    "build": "dotnet build src/VirtualLib --configuration Release --output dist",
+    "test": "dotnet test tests/VirtualLib.Tests/",
+    "lint": "",
+    "audit": "dotnet list src/VirtualLib package --vulnerable",
+    "typecheck": ""
+  },
+  "agents": {
+    "idle_ttl_minutes": 15,
+    "idle_warning_interval_minutes": 5
+  }
+}
