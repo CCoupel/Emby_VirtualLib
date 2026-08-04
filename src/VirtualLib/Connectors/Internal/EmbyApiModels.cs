@@ -178,6 +178,38 @@ internal sealed class EmbyMediaStream
 
     [JsonPropertyName("SampleRate")]
     public int? SampleRate { get; init; }
+
+    [JsonPropertyName("Index")]
+    public int? Index { get; init; }
+
+    // ISO 639-2/B code as reported by Emby (e.g. "fre")
+    [JsonPropertyName("Language")]
+    public string? Language { get; init; }
+
+    [JsonPropertyName("DisplayLanguage")]
+    public string? DisplayLanguage { get; init; }
+
+    [JsonPropertyName("Title")]
+    public string? Title { get; init; }
+
+    [JsonPropertyName("DisplayTitle")]
+    public string? DisplayTitle { get; init; }
+
+    [JsonPropertyName("IsDefault")]
+    public bool IsDefault { get; init; }
+
+    [JsonPropertyName("IsForced")]
+    public bool IsForced { get; init; }
+
+    [JsonPropertyName("IsExternal")]
+    public bool IsExternal { get; init; }
+
+    [JsonPropertyName("IsHearingImpaired")]
+    public bool IsHearingImpaired { get; init; }
+
+    // True when Type == "Subtitle" and the stream carries text (as opposed to image-based PGS/VOBSUB)
+    [JsonPropertyName("IsTextSubtitleStream")]
+    public bool IsTextSubtitleStream { get; init; }
 }
 
 internal sealed class EmbyStudio

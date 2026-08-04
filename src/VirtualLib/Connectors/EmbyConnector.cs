@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Microsoft.Extensions.Logging;
 using VirtualLib.Connectors.Internal;
 using VirtualLib.Core;
+using VirtualLib.Core.Filtering;
 using VirtualLib.Core.Models;
 using PersonInfo = VirtualLib.Core.Models.PersonInfo;
 
@@ -299,6 +300,18 @@ public sealed class EmbyConnector : IMediaServerConnector
             if (mapped is not null)
                 result.Add(mapped);
         }
+    }
+
+    /// <summary>
+    /// Emby fournit déjà toutes les pistes via MediaSources dans ListItemsAsync — aucun appel réseau
+    /// supplémentaire n'est nécessaire (D5). Retourne systématiquement un dictionnaire vide.
+    /// </summary>
+    public Task<IReadOnlyDictionary<string, IReadOnlyList<MediaStreamInfo>>> GetStreamInfoAsync(
+        IReadOnlyList<string> remoteIds,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyDictionary<string, IReadOnlyList<MediaStreamInfo>>>(
+            new Dictionary<string, IReadOnlyList<MediaStreamInfo>>());
     }
 
     public async Task<int> GetItemCountAsync(string libraryId, CancellationToken cancellationToken = default)
@@ -723,9 +736,12 @@ public sealed class EmbyConnector : IMediaServerConnector
         var src = item.MediaSources?.FirstOrDefault();
         if (src is null) return null;
 
-        var videoStream = src.MediaStreams?.FirstOrDefault(s =>
+        var mediaStreams = src.MediaStreams ?? new List<EmbyMediaStream>();
+
+        // Scalars keep their historical semantics: first video / first audio stream (D1 — no regression).
+        var videoStream = mediaStreams.FirstOrDefault(s =>
             string.Equals(s.Type, "Video", StringComparison.OrdinalIgnoreCase));
-        var audioStream = src.MediaStreams?.FirstOrDefault(s =>
+        var audioStream = mediaStreams.FirstOrDefault(s =>
             string.Equals(s.Type, "Audio", StringComparison.OrdinalIgnoreCase));
 
         return new TechnicalInfo
@@ -738,8 +754,33 @@ public sealed class EmbyConnector : IMediaServerConnector
             VideoCodec      = videoStream?.Codec,
             AudioCodec      = audioStream?.Codec,
             AudioChannels   = audioStream?.Channels,
-            AudioSampleRate = audioStream?.SampleRate
+            AudioSampleRate = audioStream?.SampleRate,
+            Streams         = mediaStreams.Select(MapMediaStreamInfo).ToList()
         };
+    }
+
+    private static MediaStreamInfo MapMediaStreamInfo(EmbyMediaStream s) => new()
+    {
+        Kind              = MapStreamKind(s.Type),
+        Index             = s.Index,
+        Codec             = s.Codec,
+        Language          = s.Language ?? s.DisplayLanguage,
+        LanguageCode      = LanguageMatcher.Normalize(s.Language ?? s.DisplayLanguage),
+        IsDefault         = s.IsDefault,
+        IsForced          = s.IsForced,
+        IsExternal        = s.IsExternal,
+        IsHearingImpaired = s.IsHearingImpaired,
+        Width             = s.Width,
+        Height            = s.Height,
+        Channels          = s.Channels
+    };
+
+    private static MediaStreamKind MapStreamKind(string? type)
+    {
+        if (string.Equals(type, "Video", StringComparison.OrdinalIgnoreCase)) return MediaStreamKind.Video;
+        if (string.Equals(type, "Audio", StringComparison.OrdinalIgnoreCase)) return MediaStreamKind.Audio;
+        if (string.Equals(type, "Subtitle", StringComparison.OrdinalIgnoreCase)) return MediaStreamKind.Subtitle;
+        return MediaStreamKind.Other;
     }
 
     private static IReadOnlyList<ArtworkType> GetAvailableArtwork(EmbyItem item)

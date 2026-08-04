@@ -32,6 +32,18 @@ public interface IMediaServerConnector : IDisposable
         string libraryId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Récupère les pistes (vidéo/audio/sous-titres) des items indiqués, lorsqu'elles ne sont pas
+    /// déjà présentes sur <c>MediaItem.Technical.Streams</c> (#44). Capacité optionnelle : n'est
+    /// invoquée par le SyncService que si un filtre de langue ou de sous-titres est actif.
+    /// Emby retourne un dictionnaire vide (les pistes sont déjà fournies par ListItemsAsync).
+    /// Une clé absente du dictionnaire retourné signifie "information indisponible"
+    /// (fail-open côté appelant), pas "aucune piste".
+    /// </summary>
+    Task<IReadOnlyDictionary<string, IReadOnlyList<MediaStreamInfo>>> GetStreamInfoAsync(
+        IReadOnlyList<string> remoteIds,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Retourne les métadonnées complètes d'un item</summary>
     Task<MediaMetadata> GetMetadataAsync(
         string itemId,
