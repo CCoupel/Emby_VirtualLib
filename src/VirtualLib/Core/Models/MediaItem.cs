@@ -57,4 +57,11 @@ public sealed class TechnicalInfo
     public string? AudioCodec      { get; init; }  // Primary audio codec (ac3, aac…)
     public int?    AudioChannels   { get; init; }  // Audio channel count
     public int?    AudioSampleRate { get; init; }  // Audio sample rate in Hz
+
+    /// <summary>
+    /// Liste complète des pistes (vidéo, audio, sous-titres) du média, quand disponible.
+    /// Ajout additif (#44) — vide par défaut. Les scalaires ci-dessus restent alimentés depuis
+    /// la première piste vidéo / première piste audio, indépendamment du contenu de cette liste.
+    /// </summary>
+    public IReadOnlyList<MediaStreamInfo> Streams { get; init; } = Array.Empty<MediaStreamInfo>();
 }
