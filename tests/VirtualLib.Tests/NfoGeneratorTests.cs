@@ -110,11 +110,16 @@ public class NfoGeneratorTests : IDisposable
             Year = 2010
         };
 
-        var path = _generator.Generate(metadata, _tempDir);
+        // NfoGenerator.Generate() always names the file "movie.nfo" (Kodi/Emby convention) —
+        // the title only appears in the per-movie folder, which the real caller
+        // (LibrarySyncJob, via StrmGenerator.GetDirectoryPath()) creates upstream before
+        // invoking Generate(). Reproduce that folder here to match the real contract.
+        var movieDir = Path.Combine(_tempDir, "Inception (2010)");
+        var path = _generator.Generate(metadata, movieDir);
 
         Assert.True(File.Exists(path));
-        Assert.EndsWith(".nfo", path);
-        Assert.Contains("Inception", path);
+        Assert.EndsWith("movie.nfo", path);
+        Assert.Contains("Inception (2010)", path);
     }
 
     [Fact]
