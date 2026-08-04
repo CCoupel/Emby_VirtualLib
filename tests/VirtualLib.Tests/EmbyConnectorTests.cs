@@ -99,10 +99,12 @@ public class EmbyConnectorTests
         using var connector = CreateConnector(mock.Object);
         var result = await connector.ListLibrariesAsync();
 
-        // Photos (Unknown) filtered out
-        Assert.Equal(2, result.Count);
+        // Photo/HomeVideo support added in v1.4.0 — "photos" now maps to LibraryType.Photos
+        // instead of being filtered out as Unknown (CHANGELOG v1.4.0).
+        Assert.Equal(3, result.Count);
         Assert.Equal(LibraryType.Movies, result[0].Type);
         Assert.Equal(LibraryType.TvShows, result[1].Type);
+        Assert.Equal(LibraryType.Photos, result[2].Type);
     }
 
     [Fact]
@@ -150,16 +152,22 @@ public class EmbyConnectorTests
                 callCount++;
                 string json;
 
-                if (req.RequestUri!.PathAndQuery.Contains("Users/Me"))
+                // GetUserIdAsync (ApiKey mode) resolves the user via Users?IsAdministrator=true&Limit=1
+                // since v1.3.0 — /Users/Me was dropped (500 error on some Emby versions, see CHANGELOG).
+                if (req.RequestUri!.PathAndQuery.Contains("IsAdministrator"))
                 {
-                    json = JsonSerializer.Serialize(new { Id = "user1" });
+                    json = JsonSerializer.Serialize(new[] { new { Id = "user1" } });
                 }
+                // ListItemsAsync only requests a second page when totalCount > PageSize (100,
+                // EmbyConnector.cs:13) — TotalRecordCount must exceed 100 for the StartIndex=100
+                // branch below to actually be reached (fixes a second, pre-existing bug in this
+                // test: with TotalRecordCount=2 the pagination loop never ran a second request).
                 else if (req.RequestUri.Query.Contains("StartIndex=0"))
                 {
                     json = JsonSerializer.Serialize(new
                     {
                         Items = new[] { new { Id = "1", Name = "Movie1", Type = "Movie", ProductionYear = 2020 } },
-                        TotalRecordCount = 2,
+                        TotalRecordCount = 101,
                         StartIndex = 0
                     });
                 }
@@ -168,7 +176,7 @@ public class EmbyConnectorTests
                     json = JsonSerializer.Serialize(new
                     {
                         Items = new[] { new { Id = "2", Name = "Movie2", Type = "Movie", ProductionYear = 2021 } },
-                        TotalRecordCount = 2,
+                        TotalRecordCount = 101,
                         StartIndex = 100
                     });
                 }
@@ -197,15 +205,20 @@ public class EmbyConnectorTests
             .ReturnsAsync((HttpRequestMessage req, CancellationToken _) =>
             {
                 string json;
-                if (req.RequestUri!.PathAndQuery.Contains("Users/Me"))
-                    json = JsonSerializer.Serialize(new { Id = "user1" });
+                // GetUserIdAsync (ApiKey mode) resolves the user via Users?IsAdministrator=true&Limit=1
+                // since v1.3.0 — /Users/Me was dropped (500 error on some Emby versions, see CHANGELOG).
+                if (req.RequestUri!.PathAndQuery.Contains("IsAdministrator"))
+                    json = JsonSerializer.Serialize(new[] { new { Id = "user1" } });
                 else
                     json = JsonSerializer.Serialize(new
                     {
+                        // "Photo" is a recognized MediaType since v1.4.0 (MapItem, EmbyConnector.cs:621)
+                        // — no longer a valid example of an unmapped type. Use an Emby item type absent
+                        // from the MapItem switch (falls into the `_ => null` skip branch) instead.
                         Items = new[]
                         {
                             new { Id = "1", Name = "Movie1", Type = "Movie" },
-                            new { Id = "2", Name = "Photo1", Type = "Photo" }
+                            new { Id = "2", Name = "Trailer1", Type = "Trailer" }
                         },
                         TotalRecordCount = 2,
                         StartIndex = 0
