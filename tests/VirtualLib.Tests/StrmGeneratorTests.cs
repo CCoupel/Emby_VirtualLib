@@ -26,14 +26,14 @@ public class StrmGeneratorTests : IDisposable
             Year = 2010
         };
 
-        var path = _generator.Generate(item, "emby-b", "Films", _tempDir);
+        var path = _generator.Generate(item, "emby-b", "ServerB", "lib1", "Films", _tempDir);
 
         Assert.True(File.Exists(path));
         Assert.EndsWith(".strm", path);
         Assert.Contains("Inception (2010)", path);
 
         var content = File.ReadAllText(path);
-        Assert.Equal("http://localhost:8096/virtuallib/proxy/emby-b/12345", content);
+        Assert.Equal("http://localhost:8096/virtuallib/proxy/emby-b/lib1/12345", content);
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public class StrmGeneratorTests : IDisposable
             EpisodeNumber = 1
         };
 
-        var path = _generator.Generate(item, "emby-b", "Séries", _tempDir);
+        var path = _generator.Generate(item, "emby-b", "ServerB", "lib-series", "Séries", _tempDir);
 
         Assert.True(File.Exists(path));
         Assert.Contains("Breaking Bad", path);
@@ -68,10 +68,10 @@ public class StrmGeneratorTests : IDisposable
             Year = 2023
         };
 
-        var path = _generator.Generate(item, "conn1", "Films", _tempDir, "http://myserver:9090");
+        var path = _generator.Generate(item, "conn1", "ServerC", "lib2", "Films", _tempDir, "http://myserver:9090");
         var content = File.ReadAllText(path);
 
-        Assert.StartsWith("http://myserver:9090/virtuallib/proxy/conn1/999", content);
+        Assert.StartsWith("http://myserver:9090/virtuallib/proxy/conn1/lib2/999", content);
     }
 
     [Fact]
