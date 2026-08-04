@@ -236,4 +236,148 @@ public class EmbyConnectorTests
         Assert.Single(items);
         Assert.Equal(MediaType.Movie, items[0].Type);
     }
+
+    // -------------------------------------------------------------------------
+    // #44 — MapTechnicalInfo : liste complète des pistes (Streams) + non-régression scalaire (D1)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ListItemsAsync_Maps_Full_Stream_List_And_Preserves_Historical_Scalars()
+    {
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage req, CancellationToken _) =>
+            {
+                string json;
+                if (req.RequestUri!.PathAndQuery.Contains("IsAdministrator"))
+                {
+                    json = JsonSerializer.Serialize(new[] { new { Id = "user1" } });
+                }
+                else
+                {
+                    json = JsonSerializer.Serialize(new
+                    {
+                        Items = new[]
+                        {
+                            new
+                            {
+                                Id = "1",
+                                Name = "Inception",
+                                Type = "Movie",
+                                ProductionYear = 2010,
+                                MediaSources = new[]
+                                {
+                                    new
+                                    {
+                                        Size = 8_000_000_000L,
+                                        Bitrate = 12_000_000,
+                                        Container = "mkv",
+                                        MediaStreams = new object[]
+                                        {
+                                            new { Type = "Video", Codec = "hevc", Width = 3840, Height = 2160, Index = 0 },
+                                            new { Type = "Audio", Codec = "ac3", Channels = 6, Language = "eng", IsDefault = true, Index = 1 },
+                                            new { Type = "Audio", Codec = "dts", Channels = 6, Language = "fre", IsDefault = false, Index = 2 },
+                                            new { Type = "Subtitle", Codec = "subrip", Language = "fre", IsForced = true, IsExternal = false, Index = 3 }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        TotalRecordCount = 1,
+                        StartIndex = 0
+                    });
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+                };
+            });
+
+        using var connector = CreateConnector(mock.Object);
+        var items = await connector.ListItemsAsync("lib1");
+
+        var item = Assert.Single(items);
+        Assert.NotNull(item.Technical);
+
+        // Non-régression D1 : les scalaires historiques restent alimentés depuis la première
+        // piste vidéo / première piste audio, indépendamment du contenu de la liste complète.
+        Assert.Equal(2160, item.Technical!.Height);
+        Assert.Equal(3840, item.Technical.Width);
+        Assert.Equal("hevc", item.Technical.VideoCodec);
+        Assert.Equal("ac3", item.Technical.AudioCodec); // première piste audio (eng), pas dts
+        Assert.Equal(6, item.Technical.AudioChannels);
+
+        // Liste complète produite (#44) : les 4 pistes, dans l'ordre du conteneur.
+        Assert.Equal(4, item.Technical.Streams.Count);
+        Assert.Equal(MediaStreamKind.Video, item.Technical.Streams[0].Kind);
+        Assert.Equal(MediaStreamKind.Audio, item.Technical.Streams[1].Kind);
+        Assert.Equal(MediaStreamKind.Audio, item.Technical.Streams[2].Kind);
+        Assert.Equal(MediaStreamKind.Subtitle, item.Technical.Streams[3].Kind);
+
+        // Deuxième piste audio (française, "fre") bien présente dans la liste et normalisée en "fra".
+        Assert.Equal("fra", item.Technical.Streams[2].LanguageCode);
+        Assert.True(item.Technical.Streams[3].IsForced);
+    }
+
+    [Fact]
+    public async Task ListItemsAsync_Item_Without_MediaSources_Has_Null_Technical()
+    {
+        var mock = new Mock<HttpMessageHandler>();
+        mock.Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync((HttpRequestMessage req, CancellationToken _) =>
+            {
+                string json;
+                if (req.RequestUri!.PathAndQuery.Contains("IsAdministrator"))
+                    json = JsonSerializer.Serialize(new[] { new { Id = "user1" } });
+                else
+                    json = JsonSerializer.Serialize(new
+                    {
+                        Items = new[] { new { Id = "1", Name = "NoTech", Type = "Movie", ProductionYear = 2020 } },
+                        TotalRecordCount = 1,
+                        StartIndex = 0
+                    });
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json")
+                };
+            });
+
+        using var connector = CreateConnector(mock.Object);
+        var items = await connector.ListItemsAsync("lib1");
+
+        // Aucun MediaSources dans la réponse : Technical doit rester null — c'est cette absence
+        // que MediaFilterEngine (#44) traite en fail-open (KeptUnknownInfo), pas une exception.
+        var item = Assert.Single(items);
+        Assert.Null(item.Technical);
+    }
+
+    [Fact]
+    public async Task GetStreamInfoAsync_Emby_Always_Returns_Empty_Dictionary_Without_Network_Call()
+    {
+        // D5 : Emby fournit déjà toutes les pistes via MediaSources dans ListItemsAsync — aucun
+        // appel réseau supplémentaire n'est nécessaire. Vérifié en n'enregistrant aucune réponse
+        // sur SendAsync et en s'assurant qu'il n'a jamais été invoqué (Dispose() du HttpClient
+        // n'est pas concerné — seul SendAsync compte comme "appel réseau").
+        var mock = new Mock<HttpMessageHandler>();
+        using var connector = CreateConnector(mock.Object);
+
+        var result = await connector.GetStreamInfoAsync(new[] { "1", "2", "3" });
+
+        Assert.Empty(result);
+        mock.Protected().Verify(
+            "SendAsync",
+            Times.Never(),
+            ItExpr.IsAny<HttpRequestMessage>(),
+            ItExpr.IsAny<CancellationToken>());
+    }
 }
