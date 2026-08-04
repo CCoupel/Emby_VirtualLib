@@ -1,4 +1,5 @@
 using MediaBrowser.Model.Plugins;
+using VirtualLib.Core.Models;
 
 namespace VirtualLib;
 
@@ -143,4 +144,11 @@ public sealed class ConnectorConfig
     /// Only effective when the global CacheEnabled is also true.
     /// </summary>
     public bool CacheEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Règles de filtrage additif des médias distants (résolution minimale, langues audio/sous-titres) — #44.
+    /// Neutre par défaut (<see cref="MediaFilterConfig.IsActive"/> == false) : aucune régression sur les
+    /// connecteurs existants. Exposition API et persistance round-trip via DTOs plats : cf. tâche #44 Phase 4.
+    /// </summary>
+    public MediaFilterConfig MediaFilter { get; set; } = new();
 }

@@ -10,6 +10,7 @@ using EmbyMediaStream        = MediaBrowser.Model.Entities.MediaStream;
 using EmbyMediaStreamType    = MediaBrowser.Model.Entities.MediaStreamType;
 using EmbyUserDataSaveReason = MediaBrowser.Model.Entities.UserDataSaveReason;
 using Microsoft.Extensions.Logging;
+using VirtualLib.Core.Filtering;
 using VirtualLib.Core.Models;
 
 namespace VirtualLib.Core;
@@ -31,6 +32,8 @@ public sealed class LibrarySyncResult
     public int ItemsCreated { get; init; }
     public int ItemsSkipped { get; init; }
     public int ItemsFailed { get; init; }
+    /// <summary>Items écartés par les règles de filtrage (#44). 0 si aucune règle active.</summary>
+    public int ItemsFiltered { get; init; }
 }
 
 /// <summary>
@@ -341,11 +344,23 @@ public sealed class SyncService
             return (new LibrarySyncResult { LibraryName = libraryName, ItemsFailed = 1 }, new List<(string StrmPath, MediaItem Item)>());
         }
 
-        // Update the cached remote item count so the config page reflects reality after sync
+        // Update the cached remote item count so the config page reflects reality after sync.
+        // Intentionally the UNFILTERED total (D9) — it reflects the remote source, not the sync result.
         var known = config.KnownLibraries?.FirstOrDefault(l => l.Id == libraryId);
         if (known != null) known.RemoteItemCount = items.Count;
 
         _logger.LogInformation("Found {Count} items in library '{LibraryName}'", items.Count, libraryName);
+
+        // --- Media filtering (additive, #44) ---
+        // Court-circuit total si aucune règle active sur ce connecteur (CA1) : `items` n'est pas
+        // ré-attribué et le comportement antérieur au lot est préservé à l'identique.
+        int itemsFiltered = 0;
+        if (config.MediaFilter.IsActive)
+        {
+            var (filteredItems, rejectedCount) = await ApplyMediaFilterAsync(connector, config, items, libraryName, ct);
+            items = filteredItems;
+            itemsFiltered = rejectedCount;
+        }
 
         // Thread-safe accumulators — items are processed in parallel
         int libCreated = 0, libSkipped = 0, libFailed = 0, done = 0;
@@ -618,7 +633,95 @@ public sealed class SyncService
                 }
             });
 
-        return (new LibrarySyncResult { LibraryName = libraryName, ItemsCreated = libCreated, ItemsSkipped = libSkipped, ItemsFailed = libFailed }, pendingStrms.ToList());
+        return (new LibrarySyncResult
+        {
+            LibraryName    = libraryName,
+            ItemsCreated   = libCreated,
+            ItemsSkipped   = libSkipped,
+            ItemsFailed    = libFailed,
+            ItemsFiltered  = itemsFiltered
+        }, pendingStrms.ToList());
+    }
+
+    /// <summary>
+    /// Applique <see cref="MediaFilterEngine"/> à la liste d'items d'une bibliothèque (#44).
+    /// N'appelle <c>GetStreamInfoAsync</c> que si une règle de langue ou de sous-titres est active
+    /// (D6) — une règle de résolution seule s'appuie sur <c>TechnicalInfo.Height</c>, déjà disponible.
+    /// Fail-open (D7) : un item dont l'information est indéterminable est conservé et journalisé
+    /// en décompte agrégé, jamais individuellement.
+    /// </summary>
+    private async Task<(IReadOnlyList<MediaItem> Items, int Rejected)> ApplyMediaFilterAsync(
+        IMediaServerConnector connector,
+        ConnectorConfig config,
+        IReadOnlyList<MediaItem> items,
+        string libraryName,
+        CancellationToken ct)
+    {
+        var filter = config.MediaFilter;
+
+        // Périmètre D8 : seuls Movie/Episode sont évalués — inutile de préparer un lot pour le reste.
+        // On ne demande les pistes que pour les items qui n'en ont pas déjà (Emby les fournit déjà).
+        var candidateIds = items
+            .Where(i => i.Type is MediaType.Movie or MediaType.Episode)
+            .Where(i => i.Technical is null || i.Technical.Streams.Count == 0)
+            .Select(i => i.RemoteId)
+            .ToList();
+
+        // GetStreamInfoAsync n'est invoqué que si une règle de langue/sous-titres est active (D6).
+        var needsStreamFetch = filter.AudioLanguages.Count > 0 || filter.SubtitleLanguages.Count > 0;
+
+        IReadOnlyDictionary<string, IReadOnlyList<MediaStreamInfo>> fetchedStreams =
+            new Dictionary<string, IReadOnlyList<MediaStreamInfo>>();
+
+        if (needsStreamFetch && candidateIds.Count > 0)
+        {
+            try
+            {
+                fetchedStreams = await connector.GetStreamInfoAsync(candidateIds, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to fetch stream info for library '{LibraryName}' — affected items will be treated as information unavailable (fail-open)",
+                    libraryName);
+            }
+        }
+
+        var kept = new List<MediaItem>(items.Count);
+        int rejected = 0, unknownInfo = 0;
+
+        foreach (var item in items)
+        {
+            IReadOnlyList<MediaStreamInfo> streams;
+            if (item.Technical?.Streams is { Count: > 0 } technicalStreams)
+                streams = technicalStreams;
+            else
+                streams = fetchedStreams.TryGetValue(item.RemoteId, out var fetched) ? fetched : Array.Empty<MediaStreamInfo>();
+
+            var result = MediaFilterEngine.Evaluate(item, streams, filter);
+            if (result.Status == FilterStatus.Rejected)
+            {
+                rejected++;
+                continue;
+            }
+
+            if (result.Status == FilterStatus.KeptUnknownInfo)
+                unknownInfo++;
+
+            kept.Add(item);
+        }
+
+        if (unknownInfo > 0)
+            _logger.LogWarning(
+                "Filtre : {Count} item(s) conservés faute d'information technique dans '{LibraryName}'",
+                unknownInfo, libraryName);
+
+        _logger.LogInformation(
+            "Filtre '{LibraryName}' : {Total} total, {Kept} retenus, {Rejected} écartés, {Unknown} conservés faute d'info",
+            libraryName, items.Count, kept.Count, rejected, unknownInfo);
+
+        return (kept, rejected);
     }
 
     /// <summary>
