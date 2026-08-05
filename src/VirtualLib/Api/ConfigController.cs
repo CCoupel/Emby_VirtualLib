@@ -375,13 +375,17 @@ public sealed class ConfigController : BaseApiService
     public object Post(CreateConnector request)
     {
         var config = Plugin.Instance!.Configuration;
+        ConnectorConfig connector;
 
-        EnsureUniqueDisplayName(config, request.DisplayName, excludeId: null);
+        lock (ConnectorWriteLock)
+        {
+            EnsureUniqueDisplayName(config, request.DisplayName, excludeId: null);
 
-        var connector = BuildConnectorConfig(request, existing: null);
+            connector = BuildConnectorConfig(request, existing: null);
 
-        config.Connectors.Add(connector);
-        Plugin.Instance.SaveConfiguration();
+            config.Connectors.Add(connector);
+            Plugin.Instance.SaveConfiguration();
+        }
 
         return ResultFactory.GetResult(Request, connector, NoHeaders);
     }
@@ -397,14 +401,18 @@ public sealed class ConfigController : BaseApiService
         if (existing is null)
             throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
 
-        EnsureUniqueDisplayName(config, request.DisplayName, excludeId: existing.Id);
+        ConnectorConfig updated;
+        lock (ConnectorWriteLock)
+        {
+            EnsureUniqueDisplayName(config, request.DisplayName, excludeId: existing.Id);
 
-        config.Connectors.Remove(existing);
+            config.Connectors.Remove(existing);
 
-        var updated = BuildConnectorConfig(request, existing);
+            updated = BuildConnectorConfig(request, existing);
 
-        config.Connectors.Add(updated);
-        Plugin.Instance.SaveConfiguration();
+            config.Connectors.Add(updated);
+            Plugin.Instance.SaveConfiguration();
+        }
 
         // Sync virtual folders: create for newly checked, remove for unchecked
         var virtualLibRoot = config.VirtualLibraryRootPath;
@@ -902,6 +910,16 @@ public sealed class ConfigController : BaseApiService
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Sérialise la section critique check-then-act de <c>Post</c>/<c>Put</c>
+    /// (<c>EnsureUniqueDisplayName</c> → <c>SaveConfiguration</c>). <c>ConfigController</c> est
+    /// instancié par requête par l'hôte ServiceStack — un verrou d'instance ne protégerait rien
+    /// entre deux requêtes concurrentes, il doit être statique (suivi code-reviewer sur #44 :
+    /// deux POST simultanés avec le même DisplayName pouvaient tous deux passer la validation
+    /// avant qu'aucun n'ait écrit).
+    /// </summary>
+    private static readonly object ConnectorWriteLock = new();
 
     /// <summary>
     /// Rejette la requête si un autre connecteur a déjà le même nom une fois assaini
