@@ -20,4 +20,24 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\VirtualLib\VirtualLib.csproj" />
   </ItemGroup>
+
+  <!--
+    VirtualLib.csproj references these as Private=false (the Emby host provides them at
+    runtime — bundling private copies into the shipped plugin risks type-identity mismatches).
+    The test host runs standalone, outside Emby, so it needs its own local copies to resolve
+    types that touch MediaBrowser.* (e.g. reflecting into ConfigController, which inherits
+    BaseApiService). Private=true (default) here only affects this test project's own output,
+    never the packaged plugin.
+  -->
+  <ItemGroup>
+    <Reference Include="MediaBrowser.Common">
+      <HintPath>..\..\libs\MediaBrowser.Common.dll</HintPath>
+    </Reference>
+    <Reference Include="MediaBrowser.Controller">
+      <HintPath>..\..\libs\MediaBrowser.Controller.dll</HintPath>
+    </Reference>
+    <Reference Include="MediaBrowser.Model">
+      <HintPath>..\..\libs\MediaBrowser.Model.dll</HintPath>
+    </Reference>
+  </ItemGroup>
 </Project>
