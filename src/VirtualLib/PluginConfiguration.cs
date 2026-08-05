@@ -78,6 +78,14 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     /// continues to completion after a client disconnects (0 = disabled).
     /// </summary>
     public int CacheCompletionThresholdPercent { get; set; } = 90;
+
+    /// <summary>
+    /// Active la brique de nettoyage des orphelins (fichiers dont l'item source a disparu ou a
+    /// été écarté par une règle de filtre — #12 / #44). Défaut <c>false</c> : désactivée tant que
+    /// l'utilisateur ne l'a pas explicitement activée. Le nettoyage s'exécute toujours en DryRun
+    /// (journalise sans supprimer) tant que #12 n'a pas livré son UI de configuration fine.
+    /// </summary>
+    public bool OrphanCleanupEnabled { get; set; } = false;
 }
 
 public sealed class KnownLibrary
