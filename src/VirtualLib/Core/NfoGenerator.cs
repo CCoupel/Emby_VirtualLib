@@ -299,6 +299,15 @@ public sealed class NfoGenerator
         if (runtimeTicks.HasValue)
             runtimeMinutes = (int)(runtimeTicks.Value / 10_000_000 / 60);
 
+        // #44 D10 — when the full stream list is available, emit every audio track and every
+        // subtitle (with <language>), not just one of each. Falls back to the scalar-only
+        // pre-#44 behaviour, unchanged, whenever Streams is empty — no regression possible.
+        if (tech?.Streams.Count > 0)
+        {
+            WriteStreamDetailsFromList(writer, tech.Streams, runtimeTicks, runtimeMinutes);
+            return;
+        }
+
         bool hasVideo = tech is { Width: not null } or { Height: not null } or { VideoCodec: not null };
         bool hasAudio = tech is { AudioCodec: not null } or { AudioChannels: not null } or { AudioSampleRate: not null };
         bool hasRuntime = runtimeMinutes.HasValue;
@@ -334,6 +343,65 @@ public sealed class NfoGenerator
             if (tech?.AudioSampleRate.HasValue == true)
                 writer.WriteElementString("samplingrate", tech.AudioSampleRate.Value.ToString());
             writer.WriteEndElement(); // audio
+        }
+
+        writer.WriteEndElement(); // streamdetails
+        writer.WriteEndElement(); // fileinfo
+    }
+
+    /// <summary>
+    /// Emits &lt;fileinfo&gt;&lt;streamdetails&gt; from the full stream list (#44 D10): every
+    /// audio track and every subtitle (with &lt;language&gt;), Kodi/Emby NFO conventions allow
+    /// several &lt;audio&gt; and &lt;subtitle&gt; elements under the same &lt;streamdetails&gt;.
+    /// </summary>
+    private static void WriteStreamDetailsFromList(
+        XmlWriter writer, IReadOnlyList<MediaStreamInfo> streams, long? runtimeTicks, int? runtimeMinutes)
+    {
+        var videoStreams    = streams.Where(s => s.Kind == MediaStreamKind.Video).ToList();
+        var audioStreams    = streams.Where(s => s.Kind == MediaStreamKind.Audio).ToList();
+        var subtitleStreams = streams.Where(s => s.Kind == MediaStreamKind.Subtitle).ToList();
+
+        if (videoStreams.Count == 0 && audioStreams.Count == 0 && subtitleStreams.Count == 0
+            && !runtimeMinutes.HasValue)
+            return;
+
+        writer.WriteStartElement("fileinfo");
+        writer.WriteStartElement("streamdetails");
+
+        foreach (var v in videoStreams)
+        {
+            writer.WriteStartElement("video");
+            if (!string.IsNullOrEmpty(v.Codec)) writer.WriteElementString("codec", v.Codec);
+            if (v.Width.HasValue)  writer.WriteElementString("width", v.Width.Value.ToString());
+            if (v.Height.HasValue) writer.WriteElementString("height", v.Height.Value.ToString());
+            if (runtimeMinutes.HasValue)
+                writer.WriteElementString("durationinseconds", ((int)(runtimeTicks!.Value / 10_000_000)).ToString());
+            writer.WriteEndElement(); // video
+        }
+
+        // No video track listed but a runtime is known — preserve the pre-#44 guarantee that
+        // runtime is always attached to a <video> block, even an otherwise-empty one.
+        if (videoStreams.Count == 0 && runtimeMinutes.HasValue)
+        {
+            writer.WriteStartElement("video");
+            writer.WriteElementString("durationinseconds", ((int)(runtimeTicks!.Value / 10_000_000)).ToString());
+            writer.WriteEndElement();
+        }
+
+        foreach (var a in audioStreams)
+        {
+            writer.WriteStartElement("audio");
+            if (!string.IsNullOrEmpty(a.Codec))         writer.WriteElementString("codec", a.Codec);
+            if (a.Channels.HasValue)                     writer.WriteElementString("channels", a.Channels.Value.ToString());
+            if (!string.IsNullOrEmpty(a.LanguageCode))   writer.WriteElementString("language", a.LanguageCode);
+            writer.WriteEndElement(); // audio
+        }
+
+        foreach (var s in subtitleStreams)
+        {
+            writer.WriteStartElement("subtitle");
+            if (!string.IsNullOrEmpty(s.LanguageCode)) writer.WriteElementString("language", s.LanguageCode);
+            writer.WriteEndElement(); // subtitle
         }
 
         writer.WriteEndElement(); // streamdetails
