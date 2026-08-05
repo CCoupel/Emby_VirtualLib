@@ -15,6 +15,19 @@ public sealed class LibraryCleanupService : ILibraryCleanupService
 {
     private readonly ILogger<LibraryCleanupService> _logger;
 
+    /// <summary>
+    /// Skips reparse points (symlinks/junctions) during enumeration — on Unix, plain
+    /// SearchOption.AllDirectories follows symlinked directories, which would let a link placed
+    /// inside the virtual library folder (accidental bind-mount, misconfiguration, or a local
+    /// user with write access to the host) walk files outside the library's real footprint.
+    /// See code-reviewer report on #44.
+    /// </summary>
+    private static readonly EnumerationOptions FileEnumerationOptions = new()
+    {
+        RecurseSubdirectories = true,
+        AttributesToSkip = FileAttributes.ReparsePoint
+    };
+
     public LibraryCleanupService(ILogger<LibraryCleanupService> logger)
     {
         _logger = logger;
@@ -41,7 +54,7 @@ public sealed class LibraryCleanupService : ILibraryCleanupService
             StringComparer.OrdinalIgnoreCase);
 
         var orphans = new List<string>();
-        foreach (var path in Directory.EnumerateFiles(libraryFolderPath, "*", SearchOption.AllDirectories))
+        foreach (var path in Directory.EnumerateFiles(libraryFolderPath, "*", FileEnumerationOptions))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!normalizedExpected.Contains(NormalizePath(path)))
@@ -51,9 +64,23 @@ public sealed class LibraryCleanupService : ILibraryCleanupService
         var deleted = new List<string>();
         if (!options.DryRun)
         {
+            // Defense in depth (belt-and-braces on top of the reparse-point skip above): never
+            // delete a resolved path that falls outside the library folder, whatever the reason.
+            var normalizedRoot = NormalizePath(libraryFolderPath) + Path.DirectorySeparatorChar;
+
             foreach (var orphan in orphans)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                var normalizedOrphan = NormalizePath(orphan);
+                if (!normalizedOrphan.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogWarning(
+                        "Cleanup: refusing to delete '{Path}' — resolved path escapes library folder '{Root}'",
+                        orphan, libraryFolderPath);
+                    continue;
+                }
+
                 try
                 {
                     File.Delete(orphan);
