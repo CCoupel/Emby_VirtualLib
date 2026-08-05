@@ -376,6 +376,8 @@ public sealed class ConfigController : BaseApiService
     {
         var config = Plugin.Instance!.Configuration;
 
+        EnsureUniqueDisplayName(config, request.DisplayName, excludeId: null);
+
         var connector = BuildConnectorConfig(request, existing: null);
 
         config.Connectors.Add(connector);
@@ -394,6 +396,8 @@ public sealed class ConfigController : BaseApiService
 
         if (existing is null)
             throw new ResourceNotFoundException($"Connector '{request.Id}' not found.");
+
+        EnsureUniqueDisplayName(config, request.DisplayName, excludeId: existing.Id);
 
         config.Connectors.Remove(existing);
 
@@ -898,6 +902,29 @@ public sealed class ConfigController : BaseApiService
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Rejette la requête si un autre connecteur a déjà le même nom une fois assaini
+    /// (<see cref="StrmGenerator.SanitizeName"/>). GetLibraryFolderPath calcule le dossier physique
+    /// d'une bibliothèque comme <c>virtualLibRoot/Sanitize(DisplayName)/Sanitize(LibraryName)</c> —
+    /// deux connecteurs au même nom assaini partageraient le même dossier racine, sans aucun verrou
+    /// entre leurs synchronisations parallèles : une course où le nettoyage d'orphelins de l'un
+    /// classerait les fichiers fraîchement écrits par l'autre comme orphelins (code-reviewer #44).
+    /// Comparaison insensible à la casse : deux noms qui ne diffèrent que par la casse collisionnent
+    /// déjà sur un système de fichiers insensible à la casse (Windows, macOS par défaut).
+    /// </summary>
+    private static void EnsureUniqueDisplayName(PluginConfiguration config, string displayName, string? excludeId)
+    {
+        var sanitized = StrmGenerator.SanitizeName(displayName);
+        var collision = config.Connectors.Any(c =>
+            c.Id != excludeId &&
+            string.Equals(StrmGenerator.SanitizeName(c.DisplayName), sanitized, StringComparison.OrdinalIgnoreCase));
+
+        if (collision)
+            throw new ArgumentException(
+                $"A connector named '{displayName}' already exists (or resolves to the same folder name) — " +
+                "connector display names must be unique to avoid two connectors writing to the same virtual library folder.");
+    }
 
     /// <summary>
     /// Unique point de construction d'un <see cref="ConnectorConfig"/> depuis un DTO de requête
