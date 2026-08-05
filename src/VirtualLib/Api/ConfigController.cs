@@ -20,9 +20,41 @@ namespace VirtualLib.Api;
 [Authenticated]
 public sealed class GetConnectors : IReturn<List<ConnectorConfig>> { }
 
+/// <summary>
+/// Champs communs à <see cref="CreateConnector"/> et <see cref="UpdateConnector"/>.
+/// Permet à <c>BuildConnectorConfig</c> (D3) de n'avoir qu'un seul point de construction —
+/// le compilateur garantit que les deux DTOs exposent bien tous les champs attendus, ce qui
+/// évite la classe de bug qui a déjà coûté <c>CacheEnabled</c> et <c>LocalUserId</c> (#44).
+/// </summary>
+public interface IConnectorFieldsRequest
+{
+    string DisplayName { get; }
+    string ServerType { get; }
+    string ServerUrl { get; }
+    string PlexMachineIdentifier { get; }
+    AuthMode AuthMode { get; }
+    string ApiKey { get; }
+    string Username { get; }
+    string Password { get; }
+    MetadataMode MetadataMode { get; }
+    List<string> LibraryIds { get; }
+    bool Enabled { get; }
+    int MaxParallelLibraries { get; }
+    LibraryOrganization LibraryOrganization { get; }
+    string LocalUserId { get; }
+    /// <summary>Correctif adjacent #44 : absent des DTOs jusqu'ici, ne persistait donc jamais.</summary>
+    bool CacheEnabled { get; }
+
+    // --- Media filtering (#44) — quatre champs plats, cf. contracts/http-endpoints.md D2 ---
+    int FilterMinHeight { get; }
+    string FilterAudioLanguages { get; }
+    string FilterSubtitleLanguages { get; }
+    bool FilterIgnoreForcedSubtitles { get; }
+}
+
 [Route("/virtuallib/connectors", "POST", Summary = "Add a new connector")]
 [Authenticated]
-public sealed class CreateConnector : IReturn<ConnectorConfig>
+public sealed class CreateConnector : IReturn<ConnectorConfig>, IConnectorFieldsRequest
 {
     public string DisplayName { get; set; } = string.Empty;
     public string ServerType { get; set; } = ServerTypes.Emby;
@@ -38,11 +70,16 @@ public sealed class CreateConnector : IReturn<ConnectorConfig>
     public int MaxParallelLibraries { get; set; } = 4;
     public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
     public string LocalUserId { get; set; } = string.Empty;
+    public bool CacheEnabled { get; set; } = true;
+    public int FilterMinHeight { get; set; } = 0;
+    public string FilterAudioLanguages { get; set; } = string.Empty;
+    public string FilterSubtitleLanguages { get; set; } = string.Empty;
+    public bool FilterIgnoreForcedSubtitles { get; set; } = false;
 }
 
 [Route("/virtuallib/connectors/{Id}", "PUT", Summary = "Update an existing connector")]
 [Authenticated]
-public sealed class UpdateConnector : IReturn<ConnectorConfig>
+public sealed class UpdateConnector : IReturn<ConnectorConfig>, IConnectorFieldsRequest
 {
     public string Id { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
@@ -59,6 +96,11 @@ public sealed class UpdateConnector : IReturn<ConnectorConfig>
     public int MaxParallelLibraries { get; set; } = 4;
     public LibraryOrganization LibraryOrganization { get; set; } = LibraryOrganization.Isolated;
     public string LocalUserId { get; set; } = string.Empty;
+    public bool CacheEnabled { get; set; } = true;
+    public int FilterMinHeight { get; set; } = 0;
+    public string FilterAudioLanguages { get; set; } = string.Empty;
+    public string FilterSubtitleLanguages { get; set; } = string.Empty;
+    public bool FilterIgnoreForcedSubtitles { get; set; } = false;
 }
 
 [Route("/virtuallib/connectors/{Id}", "DELETE", Summary = "Remove a connector")]
@@ -327,24 +369,7 @@ public sealed class ConfigController : BaseApiService
     {
         var config = Plugin.Instance!.Configuration;
 
-        var connector = new ConnectorConfig
-        {
-            Id = Guid.NewGuid().ToString(),
-            DisplayName = request.DisplayName,
-            ServerType = request.ServerType,
-            ServerUrl = request.ServerUrl,
-            PlexMachineIdentifier = request.PlexMachineIdentifier,
-            AuthMode = request.AuthMode,
-            ApiKey = request.ApiKey,
-            Username = request.Username,
-            Password = request.Password,
-            MetadataMode = request.MetadataMode,
-            LibraryIds = request.LibraryIds,
-            Enabled = request.Enabled,
-            MaxParallelLibraries = Math.Max(1, request.MaxParallelLibraries),
-            LibraryOrganization = request.LibraryOrganization,
-            LocalUserId = request.LocalUserId
-        };
+        var connector = BuildConnectorConfig(request, existing: null);
 
         config.Connectors.Add(connector);
         Plugin.Instance.SaveConfiguration();
@@ -365,26 +390,7 @@ public sealed class ConfigController : BaseApiService
 
         config.Connectors.Remove(existing);
 
-        var updated = new ConnectorConfig
-        {
-            Id = existing.Id,
-            DisplayName = request.DisplayName,
-            ServerType = request.ServerType,
-            ServerUrl = request.ServerUrl,
-            PlexMachineIdentifier = request.PlexMachineIdentifier,
-            AuthMode = request.AuthMode,
-            ApiKey = request.ApiKey,
-            Username = request.Username,
-            // Preserve existing password if the client sent an empty string (placeholder pattern)
-            Password = string.IsNullOrEmpty(request.Password) ? existing.Password : request.Password,
-            MetadataMode = request.MetadataMode,
-            LibraryIds = request.LibraryIds,
-            Enabled = request.Enabled,
-            KnownLibraries = existing.KnownLibraries,
-            MaxParallelLibraries = Math.Max(1, request.MaxParallelLibraries),
-            LibraryOrganization = request.LibraryOrganization,
-            LocalUserId = request.LocalUserId
-        };
+        var updated = BuildConnectorConfig(request, existing);
 
         config.Connectors.Add(updated);
         Plugin.Instance.SaveConfiguration();
@@ -885,6 +891,61 @@ public sealed class ConfigController : BaseApiService
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Unique point de construction d'un <see cref="ConnectorConfig"/> depuis un DTO de requête
+    /// (D3) — appelé par <c>Post</c> et <c>Put</c>. Corrige structurellement le piège des 5 points
+    /// qui a déjà produit deux bugs en production : ajouter un champ ici suffit, il n'y a plus de
+    /// second endroit à oublier.
+    /// <paramref name="existing"/> est <c>null</c> pour une création (nouvel Id, pas de
+    /// <c>KnownLibraries</c> à préserver) et non-null pour une mise à jour (Id et
+    /// <c>KnownLibraries</c> préservés ; <c>Password</c> vide dans la requête = conserver
+    /// l'existant, cf. contracts/http-endpoints.md).
+    /// </summary>
+    private static ConnectorConfig BuildConnectorConfig(IConnectorFieldsRequest request, ConnectorConfig? existing)
+    {
+        return new ConnectorConfig
+        {
+            Id = existing?.Id ?? Guid.NewGuid().ToString(),
+            DisplayName = request.DisplayName,
+            ServerType = request.ServerType,
+            ServerUrl = request.ServerUrl,
+            PlexMachineIdentifier = request.PlexMachineIdentifier,
+            AuthMode = request.AuthMode,
+            ApiKey = request.ApiKey,
+            Username = request.Username,
+            Password = existing is not null && string.IsNullOrEmpty(request.Password)
+                ? existing.Password
+                : request.Password,
+            MetadataMode = request.MetadataMode,
+            LibraryIds = request.LibraryIds,
+            Enabled = request.Enabled,
+            KnownLibraries = existing?.KnownLibraries ?? new List<KnownLibrary>(),
+            MaxParallelLibraries = Math.Max(1, request.MaxParallelLibraries),
+            LibraryOrganization = request.LibraryOrganization,
+            LocalUserId = request.LocalUserId,
+            CacheEnabled = request.CacheEnabled,
+            MediaFilter = BuildMediaFilterConfig(request)
+        };
+    }
+
+    private static MediaFilterConfig BuildMediaFilterConfig(IConnectorFieldsRequest request) => new()
+    {
+        MinHeight = Math.Max(0, request.FilterMinHeight),
+        AudioLanguages = ParseLanguageCsv(request.FilterAudioLanguages),
+        SubtitleLanguages = ParseLanguageCsv(request.FilterSubtitleLanguages),
+        IgnoreForcedSubtitles = request.FilterIgnoreForcedSubtitles
+    };
+
+    /// <summary>
+    /// Convertit un CSV de codes langue (ex. "fr, en") en liste. La normalisation ISO
+    /// (fr/fre/fra/french → fra) est appliquée plus tard par <c>LanguageMatcher</c>, au moment
+    /// de l'évaluation — on stocke ici les valeurs telles que saisies par l'utilisateur.
+    /// </summary>
+    private static List<string> ParseLanguageCsv(string? csv) =>
+        string.IsNullOrWhiteSpace(csv)
+            ? new List<string>()
+            : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
 
     /// <summary>
     /// Runs Phase 1 then Phase 2 for a single library, fully autonomously.
