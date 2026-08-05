@@ -20,16 +20,27 @@ namespace VirtualLib.Tests;
 ///   sécurité côté service est la protection réelle si l'appelant l'omettait par erreur.
 /// - Dossier <c>libraryFolderPath</c> absent → PAS un abandon (<c>Executed = true</c>), traité
 ///   comme "rien à nettoyer" (aucun fichier ne peut être orphelin dans un dossier qui n'existe pas).
+/// - Lien symbolique dans le dossier de bibliothèque → jamais traversé (correctif code-reviewer,
+///   [MAJEUR] "Aucune défense contre les liens symboliques", relu depuis
+///   <c>FileEnumerationOptions.AttributesToSkip = FileAttributes.ReparsePoint</c> + vérification
+///   defense-in-depth au moment de la suppression).
 /// </summary>
 public class LibraryCleanupServiceTests : IDisposable
 {
     private readonly string _libraryRoot;
+    private readonly string _externalRoot;
     private readonly ILibraryCleanupService _service = new LibraryCleanupService(NullLogger<LibraryCleanupService>.Instance);
 
     public LibraryCleanupServiceTests()
     {
         _libraryRoot = Path.Combine(Path.GetTempPath(), "VirtualLibCleanupTests_" + Guid.NewGuid());
         Directory.CreateDirectory(_libraryRoot);
+
+        // Simule le scénario du rapport code-reviewer : un dossier réel HORS du périmètre de la
+        // bibliothèque virtuelle (ex. /home/user/media-perso), accessible uniquement via un lien
+        // symbolique placé à l'intérieur du dossier de bibliothèque.
+        _externalRoot = Path.Combine(Path.GetTempPath(), "VirtualLibCleanupTests_External_" + Guid.NewGuid());
+        Directory.CreateDirectory(_externalRoot);
     }
 
     // -------------------------------------------------------------------------
@@ -178,6 +189,40 @@ public class LibraryCleanupServiceTests : IDisposable
     }
 
     // -------------------------------------------------------------------------
+    // Défense symlinks (correctif [MAJEUR] code-reviewer)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task CleanupAsync_SymlinkedDirectoryContents_NeverAppearAsOrphans()
+    {
+        var externalFile = Path.Combine(_externalRoot, "media-perso.mp4");
+        File.WriteAllText(externalFile, "not part of the virtual library");
+        Directory.CreateSymbolicLink(Path.Combine(_libraryRoot, "linked-outside"), _externalRoot);
+
+        var genuineOrphan = CreateFile("Old Movie (2019)/Old Movie (2019).strm", "http://stale/url");
+        var kept = CreateFile("Kept Movie (2020)/Kept Movie (2020).strm", "http://ok/url");
+
+        var result = await _service.CleanupAsync(
+            _libraryRoot,
+            expectedPaths: new HashSet<string> { kept },
+            options: new CleanupOptions { Enabled = true, DryRun = false });
+
+        Assert.True(result.Executed);
+
+        // Le contenu atteint via le lien symbolique n'est jamais énuméré du tout — ni classé
+        // orphelin, ni a fortiori supprimé — même hors DryRun.
+        Assert.DoesNotContain(result.OrphansFound, p => p.Contains("media-perso.mp4"));
+        Assert.DoesNotContain(result.OrphansDeleted, p => p.Contains("media-perso.mp4"));
+        Assert.True(File.Exists(externalFile));
+
+        // Le reste du comportement est inchangé : le véritable orphelin (hors lien) est bien
+        // détecté et supprimé, le fichier attendu bien conservé.
+        Assert.Contains(genuineOrphan, result.OrphansDeleted);
+        Assert.False(File.Exists(genuineOrphan));
+        Assert.True(File.Exists(kept));
+    }
+
+    // -------------------------------------------------------------------------
 
     private string CreateFile(string relativePath, string content)
     {
@@ -191,5 +236,7 @@ public class LibraryCleanupServiceTests : IDisposable
     {
         if (Directory.Exists(_libraryRoot))
             Directory.Delete(_libraryRoot, recursive: true);
+        if (Directory.Exists(_externalRoot))
+            Directory.Delete(_externalRoot, recursive: true);
     }
 }
