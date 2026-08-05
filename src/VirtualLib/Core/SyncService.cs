@@ -972,56 +972,99 @@ public sealed class SyncService
     /// directly into the Emby item repository, bypassing ffprobe.
     /// This populates the "Media info" panel in the Emby UI for .strm files.
     /// </summary>
+    /// <summary>
+    /// Builds and persists MediaStream entries from TechnicalInfo. When <see cref="TechnicalInfo.Streams"/>
+    /// is populated (#44 D10), the full list (all audio tracks, all subtitles) is used. When it is
+    /// empty — a connector or item that hasn't supplied the detailed list — this falls back
+    /// <b>exactly</b> to the pre-#44 behaviour: one reconstructed video stream and one audio stream
+    /// from the scalar fields. No regression possible either way.
+    /// </summary>
     private void SaveMediaStreams(long itemId, TechnicalInfo tech, long? runtimeTicks, CancellationToken ct)
     {
         try
         {
-            var streams = new List<EmbyMediaStream>();
-            int index = 0;
+            List<EmbyMediaStream> streams;
 
-            bool hasVideo = tech.VideoCodec is not null || tech.Width.HasValue || tech.Height.HasValue;
-            if (hasVideo)
+            if (tech.Streams.Count > 0)
             {
-                var video = new EmbyMediaStream
-                {
-                    Type      = EmbyMediaStreamType.Video,
-                    Index     = index++,
-                    IsDefault = true,
-                };
-                if (!string.IsNullOrEmpty(tech.VideoCodec)) video.Codec = tech.VideoCodec;
-                if (tech.Width.HasValue)   video.Width   = tech.Width.Value;
-                if (tech.Height.HasValue)  video.Height  = tech.Height.Value;
-                if (tech.Bitrate.HasValue) video.BitRate = tech.Bitrate.Value;
-                streams.Add(video);
+                streams = tech.Streams
+                    .Select((s, i) => MapMediaStreamInfoToEmby(s, i))
+                    .ToList();
             }
-
-            bool hasAudio = tech.AudioCodec is not null || tech.AudioChannels.HasValue;
-            if (hasAudio)
+            else
             {
-                var audio = new EmbyMediaStream
+                streams = new List<EmbyMediaStream>();
+                int index = 0;
+
+                bool hasVideo = tech.VideoCodec is not null || tech.Width.HasValue || tech.Height.HasValue;
+                if (hasVideo)
                 {
-                    Type      = EmbyMediaStreamType.Audio,
-                    Index     = index++,
-                    IsDefault = true,
-                };
-                if (!string.IsNullOrEmpty(tech.AudioCodec))  audio.Codec      = tech.AudioCodec;
-                if (tech.AudioChannels.HasValue)              audio.Channels   = tech.AudioChannels.Value;
-                if (tech.AudioSampleRate.HasValue)            audio.SampleRate = tech.AudioSampleRate.Value;
-                streams.Add(audio);
+                    var video = new EmbyMediaStream
+                    {
+                        Type      = EmbyMediaStreamType.Video,
+                        Index     = index++,
+                        IsDefault = true,
+                    };
+                    if (!string.IsNullOrEmpty(tech.VideoCodec)) video.Codec = tech.VideoCodec;
+                    if (tech.Width.HasValue)   video.Width   = tech.Width.Value;
+                    if (tech.Height.HasValue)  video.Height  = tech.Height.Value;
+                    if (tech.Bitrate.HasValue) video.BitRate = tech.Bitrate.Value;
+                    streams.Add(video);
+                }
+
+                bool hasAudio = tech.AudioCodec is not null || tech.AudioChannels.HasValue;
+                if (hasAudio)
+                {
+                    var audio = new EmbyMediaStream
+                    {
+                        Type      = EmbyMediaStreamType.Audio,
+                        Index     = index++,
+                        IsDefault = true,
+                    };
+                    if (!string.IsNullOrEmpty(tech.AudioCodec))  audio.Codec      = tech.AudioCodec;
+                    if (tech.AudioChannels.HasValue)              audio.Channels   = tech.AudioChannels.Value;
+                    if (tech.AudioSampleRate.HasValue)            audio.SampleRate = tech.AudioSampleRate.Value;
+                    streams.Add(audio);
+                }
             }
 
             if (streams.Count > 0)
             {
                 _itemRepository!.SaveMediaStreams(itemId, streams, ct);
                 _logger.LogInformation(
-                    "VirtualLib: saved {Count} MediaStream(s) for itemId={ItemId} (video={V}, audio={A})",
-                    streams.Count, itemId, hasVideo, hasAudio);
+                    "VirtualLib: saved {Count} MediaStream(s) for itemId={ItemId} (source={Source})",
+                    streams.Count, itemId, tech.Streams.Count > 0 ? "full-list" : "scalar-fallback");
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "VirtualLib: SaveMediaStreams failed for itemId={ItemId}", itemId);
         }
+    }
+
+    private static EmbyMediaStream MapMediaStreamInfoToEmby(MediaStreamInfo s, int index)
+    {
+        var stream = new EmbyMediaStream
+        {
+            Type = s.Kind switch
+            {
+                MediaStreamKind.Video    => EmbyMediaStreamType.Video,
+                MediaStreamKind.Audio    => EmbyMediaStreamType.Audio,
+                MediaStreamKind.Subtitle => EmbyMediaStreamType.Subtitle,
+                _                        => EmbyMediaStreamType.Unknown
+            },
+            Index             = index,
+            IsDefault         = s.IsDefault,
+            IsForced          = s.IsForced,
+            IsExternal        = s.IsExternal,
+            IsHearingImpaired = s.IsHearingImpaired
+        };
+        if (!string.IsNullOrEmpty(s.Codec))    stream.Codec    = s.Codec;
+        if (!string.IsNullOrEmpty(s.Language)) stream.Language = s.Language;
+        if (s.Width.HasValue)                  stream.Width    = s.Width.Value;
+        if (s.Height.HasValue)                 stream.Height   = s.Height.Value;
+        if (s.Channels.HasValue)                stream.Channels = s.Channels.Value;
+        return stream;
     }
 
     /// <summary>
