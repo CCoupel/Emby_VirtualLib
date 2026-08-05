@@ -8,6 +8,7 @@ using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using VirtualLib.Connectors;
 using VirtualLib.Core;
+using VirtualLib.Core.Cleanup;
 using VirtualLib.Core.Models;
 
 namespace VirtualLib.Api;
@@ -297,7 +298,8 @@ public sealed class ConfigController : BaseApiService
             libraryManager,
             itemRepository,
             userDataManager,
-            userManager);
+            userManager,
+            new LibraryCleanupService(NullLogger<LibraryCleanupService>.Instance));
     }
 
     /// <summary>
@@ -971,8 +973,9 @@ public sealed class ConfigController : BaseApiService
             var prog1 = new Progress<SyncProgress>(p =>
                 SyncState.UpdatePhase1(conn.Id, libraryId, p.Current, p.Total));
 
+            var orphanCleanupEnabled = Plugin.Instance?.Configuration.OrphanCleanupEnabled ?? false;
             var (result, pending) = await syncSvc.SyncLibraryAsync(
-                conn, libraryId, root, proxyUrl, prog1, ct);
+                conn, libraryId, root, proxyUrl, prog1, ct, orphanCleanupEnabled);
 
             results.Add(result);
 

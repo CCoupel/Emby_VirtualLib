@@ -3,6 +3,7 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using VirtualLib.Core;
+using VirtualLib.Core.Cleanup;
 
 namespace VirtualLib;
 
@@ -29,7 +30,8 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
             libraryManager,
             itemRepository,
             userDataManager,
-            userManager);
+            userManager,
+            new LibraryCleanupService(NullLogger<LibraryCleanupService>.Instance));
     }
 
     // -------------------------------------------------------------------------
@@ -142,8 +144,9 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
             var prog1 = new Progress<SyncProgress>(p =>
                 SyncState.UpdatePhase1(conn.Id, libraryId, p.Current, p.Total));
 
+            var orphanCleanupEnabled = Plugin.Instance?.Configuration.OrphanCleanupEnabled ?? false;
             var (result, pending) = await syncSvc.SyncLibraryAsync(
-                conn, libraryId, root, proxyUrl, prog1, ct);
+                conn, libraryId, root, proxyUrl, prog1, ct, orphanCleanupEnabled);
 
             results.Add(result);
 

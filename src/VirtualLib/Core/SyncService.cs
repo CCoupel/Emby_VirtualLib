@@ -10,6 +10,7 @@ using EmbyMediaStream        = MediaBrowser.Model.Entities.MediaStream;
 using EmbyMediaStreamType    = MediaBrowser.Model.Entities.MediaStreamType;
 using EmbyUserDataSaveReason = MediaBrowser.Model.Entities.UserDataSaveReason;
 using Microsoft.Extensions.Logging;
+using VirtualLib.Core.Cleanup;
 using VirtualLib.Core.Filtering;
 using VirtualLib.Core.Models;
 
@@ -83,6 +84,7 @@ public sealed class SyncService
     private readonly IItemRepository? _itemRepository;
     private readonly IUserDataManager? _userDataManager;
     private readonly IUserManager? _userManager;
+    private readonly ILibraryCleanupService? _libraryCleanupService;
 
     public SyncService(
         IConnectorFactory connectorFactory,
@@ -93,7 +95,8 @@ public sealed class SyncService
         ILibraryManager? libraryManager = null,
         IItemRepository? itemRepository = null,
         IUserDataManager? userDataManager = null,
-        IUserManager? userManager = null)
+        IUserManager? userManager = null,
+        ILibraryCleanupService? libraryCleanupService = null)
     {
         _connectorFactory = connectorFactory;
         _strmGenerator = strmGenerator;
@@ -104,6 +107,7 @@ public sealed class SyncService
         _itemRepository = itemRepository;
         _userDataManager = userDataManager;
         _userManager = userManager;
+        _libraryCleanupService = libraryCleanupService;
     }
 
     /// <summary>
@@ -115,7 +119,8 @@ public sealed class SyncService
         string virtualLibRoot,
         string proxyBaseUrl,
         IProgress<SyncProgress>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool orphanCleanupEnabled = false)
     {
         var startTime = DateTime.UtcNow;
         int created = 0;
@@ -220,7 +225,7 @@ public sealed class SyncService
                 "Syncing library '{LibraryName}' ({LibraryId}) for connector {ConnectorId}",
                 libraryName, libraryId, config.Id);
 
-            var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, libraryType, virtualLibRoot, proxyBaseUrl, progress, ct);
+            var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, libraryType, virtualLibRoot, proxyBaseUrl, progress, ct, orphanCleanupEnabled);
             libraryResults.Add(libResult);
             created += libResult.ItemsCreated;
             skipped += libResult.ItemsSkipped;
@@ -270,7 +275,8 @@ public sealed class SyncService
         string virtualLibRoot,
         string proxyBaseUrl,
         IProgress<SyncProgress>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool orphanCleanupEnabled = false)
     {
         var startTime = DateTime.UtcNow;
 
@@ -290,7 +296,7 @@ public sealed class SyncService
         var libraryName = knownLib?.Name ?? libraryId;
         var libraryType = knownLib?.Type ?? string.Empty;
 
-        var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, libraryType, virtualLibRoot, proxyBaseUrl, progress, ct);
+        var (libResult, libPending) = await SyncLibraryItemsAsync(connector, config, libraryId, libraryName, libraryType, virtualLibRoot, proxyBaseUrl, progress, ct, orphanCleanupEnabled);
 
         var libFolderPath = GetLibraryFolderPath(virtualLibRoot, config, libraryName, libraryType);
 
@@ -330,7 +336,8 @@ public sealed class SyncService
         string virtualLibRoot,
         string proxyBaseUrl,
         IProgress<SyncProgress>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool orphanCleanupEnabled = false)
     {
         IReadOnlyList<MediaItem> items;
         try
@@ -343,6 +350,11 @@ public sealed class SyncService
             _logger.LogError(ex, "Failed to list items for library {LibraryId}", libraryId);
             return (new LibrarySyncResult { LibraryName = libraryName, ItemsFailed = 1 }, new List<(string StrmPath, MediaItem Item)>());
         }
+
+        // Raw count straight from ListItemsAsync, captured before filtering — guard rail #3 (D11,
+        // CA11) for the cleanup brick below: a remote listing that returned nothing must never be
+        // interpreted as "everything is orphaned".
+        var rawItemCount = items.Count;
 
         // Update the cached remote item count so the config page reflects reality after sync.
         // Intentionally the UNFILTERED total (D9) — it reflects the remote source, not the sync result.
@@ -368,6 +380,10 @@ public sealed class SyncService
         var processedSeriesIds = new ConcurrentDictionary<string, bool>();
         var processedSeasonIds = new ConcurrentDictionary<string, bool>();
         var pendingStrms       = new ConcurrentBag<(string StrmPath, MediaItem Item)>();
+        // Sidecar files (.nfo, artwork, album.nfo…) expected to exist after this sync — fed to
+        // the orphan cleanup brick below (#11/#44). Populated whether the file was newly written
+        // or already present: "expected" means "should exist", not "written this run".
+        var expectedSidecars   = new ConcurrentBag<string>();
         int total = items.Count;
 
         // Max 8 concurrent metadata/artwork requests — avoids overwhelming the remote server
@@ -386,6 +402,7 @@ public sealed class SyncService
                         var bookDir     = Path.GetDirectoryName(chapterPath)!;
                         var bookNfoPath = Path.Combine(bookDir, "album.nfo");
                         var bookId      = item.SeriesId ?? item.RemoteId;
+                        expectedSidecars.Add(bookNfoPath);
 
                         // TryAdd returns true only for the first task that encounters this bookId
                         if (config.MetadataMode != MetadataMode.LocalScraping && processedBookIds.TryAdd(bookId, true))
@@ -404,7 +421,7 @@ public sealed class SyncService
                                 var artworkSource = bookMeta.AvailableArtwork.Count > 0
                                     ? (MediaItem)bookMeta
                                     : item;
-                                await DownloadArtworkAsync(connector, artworkSource, bookDir, itemCt, audiobook: true);
+                                await DownloadArtworkAsync(connector, artworkSource, bookDir, itemCt, audiobook: true, onExpectedPath: expectedSidecars.Add);
 
                                 PushAudioBookFolderMetadata(bookDir, bookMeta, itemCt);
                             }
@@ -418,6 +435,7 @@ public sealed class SyncService
                         if (item.AvailableArtwork.Contains(ArtworkType.Poster))
                         {
                             var chapterImgPath = Path.ChangeExtension(chapterPath, ".jpg");
+                            expectedSidecars.Add(chapterImgPath);
                             if (!File.Exists(chapterImgPath))
                             {
                                 try
@@ -450,6 +468,7 @@ public sealed class SyncService
                         var bookBaseName  = _epubStubGenerator.GetFileName(item);
                         var bookPathNoExt = Path.Combine(bookDir, bookBaseName);
                         var bookNfoPath   = bookPathNoExt + ".nfo";
+                        expectedSidecars.Add(bookNfoPath);
 
                         if (config.MetadataMode == MetadataMode.RemoteSync
                             && !BookFileNeedsDownload(bookPathNoExt)
@@ -486,7 +505,7 @@ public sealed class SyncService
                             {
                                 var bookMeta = await connector.GetMetadataAsync(item.RemoteId, itemCt);
                                 _nfoGenerator.Generate(bookMeta, bookDir);
-                                await DownloadArtworkAsync(connector, bookMeta, bookDir, itemCt);
+                                await DownloadArtworkAsync(connector, bookMeta, bookDir, itemCt, onExpectedPath: expectedSidecars.Add);
                             }
                             catch (OperationCanceledException) { throw; }
                             catch (Exception ex)
@@ -519,9 +538,10 @@ public sealed class SyncService
                             try
                             {
                                 var showMeta = await connector.GetMetadataAsync(item.SeriesId, itemCt);
-                                await DownloadArtworkAsync(connector, showMeta, showFolder, itemCt);
+                                await DownloadArtworkAsync(connector, showMeta, showFolder, itemCt, onExpectedPath: expectedSidecars.Add);
 
                                 var tvshowNfoPath = Path.Combine(showFolder, "tvshow.nfo");
+                                expectedSidecars.Add(tvshowNfoPath);
                                 if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(tvshowNfoPath))
                                 {
                                     var nfoContent = _nfoGenerator.GenerateShowNfo(showMeta);
@@ -548,9 +568,10 @@ public sealed class SyncService
                         try
                         {
                             var seasonMeta = await connector.GetMetadataAsync(item.SeasonId, itemCt);
-                            await DownloadArtworkAsync(connector, seasonMeta, nfoDir, itemCt);
+                            await DownloadArtworkAsync(connector, seasonMeta, nfoDir, itemCt, onExpectedPath: expectedSidecars.Add);
 
                             var seasonNfoPath = Path.Combine(nfoDir, "season.nfo");
+                            expectedSidecars.Add(seasonNfoPath);
                             if (config.MetadataMode == MetadataMode.RemoteSyncFull || !File.Exists(seasonNfoPath))
                             {
                                 var nfoContent = _nfoGenerator.GenerateSeasonNfo(seasonMeta);
@@ -577,6 +598,7 @@ public sealed class SyncService
                     var nfoPath = item.Type == MediaType.Movie
                         ? Path.Combine(nfoDir, "movie.nfo")
                         : Path.Combine(nfoDir, mediaFileName + ".nfo");
+                    expectedSidecars.Add(nfoPath);
 
                     if (config.MetadataMode == MetadataMode.RemoteSync && File.Exists(nfoPath))
                     {
@@ -606,7 +628,7 @@ public sealed class SyncService
                     }
 
                     _nfoGenerator.Generate(metadata, nfoDir);
-                    await DownloadArtworkAsync(connector, metadata, nfoDir, itemCt);
+                    await DownloadArtworkAsync(connector, metadata, nfoDir, itemCt, onExpectedPath: expectedSidecars.Add);
 
                     _logger.LogDebug(
                         "VirtualLib NFO written for '{Title}' — Technical={HasTech} (codec={Codec} {W}x{H}) RuntimeTicks={Ticks}",
@@ -632,6 +654,37 @@ public sealed class SyncService
                     progress?.Report(new SyncProgress { LibraryName = libraryName, Current = current, Total = total, CurrentItem = item.Title });
                 }
             });
+
+        // --- Orphan cleanup (additive, #12/#44 — D11) ---------------------------------------
+        // Guard rail #3 (CA11): abandon unconditionally if this library reported any failure or
+        // if the remote listing itself came back empty — an unreachable/misbehaving remote server
+        // must never be able to wipe a catalogue. Guard rails #1 (Enabled) and #2 (DryRun) live in
+        // CleanupOptions and are enforced by LibraryCleanupService itself.
+        if (orphanCleanupEnabled && _libraryCleanupService is not null && libFailed == 0 && rawItemCount > 0)
+        {
+            var expectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (path, _) in pendingStrms) expectedPaths.Add(path);
+            foreach (var path in expectedSidecars) expectedPaths.Add(path);
+
+            var libFolderPath = GetLibraryFolderPath(virtualLibRoot, config, libraryName, libraryType);
+
+            try
+            {
+                // DryRun forced true for now — no persisted setting/UI to disable it yet (#12).
+                var cleanupResult = await _libraryCleanupService.CleanupAsync(
+                    libFolderPath, expectedPaths, new CleanupOptions { Enabled = true, DryRun = true }, ct);
+
+                if (cleanupResult.OrphansFound.Count > 0)
+                    _logger.LogWarning(
+                        "Cleanup (dry-run) '{LibraryName}': {Count} orphan file(s) would be removed",
+                        libraryName, cleanupResult.OrphansFound.Count);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Cleanup failed for library '{LibraryName}'", libraryName);
+            }
+        }
 
         return (new LibrarySyncResult
         {
@@ -1135,7 +1188,8 @@ public sealed class SyncService
         MediaItem item,
         string targetDir,
         CancellationToken ct,
-        bool audiobook = false)
+        bool audiobook = false,
+        Action<string>? onExpectedPath = null)
     {
         var artworkFileNames = audiobook ? _audioArtworkFileNames : _videoArtworkFileNames;
 
@@ -1146,6 +1200,9 @@ public sealed class SyncService
             if (!artworkFileNames.TryGetValue(artworkType, out var fileName)) continue;
 
             var destPath = Path.Combine(targetDir, fileName);
+            // Reported whether newly downloaded, already present, or the download below fails —
+            // this is the path a well-formed sync expects to exist (orphan cleanup, #44/D11).
+            onExpectedPath?.Invoke(destPath);
             if (File.Exists(destPath)) continue;
 
             try
