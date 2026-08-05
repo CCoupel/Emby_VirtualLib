@@ -1,5 +1,6 @@
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
 using VirtualLib.Core;
@@ -17,21 +18,32 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
     private readonly ILibraryManager _libraryManager;
     private readonly ILibraryMonitor _libraryMonitor;
 
-    public LibrarySyncJob(ILibraryManager libraryManager, ILibraryMonitor libraryMonitor, IItemRepository itemRepository, IUserDataManager userDataManager, IUserManager userManager)
+    /// <summary>
+    /// <paramref name="logManager"/> is resolved by Emby's container exactly like the four other
+    /// Emby-side dependencies below — <c>ILogManager</c> is a foundational host service. Unlike
+    /// <c>BaseApiService.Logger</c> (populated after construction), a constructor-injected
+    /// dependency is available immediately, so the resulting logger can be captured eagerly here
+    /// (code-reviewer report on #44 / #26 — this task's SyncService/LibraryCleanupService were
+    /// previously built with NullLogger, silently dropping all cleanup dry-run output).
+    /// </summary>
+    public LibrarySyncJob(ILibraryManager libraryManager, ILibraryMonitor libraryMonitor, IItemRepository itemRepository, IUserDataManager userDataManager, IUserManager userManager, ILogManager logManager)
     {
         _libraryManager = libraryManager;
         _libraryMonitor = libraryMonitor;
+
+        var embyLogger = logManager.GetLogger(nameof(LibrarySyncJob));
+
         _syncService = new SyncService(
             new ConnectorFactory(new DefaultHttpClientFactory(), NullLoggerFactory.Instance),
             new StrmGenerator(),
             new EpubStubGenerator(),
             new NfoGenerator(),
-            NullLogger<SyncService>.Instance,
+            new EmbyLoggerAdapter<SyncService>(embyLogger),
             libraryManager,
             itemRepository,
             userDataManager,
             userManager,
-            new LibraryCleanupService(NullLogger<LibraryCleanupService>.Instance));
+            new LibraryCleanupService(new EmbyLoggerAdapter<LibraryCleanupService>(embyLogger)));
     }
 
     // -------------------------------------------------------------------------

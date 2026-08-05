@@ -289,17 +289,22 @@ public sealed class ConfigController : BaseApiService
         _libraryMonitor = libraryMonitor;
         _taskManager = taskManager;
         _libraryProvisioner = new LibraryProvisioner(libraryManager, NullLogger<LibraryProvisioner>.Instance);
+
+        // Logger is a settable property populated by the ServiceStack host AFTER construction
+        // (property injection, confirmed via BaseApiService reflection) — read it lazily through
+        // EmbyLoggerAdapter, never capture it directly here, or every log call would silently
+        // no-op against a not-yet-populated value (code-reviewer report on #44 / #26).
         _syncService = new SyncService(
             _connectorFactory.Value,
             new StrmGenerator(),
             new EpubStubGenerator(),
             new NfoGenerator(),
-            NullLogger<SyncService>.Instance,
+            new EmbyLoggerAdapter<SyncService>(() => Logger),
             libraryManager,
             itemRepository,
             userDataManager,
             userManager,
-            new LibraryCleanupService(NullLogger<LibraryCleanupService>.Instance));
+            new LibraryCleanupService(new EmbyLoggerAdapter<LibraryCleanupService>(() => Logger)));
     }
 
     /// <summary>
