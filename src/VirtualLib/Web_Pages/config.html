@@ -319,6 +319,55 @@
                     </div>
                 </div>
 
+                <!-- Media Filtering (#44) — additive: no rule = identical behaviour to before. -->
+                <div class="detailSection" style="margin-top:1.5em">
+                    <div class="detailSectionHeader">Media Filtering</div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="connectorFilterMinHeight">Minimum Resolution</label>
+                        <select id="connectorFilterMinHeight" is="emby-select" class="emby-select-withcolor emby-input">
+                            <option value="0">None — all resolutions</option>
+                            <option value="720">720p and above (height &ge; 720px)</option>
+                            <option value="1080">1080p and above (height &ge; 1080px)</option>
+                            <option value="2160">4K and above (height &ge; 2160px)</option>
+                        </select>
+                        <div class="fieldDescription">
+                            Compared against the video track's height. Choices: none, 720p, 1080p, 4K.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer" style="margin-top:0.75em">
+                        <label class="inputLabel inputLabelUnfocused" for="connectorFilterAudioLanguages">Accepted Audio Languages</label>
+                        <input type="text" id="connectorFilterAudioLanguages" class="emby-input"
+                               placeholder="e.g. fr, en — empty: no filter" />
+                        <div class="fieldDescription">
+                            Comma-separated codes. A media is kept if it has <strong>at least one</strong> audio track in
+                            one of these languages. <code>fr</code>, <code>fre</code>, <code>fra</code> and
+                            <code>french</code> are equivalent.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer" style="margin-top:0.75em">
+                        <label class="inputLabel inputLabelUnfocused" for="connectorFilterSubtitleLanguages">Accepted Subtitle Languages</label>
+                        <input type="text" id="connectorFilterSubtitleLanguages" class="emby-input"
+                               placeholder="e.g. fr — empty: no filter" />
+                        <div class="fieldDescription">Same principle as audio. Leave empty to not filter on subtitles.</div>
+                    </div>
+
+                    <div style="margin-top:0.75em;display:flex;align-items:center;gap:0.8em">
+                        <label class="emby-checkbox-label" style="display:flex;align-items:center;gap:0.5em;cursor:pointer">
+                            <input type="checkbox" id="connectorFilterIgnoreForcedSubtitles" class="emby-checkbox" />
+                            <span>Ignore forced subtitles</span>
+                        </label>
+                    </div>
+
+                    <div class="fieldDescription" style="margin-top:0.5em">
+                        These rules only apply to <strong>Movies and Episodes</strong> — Music, Audiobooks, Books and
+                        Photos are always synced in full. A media whose technical information is unavailable is
+                        always <strong>kept</strong> (fail-open).
+                    </div>
+                </div>
+
                 <div style="margin-top:0.75em;display:flex;align-items:center;gap:0.8em">
                     <label class="emby-checkbox-label" style="display:flex;align-items:center;gap:0.5em;cursor:pointer">
                         <input type="checkbox" id="connectorCacheEnabled" class="emby-checkbox" checked />
