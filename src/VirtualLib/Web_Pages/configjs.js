@@ -412,6 +412,10 @@ define([], function () {
             q('connectorMaxParallel').value = 4;
             q('connectorLibraryOrganization').value = 'Isolated';
             q('connectorCacheEnabled').checked = true;
+            q('connectorFilterMinHeight').value = '0';
+            q('connectorFilterAudioLanguages').value = '';
+            q('connectorFilterSubtitleLanguages').value = '';
+            q('connectorFilterIgnoreForcedSubtitles').checked = false;
             loadLocalUsers('');
             q('plexTwoFactorPin').value = '';
             resetPlexServerPicker();
@@ -450,6 +454,15 @@ define([], function () {
                 q('connectorMaxParallel').value = c.MaxParallelLibraries || 4;
                 q('connectorLibraryOrganization').value = c.LibraryOrganization || 'Isolated';
                 q('connectorCacheEnabled').checked = c.CacheEnabled !== false;
+
+                // MediaFilter is returned as a nested object (D2 asymmetry) — restitution reads
+                // from it, while the save payload below sends the four flat Filter* fields.
+                var mf = c.MediaFilter || {};
+                q('connectorFilterMinHeight').value = String(mf.MinHeight || 0);
+                q('connectorFilterAudioLanguages').value = (mf.AudioLanguages || []).join(', ');
+                q('connectorFilterSubtitleLanguages').value = (mf.SubtitleLanguages || []).join(', ');
+                q('connectorFilterIgnoreForcedSubtitles').checked = !!mf.IgnoreForcedSubtitles;
+
                 loadLocalUsers(c.LocalUserId || '');
 
                 // Restore PlexTV machine picker with saved identifier
@@ -773,6 +786,10 @@ define([], function () {
             if (!enabled) ids = ids.filter(function (id) { return id !== libraryId; });
             // Update cache immediately so rapid successive toggles don't race
             c.LibraryIds = ids;
+            // PUT replaces ConnectorConfig wholesale (D3) — every field must be sent, including
+            // the ones this action doesn't touch, otherwise they silently reset to their default
+            // (this is exactly the bug that used to erase LocalUserId and CacheEnabled here).
+            var mf = c.MediaFilter || {};
             var payload = {
                 Id: c.Id,
                 DisplayName: c.DisplayName,
@@ -786,6 +803,12 @@ define([], function () {
                 MetadataMode: c.MetadataMode || 'RemoteSync',
                 MaxParallelLibraries: c.MaxParallelLibraries || 4,
                 LibraryOrganization: c.LibraryOrganization || 'Isolated',
+                LocalUserId: c.LocalUserId || '',
+                CacheEnabled: c.CacheEnabled !== false,
+                FilterMinHeight: mf.MinHeight || 0,
+                FilterAudioLanguages: (mf.AudioLanguages || []).join(', '),
+                FilterSubtitleLanguages: (mf.SubtitleLanguages || []).join(', '),
+                FilterIgnoreForcedSubtitles: !!mf.IgnoreForcedSubtitles,
                 LibraryIds: ids,
                 Enabled: c.Enabled
             };
@@ -983,6 +1006,10 @@ define([], function () {
                 var libraryOrganization   = q('connectorLibraryOrganization').value;
                 var localUserId           = q('connectorLocalUserId').value;
                 var connectorCacheEnabled = q('connectorCacheEnabled').checked;
+                var filterMinHeight              = parseInt(q('connectorFilterMinHeight').value, 10) || 0;
+                var filterAudioLanguages         = q('connectorFilterAudioLanguages').value.trim();
+                var filterSubtitleLanguages      = q('connectorFilterSubtitleLanguages').value.trim();
+                var filterIgnoreForcedSubtitles  = q('connectorFilterIgnoreForcedSubtitles').checked;
 
                 if (!displayName) {
                     setStatus(statusEl, 'Name is required.', true);
@@ -1024,6 +1051,10 @@ define([], function () {
                             LibraryOrganization: libraryOrganization,
                             LocalUserId: localUserId,
                             CacheEnabled: connectorCacheEnabled,
+                            FilterMinHeight: filterMinHeight,
+                            FilterAudioLanguages: filterAudioLanguages,
+                            FilterSubtitleLanguages: filterSubtitleLanguages,
+                            FilterIgnoreForcedSubtitles: filterIgnoreForcedSubtitles,
                             LibraryIds: existing ? (existing.LibraryIds || []) : [],
                             Enabled: true
                         };
@@ -1052,6 +1083,10 @@ define([], function () {
                         LibraryOrganization: libraryOrganization,
                         LocalUserId: localUserId,
                         CacheEnabled: connectorCacheEnabled,
+                        FilterMinHeight: filterMinHeight,
+                        FilterAudioLanguages: filterAudioLanguages,
+                        FilterSubtitleLanguages: filterSubtitleLanguages,
+                        FilterIgnoreForcedSubtitles: filterIgnoreForcedSubtitles,
                         LibraryIds: [],
                         Enabled: true
                     };
