@@ -57,7 +57,23 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHas
         {
             new PluginPageInfo
             {
-                Name = "VirtualLibConfig",
+                // Versioned like VirtualLibConfigScript below (bump on every config.html change).
+                // Never bumped since introduction — unlike the script name, which has been bumped
+                // 5 times (105→109) specifically to defeat browser caching of stale content served
+                // under the same resource name. config.html itself was never protected the same
+                // way: a browser holding a cached copy keeps whatever <script> version *that* stale
+                // HTML points to via data-controller, so it never even requests the current script —
+                // no reload of configjs.js alone can fix it. This is the same root cause already
+                // diagnosed once for the exact "cache checkbox unchecked until full reload" symptom
+                // (61af5b5) — that fix only bumped the script, leaving this page unprotected against
+                // recurrence (bug report post-#44/QUALIF, same symptom, script already at 109).
+                //
+                // This number is an INDEPENDENT counter from VirtualLibConfigScript's below — they
+                // only happen to read "109" on both right now because this page's counter started
+                // fresh at the script's current value. Bump whichever file actually changed; do not
+                // assume the two must move together next time (see #46 — no automated mechanism yet
+                // for either, so nothing here enforces they stay in sync).
+                Name = "VirtualLibConfig109",
                 EmbeddedResourcePath = $"{GetType().Namespace}.Web_Pages.config.html",
                 EnableInMainMenu = true,
                 DisplayName = "VirtualLib",
