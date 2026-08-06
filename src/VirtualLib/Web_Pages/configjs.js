@@ -519,6 +519,12 @@ define([], function () {
 
         var _syncPollTimer = null;
 
+        // Guards against two overlapping pollSyncStatus() chains starting at once — can happen
+        // now that init calls it both eagerly and from 'viewshow' (see the "Init" comment below).
+        // Set for the duration of the in-flight request only; the 2s inter-poll gap itself needs
+        // no guard since a single chain already serializes its own calls via setTimeout.
+        var _pollInFlight = false;
+
         // ── Sync status constants (mirror LibrarySyncStatus enum) ──────────
         var SP_PENDING = 0, SP_P1 = 1, SP_P2 = 2, SP_DONE = 3, SP_FAILED = 4;
         var SP_FILL_PHASE1 = 'var(--accent-color,#00a4dc)';
@@ -542,6 +548,7 @@ define([], function () {
 
         function stopSyncPoll() {
             if (_syncPollTimer) { clearTimeout(_syncPollTimer); _syncPollTimer = null; }
+            _pollInFlight = false;
         }
 
         function spPct(done, total) {
@@ -683,7 +690,10 @@ define([], function () {
         // Called repeatedly while a sync is in progress.
         // Also called once on page load to detect an already-running sync.
         function pollSyncStatus() {
+            if (_pollInFlight) return; // another chain's request is already in flight \u2014 skip
+            _pollInFlight = true;
             apiGet('/virtuallib/sync/status').then(function (status) {
+                _pollInFlight = false;
                 if (status.IsSyncing) {
                     q('syncProgressContainer').style.display = '';
                     q('syncGlobalLabel').style.display = '';
@@ -704,6 +714,7 @@ define([], function () {
                     }
                 }
             }).catch(function () {
+                _pollInFlight = false;
                 stopSyncPoll();
                 setSyncMode(false);
             });
@@ -925,6 +936,31 @@ define([], function () {
         // -------------------------------------------------------------------
         // Init — called by Emby when the view is shown
         // -------------------------------------------------------------------
+
+        // Defensive eager load, in addition to the 'viewshow' listener below (bug report
+        // post-#44/QUALIF: "cache" checkbox — and by extension any field populated by
+        // loadGlobalSettings() — not reflecting saved state on first navigation into this
+        // page, correct only after a full browser reload; unaffected by two prior attempts
+        // that each version-busted a resource name to defeat a *stale cache* — configjs.js
+        // was already freshly served at the time and the page's own resource name was
+        // additionally version-busted in 1467772, yet the symptom persisted identically,
+        // ruling out HTTP/script caching as the cause). Leading remaining hypothesis: this
+        // controller module (loaded async via AMD `data-controller`) can still be mid-load
+        // when Emby's SPA router inserts+shows the view and dispatches the first 'viewshow'
+        // on a client-side (menu/dashboard) navigation — the listener below would then be
+        // registered after that first dispatch and never see it, leaving the view
+        // uninitialized until something fires 'viewshow' again. A full reload (F5) does not
+        // exhibit this because the whole page — including this controller script — loads
+        // synchronously before anything is shown, so the listener is always attached in time.
+        // loadGlobalSettings()/loadConnectors()/pollSyncStatus() are all read-only (GET) and
+        // idempotent — calling them once here as well as from 'viewshow' is safe even when
+        // 'viewshow' *does* also fire normally; worst case is one harmless extra fetch of
+        // already-current data. Button click handlers are intentionally NOT duplicated here —
+        // they stay solely inside 'viewshow' to avoid attaching multiple listeners (which would
+        // fire each action more than once per click).
+        loadGlobalSettings();
+        loadConnectors();
+        pollSyncStatus();
 
         view.addEventListener('viewhide', function () {
             stopSyncPoll();
