@@ -612,6 +612,17 @@ define([], function () {
                     lib.Phase1Done, lib.Phase1Total,
                     lib.Phase2Done, lib.Phase2Total,
                     lib.Status === SP_FAILED);
+
+                // Live 3-number counter — <imported> / <after filter> / <remote total> (#44 D9).
+                // RemoteTotal mirrors Phase1Total when no media filter is active on the connector
+                // (expected, not a bug — cf. code review point 4). Reverts to the static
+                // "… / N distant" once the sync ends and loadConnectors() re-renders the tree.
+                if (lib.Phase1Total > 0 || lib.RemoteTotal > 0) {
+                    var remote = lib.RemoteTotal > 0 ? lib.RemoteTotal : lib.Phase1Total;
+                    view.querySelectorAll('[data-count-lib="' + lib.LibraryId + '"]').forEach(function (span) {
+                        span.textContent = lib.Phase1Done + ' / ' + lib.Phase1Total + ' / ' + remote + ' distant';
+                    });
+                }
             });
 
             // Per-type and per-connector bars
