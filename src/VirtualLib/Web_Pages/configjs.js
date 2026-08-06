@@ -923,7 +923,21 @@ define([], function () {
                 q('proxyTimeout').value = s.ProxyTimeoutSeconds || 30;
                 q('sharedLibraryPrefix').value = s.SharedLibraryPrefix || '';
                 q('sharedLibrarySuffix').value = s.SharedLibrarySuffix || '';
-                q('cacheEnabled').checked = !!s.CacheEnabled;
+                var cacheEnabledEl = q('cacheEnabled');
+                cacheEnabledEl.checked = !!s.CacheEnabled;
+                // Round 3 (bug report post-#44/QUALIF, cache checkbox — confirmed by direct
+                // console measurement: `.checked` is already correct in BOTH the "visually
+                // wrong" and "visually correct" cases, ruling out rounds 1/2's hypotheses
+                // entirely; see loadGlobalSettings-adjacent report for the full trail). This
+                // element has class="emby-checkbox" but no is="emby-checkbox" attribute (unlike
+                // is="emby-select"/is="emby-button" used elsewhere in this file) — its custom
+                // visual state is plausibly driven by a 'change' listener rather than the native
+                // :checked pseudo-class, so setting .checked via script (no user gesture) never
+                // fires that listener and the paint never refreshes, even though the underlying
+                // DOM property is correct the whole time. Dispatching a synthetic 'change' event
+                // mimics what a real user click does, without touching the checkbox's actual
+                // state (already set correctly above).
+                cacheEnabledEl.dispatchEvent(new Event('change', { bubbles: true }));
                 q('cacheChunkSizeMb').value = s.CacheChunkSizeMb || 2;
                 q('cacheMaxSizeGb').value = s.CacheMaxSizeGb || 50;
                 q('cacheTtlDays').value = s.CacheTtlDays || 30;
