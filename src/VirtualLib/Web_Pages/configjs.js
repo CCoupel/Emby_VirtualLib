@@ -582,14 +582,33 @@ define([], function () {
             fills[1].style.width = spPct(p2Done, p1Total) + '%';
         }
 
-        // Compute cumulative Phase1/Phase2 progress across a list of LibrarySyncEntry
+        // Compute cumulative Phase1/Phase2 progress across a list of LibrarySyncEntry.
+        // rt (remote total) sums each library's *effective* remote count — RemoteTotal when
+        // already reported, falling back to Phase1Total per-library first (same rule as the
+        // per-library counter below, #44 D9) — summing raw RemoteTotal directly would understate
+        // the aggregate while some libraries in the group haven't reported it yet.
         function cumulative(libs) {
-            var p1d = 0, p1t = 0, p2d = 0, p2t = 0;
+            var p1d = 0, p1t = 0, p2d = 0, p2t = 0, rt = 0;
             libs.forEach(function (lib) {
                 p1d += lib.Phase1Done;  p1t += lib.Phase1Total;
                 p2d += lib.Phase2Done;  p2t += lib.Phase2Total;
+                rt += (lib.RemoteTotal > 0 ? lib.RemoteTotal : lib.Phase1Total);
             });
-            return { p1d: p1d, p1t: p1t, p2d: p2d, p2t: p2t };
+            return { p1d: p1d, p1t: p1t, p2d: p2d, p2t: p2t, rt: rt };
+        }
+
+        // Live 3-number counter for an aggregated (type- or connector-level) summary span —
+        // same "<imported> / <after filter> / <remote total> distant" pattern as the per-library
+        // counter (#44 D9), applied to the cumulative totals from cumulative() above. Left
+        // untouched (keeps its static "X/Y libs · A/B items" text from updateConnectorSummary /
+        // updateTypeSummary) until progress is actually known, exactly like the per-library guard.
+        // QUALIF feedback: the live counter worked at library level but not at connector/type
+        // level, which still only showed the static selection summary during an active scan.
+        function updateLiveAggregateSummary(selector, agg) {
+            if (agg.p1t <= 0 && agg.rt <= 0) return;
+            var el = view.querySelector(selector);
+            if (!el) return;
+            el.textContent = agg.p1d + ' / ' + agg.p1t + ' / ' + agg.rt + ' distant';
         }
 
         // Update all inline bars in the connector tree + global bar
@@ -633,11 +652,13 @@ define([], function () {
                     var tc = cumulative(typeLibs);
                     var hasFail = typeLibs.some(function(l) { return l.Status === SP_FAILED; });
                     setInlineBar('t:' + connId + '|' + type, tc.p1d, tc.p1t, tc.p2d, tc.p2t, hasFail);
+                    updateLiveAggregateSummary('[data-type-summary="' + connId + '|' + type + '"]', tc);
                     allConnLibs = allConnLibs.concat(typeLibs);
                 });
                 var cc = cumulative(allConnLibs);
                 var hasFail = allConnLibs.some(function(l) { return l.Status === SP_FAILED; });
                 setInlineBar('c:' + connId, cc.p1d, cc.p1t, cc.p2d, cc.p2t, hasFail);
+                updateLiveAggregateSummary('[data-connector-summary="' + connId + '"]', cc);
             });
 
             // Global bar

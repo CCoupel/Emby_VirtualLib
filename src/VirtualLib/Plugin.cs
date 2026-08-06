@@ -74,7 +74,7 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHas
             },
             new PluginPageInfo
             {
-                Name = "VirtualLibConfigScript108",
+                Name = "VirtualLibConfigScript109",
                 EmbeddedResourcePath = $"{GetType().Namespace}.Web_Pages.configjs.js"
             }
         };
