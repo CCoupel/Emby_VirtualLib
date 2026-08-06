@@ -4,7 +4,7 @@
   "org": "CCoupel",
   "project": "Emby_VirtualLib",
   "description": "Plugin Emby agregant des bibliotheques de serveurs medias distants (Emby, Jellyfin, Plex) comme bibliotheques virtuelles natives, avec proxy transparent pour le streaming et le transcodage.",
-  "version": "1.9.4",
+  "version": "1.10.0.0",
   "initialized_at": "2026-08-04",
   "initialized_from": "analysis",
   "stack": {
