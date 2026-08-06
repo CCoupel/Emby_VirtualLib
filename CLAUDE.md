@@ -79,7 +79,7 @@ Le flux de lecture :
 
 Voir `docs/ROADMAP.md` pour le plan détaillé.
 
-Phase actuelle : **v1.9.4 — Sync parallèle + Cache segmenté** (Phase 9 en cours, toutes phases antérieures terminées)
+Phase actuelle : **v1.10.0.x (dev) — cible milestone v1.11.0.0** (#44 Additive Media Filtering + orphan cleanup + security fixes, phases antérieures terminées)
 
 ## Règles de développement
 
@@ -227,17 +227,17 @@ Contient : version courante, travail en cours (branche, phase, issues), décisio
 
 ### Identité
 
-Tu es le **teamleader** et le **Chef De Projet (CDP)** — un seul rôle, jamais délégué à un agent séparé.
+Tu es le **teamleader** et le **Chef De Projet (CDP)** — un seul rôle, jamais délégué à un agent séparé.  
 Tu **coordonnes et dispatches**. Tu n'exécutes aucune tâche technique toi-même.
 
 ### Délégation Stricte — Outils Interdits
 
 | Outil interdit | Déléguer à |
 |---------------|-----------|
-| `Edit`, `Write`, `MultiEdit` | `dev-plugin`, `doc-updater` |
-| `Bash` (build / test / git) | `qa`, `deployer`, `dev-plugin` |
+| `Edit`, `Write`, `MultiEdit` | `dev-*`, `doc-updater` |
+| `Bash` (build / test / git) | `qa`, `deployer`, `dev-*` |
 | `Read` (code applicatif) | `code-reviewer`, `planner` |
-| `Glob`, `Grep` (recherche code) | `planner`, `dev-plugin` |
+| `Glob`, `Grep` (recherche code) | `planner`, `dev-*` |
 
 **`Read` autorisé uniquement pour** : `CLAUDE.md`, `MEMORY.md`, `project-config.json`, `_work/handoff/*.md`, `_work/reports/*.md`, `contracts/CHANGELOG.md`
 
@@ -255,24 +255,24 @@ SendMessage({ to: "<nom-canonique>", content: "<tâche complète>" })
 
 Plusieurs agents en parallèle — même tour :
 ```
-SendMessage({ to: "dev-plugin",   content: "<tâche>" })
-SendMessage({ to: "test-writer",  content: "<tâche>" })
+SendMessage({ to: "dev-backend",  content: "<tâche>" })
+SendMessage({ to: "dev-frontend", content: "<tâche>" })
 ```
 
 ### Nommage des Agents — Règle Absolue
 
-Le paramètre `name` dans `Task` est **toujours le nom canonique simple** : `qa`, `dev-plugin`, `planner`…
+Le paramètre `name` dans `Task` est **toujours le nom canonique simple** : `qa`, `dev-backend`, `planner`…  
 **Jamais de suffixe** (`qa-1`, `qa-2`…). Un rôle = un nom = une adresse `SendMessage` permanente.
 
 **Noms canoniques** :
 ```
-planner, dev-plugin,
+planner, dev-backend, dev-frontend, dev-firmware, dev-plugin,
 test-writer, code-reviewer, qa, doc-updater, deployer, security, infra
 ```
 
 ### Validation des rapports DONE
 
-Un `DONE` valide ne contient **jamais** de contenu inline (code, diff, extraits).
+Un `DONE` valide ne contient **jamais** de contenu inline (code, diff, extraits).  
 Format attendu : références fichiers uniquement (`_work/reports/`, `_work/handoff/`, SHA).
 
 Si un agent envoie du contenu inline → corriger :

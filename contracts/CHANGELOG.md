@@ -4,7 +4,7 @@
 
 ---
 
-## [20260804] — Filtrage des médias distants (#44, milestone v1.10.0)
+## [20260804] — Filtrage des médias distants (#44, milestone v1.11.0)
 
 **Aucun changement BREAKING.** Tous les ajouts sont additifs ; une configuration existante sans règle produit exactement le comportement antérieur.
 

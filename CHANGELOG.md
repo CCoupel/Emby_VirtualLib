@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.10.0] - 2026-08-06
+## [1.11.0.0] - 2026-08-06
 
 ### Added
 - **Additive media filtering** (Issue #44) : per-connector stream filtering by minimum resolution, audio languages, and subtitle languages for Movie/Episode scope
