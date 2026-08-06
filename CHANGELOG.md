@@ -21,6 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.10.0] - 2026-08-06
+
+### Added
+- **Additive media filtering** (Issue #44) : per-connector stream filtering by minimum resolution, audio languages, and subtitle languages for Movie/Episode scope
+- **Complete stream capture** : Emby streams (language, subtitle info) captured at no cost; Plex streams fetched via batch requests (50 items per request) with full metadata
+- **Shared orphan cleanup brick** (shared with Issue #12) : implemented but disabled by default with forced dry-run mode (no actual deletion possible in this version)
+- **Complete track injection** : audio and subtitle tracks now injected into Emby MediaStreams and NFO files (bonus improvement)
+
+### Fixed
+- `CacheEnabled` configuration not persisting across restarts
+- `toggleLibrary` action accidentally erasing `LocalUserId` on checkbox click (breaking multi-user isolation)
+- Orphan cleanup protection against symbolic links in cleanup path traversal
+- Connector name uniqueness enforcement with concurrent access mutex (Issue #44)
+- Sync logs now visible in production (resolves practical aspect of Issue #26)
+
+---
+
 ## [1.9.4] - 2026-04-12
 
 ### Added
