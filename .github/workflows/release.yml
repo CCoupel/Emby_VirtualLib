@@ -3,6 +3,12 @@ name: Release
 on:
   push:
     tags:
+      # Format prod courant (issue #24, catalog-compliance) : 4 segments X.Y.Z.0
+      # ex. v1.11.0.0. Le dernier segment est toujours fixe a 0 en prod.
+      - 'v[0-9]+.[0-9]+.[0-9]+.[0-9]+'
+      # Retro-compatibilite : 19 tags historiques (v1.0.0 -> v1.9.4) au format
+      # 3 segments. Ce pattern permet de rejouer/re-declencher le workflow sur
+      # ces tags existants (ex. re-run manuel) sans casser leur resolution.
       - 'v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
@@ -17,7 +23,18 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        # Retire le prefixe 'v'. Normalise vers 4 segments X.Y.Z.0 si un tag
+        # historique 3 segments (ex. v1.9.4) est rejoue, pour garder -p:Version
+        # conforme au format 4 segments exige par le catalogue Emby (issue #24).
+        run: |
+          RAW="${GITHUB_REF_NAME#v}"
+          SEGMENTS=$(echo "$RAW" | awk -F. '{print NF}')
+          if [ "$SEGMENTS" -eq 3 ]; then
+            VERSION="${RAW}.0"
+          else
+            VERSION="$RAW"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
