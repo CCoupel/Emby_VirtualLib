@@ -14,7 +14,7 @@ public sealed class LibrarySyncEntry
     public string MediaType     { get; init; } = string.Empty;
 
     private int _status = (int)LibrarySyncStatus.Pending;
-    private int _p1Done, _p1Total, _p2Done, _p2Total;
+    private int _p1Done, _p1Total, _p2Done, _p2Total, _remoteTotal;
 
     public LibrarySyncStatus Status
     {
@@ -25,6 +25,13 @@ public sealed class LibrarySyncEntry
     public int Phase1Total { get => Volatile.Read(ref _p1Total); set => Volatile.Write(ref _p1Total, value); }
     public int Phase2Done  { get => Volatile.Read(ref _p2Done);  set => Volatile.Write(ref _p2Done,  value); }
     public int Phase2Total { get => Volatile.Read(ref _p2Total); set => Volatile.Write(ref _p2Total, value); }
+
+    /// <summary>
+    /// Raw remote item count before filtering (#44 D9) — distinct from <see cref="Phase1Total"/>,
+    /// which counts the post-filter list actually being synced. Equal to <see cref="Phase1Total"/>
+    /// when no media filter is active on the connector.
+    /// </summary>
+    public int RemoteTotal { get => Volatile.Read(ref _remoteTotal); set => Volatile.Write(ref _remoteTotal, value); }
 
     public string? ErrorMessage { get; set; }
 }
@@ -80,13 +87,18 @@ public static class SyncState
         };
     }
 
-    public static void UpdatePhase1(string connectorId, string libraryId, int done, int total)
+    /// <summary>
+    /// <paramref name="remoteTotal"/> defaults to 0 (unknown/not reported yet) — callers only pass
+    /// a real value once the first <see cref="SyncProgress"/> carrying it has been observed (#44 D9).
+    /// </summary>
+    public static void UpdatePhase1(string connectorId, string libraryId, int done, int total, int remoteTotal = 0)
     {
         if (_libraries.TryGetValue(MakeKey(connectorId, libraryId), out var e))
         {
             e.Status     = LibrarySyncStatus.RunningPhase1;
             e.Phase1Done  = done;
             e.Phase1Total = total;
+            if (remoteTotal > 0) e.RemoteTotal = remoteTotal;
         }
     }
 

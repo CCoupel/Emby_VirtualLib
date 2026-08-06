@@ -154,7 +154,7 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
         try
         {
             var prog1 = new Progress<SyncProgress>(p =>
-                SyncState.UpdatePhase1(conn.Id, libraryId, p.Current, p.Total));
+                SyncState.UpdatePhase1(conn.Id, libraryId, p.Current, p.Total, p.RemoteTotal));
 
             var orphanCleanupEnabled = Plugin.Instance?.Configuration.OrphanCleanupEnabled ?? false;
             var (result, pending) = await syncSvc.SyncLibraryAsync(
@@ -169,7 +169,9 @@ public sealed class LibrarySyncJob : IScheduledTask, IConfigurableScheduledTask
             if (result.Success)
             {
                 var total = result.ItemsCreated + result.ItemsSkipped + result.ItemsFailed;
-                SyncState.UpdatePhase1(conn.Id, libraryId, total, total);
+                // RemoteTotal = filtered total + items the media filter rejected (#44 D9).
+                var itemsFiltered = result.Libraries.FirstOrDefault()?.ItemsFiltered ?? 0;
+                SyncState.UpdatePhase1(conn.Id, libraryId, total, total, total + itemsFiltered);
             }
 
             semaphore.Release();

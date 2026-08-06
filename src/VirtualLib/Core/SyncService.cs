@@ -24,6 +24,12 @@ public sealed class SyncProgress
     public string LibraryName { get; init; } = string.Empty;
     public int Current { get; init; }
     public int Total { get; init; }
+    /// <summary>
+    /// Raw remote item count before filtering (#44 D9) — 0 when not meaningful for this report
+    /// (e.g. Phase 2 metadata push, which has no filtered/unfiltered distinction). Equal to
+    /// <see cref="Total"/> when no media filter is active on the connector, by construction.
+    /// </summary>
+    public int RemoteTotal { get; init; }
     public string CurrentItem { get; init; } = string.Empty;
 }
 
@@ -651,7 +657,7 @@ public sealed class SyncService
                 finally
                 {
                     var current = Interlocked.Increment(ref done);
-                    progress?.Report(new SyncProgress { LibraryName = libraryName, Current = current, Total = total, CurrentItem = item.Title });
+                    progress?.Report(new SyncProgress { LibraryName = libraryName, Current = current, Total = total, RemoteTotal = rawItemCount, CurrentItem = item.Title });
                 }
             });
 
