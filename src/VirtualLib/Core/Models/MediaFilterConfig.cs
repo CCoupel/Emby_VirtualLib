@@ -20,9 +20,17 @@ public sealed class MediaFilterConfig
     /// <summary>Exclut les pistes sous-titres IsForced du test SubtitleLanguages.</summary>
     public bool IgnoreForcedSubtitles { get; init; }
 
-    /// <summary>Vrai si au moins un critère est non neutre. Si faux, le moteur n'est pas invoqué.</summary>
+    /// <summary>
+    /// Vrai si au moins un critère est non neutre. Si faux, le moteur n'est pas invoqué.
+    /// Défensif contre les listes null (`?.Count ?? 0`) : un ConnectorConfig désérialisé depuis un
+    /// XML de configuration antérieur à #44 (donc sans nœud MediaFilter/AudioLanguages/
+    /// SubtitleLanguages) ne doit jamais lever de NullReferenceException ici — le comportement
+    /// d'IXmlSerializer d'Emby sur un type complexe absent du XML n'est pas garanti respecter les
+    /// initialiseurs de propriété C# (urgence #44 — popup d'erreur au chargement de la page sur
+    /// des connecteurs préexistants).
+    /// </summary>
     public bool IsActive =>
         MinHeight > 0
-        || AudioLanguages.Count > 0
-        || SubtitleLanguages.Count > 0;
+        || (AudioLanguages?.Count ?? 0) > 0
+        || (SubtitleLanguages?.Count ?? 0) > 0;
 }

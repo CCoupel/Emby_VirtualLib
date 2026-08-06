@@ -372,8 +372,10 @@ public sealed class SyncService
         // --- Media filtering (additive, #44) ---
         // Court-circuit total si aucune règle active sur ce connecteur (CA1) : `items` n'est pas
         // ré-attribué et le comportement antérieur au lot est préservé à l'identique.
+        // `config.MediaFilter` peut être null pour un connecteur désérialisé depuis un XML de
+        // configuration antérieur à #44 — `?.` défensif, urgence régression prod.
         int itemsFiltered = 0;
-        if (config.MediaFilter.IsActive)
+        if (config.MediaFilter?.IsActive == true)
         {
             var (filteredItems, rejectedCount) = await ApplyMediaFilterAsync(connector, config, items, libraryName, ct);
             items = filteredItems;
