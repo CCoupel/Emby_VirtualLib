@@ -62,7 +62,15 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHas
                 EnableInMainMenu = true,
                 DisplayName = "VirtualLib",
                 MenuSection = "server",
-                MenuIcon = "folder_open"
+                MenuIcon = "folder_open",
+                // Never set before this fix. Without it, Emby's Plugins-list detail view has no
+                // declared settings page for this plugin and likely falls back to some other
+                // (possibly catalog/package-lookup) mechanism when clicked from Dashboard >
+                // Plugins — a plausible explanation for the "request execution" error popup
+                // reported from that specific entry point, distinct from and unrelated to the
+                // main-menu access path (EnableInMainMenu above), which already reaches this same
+                // page via Emby's SPA router. Urgent regression investigation (#44).
+                IsMainConfigPage = true
             },
             new PluginPageInfo
             {
