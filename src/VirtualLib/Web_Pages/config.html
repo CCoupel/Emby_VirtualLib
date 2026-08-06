@@ -319,9 +319,16 @@
                     </div>
                 </div>
 
-                <!-- Media Filtering (#44) — additive: no rule = identical behaviour to before. -->
-                <div class="detailSection" style="margin-top:1.5em">
-                    <div class="detailSectionHeader">Media Filtering</div>
+                <!-- Media Filtering (#44) — additive: no rule = identical behaviour to before.
+                     Not a nested .detailSection — this block already lives inside
+                     #connectorFormSection (itself a .detailSection); nesting the same class
+                     inside itself was the only such occurrence on this page and is suspected of
+                     confusing Emby's own page-transition handling (code review, urgent regression
+                     — dashboard home left composited under this page). Styled like the sibling
+                     "Local Cache" sub-section above (config.html:71) instead, which uses the same
+                     "bordered sub-block inside a section" pattern without re-nesting the class. -->
+                <div style="margin-top:1.5em;padding:1em;border:1px solid rgba(255,255,255,0.12);border-radius:6px">
+                    <div style="font-weight:bold;margin-bottom:0.8em;opacity:0.9">Media Filtering</div>
 
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="connectorFilterMinHeight">Minimum Resolution</label>
