@@ -57,23 +57,22 @@ public sealed class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHas
         {
             new PluginPageInfo
             {
-                // Versioned like VirtualLibConfigScript below (bump on every config.html change).
-                // Never bumped since introduction — unlike the script name, which has been bumped
-                // 5 times (105→109) specifically to defeat browser caching of stale content served
-                // under the same resource name. config.html itself was never protected the same
-                // way: a browser holding a cached copy keeps whatever <script> version *that* stale
-                // HTML points to via data-controller, so it never even requests the current script —
-                // no reload of configjs.js alone can fix it. This is the same root cause already
-                // diagnosed once for the exact "cache checkbox unchecked until full reload" symptom
-                // (61af5b5) — that fix only bumped the script, leaving this page unprotected against
-                // recurrence (bug report post-#44/QUALIF, same symptom, script already at 109).
+                // Versioned like VirtualLibConfigScript below (bump on every config.html change) —
+                // kept as general hygiene against stale cached HTML pointing at an outdated
+                // data-controller script name, same reasoning already applied to the script name
+                // itself (105→111, see below). NOTE: this was originally introduced (round 1,
+                // commit 1467772) as a hypothesised fix for the "cache checkbox unchecked until
+                // full reload" symptom — that hypothesis was later disproved by direct QUALIF
+                // measurement (rounds 2-4): the real cause was an unrelated CSS/markup issue
+                // (emby-checkbox.css's ::after checkmark rule silently never matching this file's
+                // markup — fixed round 4 by dropping class="emby-checkbox" from the affected
+                // inputs, see the #cacheEnabled input below in config.html). This counter had no
+                // effect on that bug either way; still versioned going forward on its own merit.
                 //
-                // This number is an INDEPENDENT counter from VirtualLibConfigScript's below — they
-                // only happen to read "109" on both right now because this page's counter started
-                // fresh at the script's current value. Bump whichever file actually changed; do not
-                // assume the two must move together next time (see #46 — no automated mechanism yet
-                // for either, so nothing here enforces they stay in sync).
-                Name = "VirtualLibConfig109",
+                // Independent counter from VirtualLibConfigScript's below — bump whichever file
+                // actually changed; do not assume the two must move together (see #46 — no
+                // automated mechanism yet for either, so nothing here enforces they stay in sync).
+                Name = "VirtualLibConfig110",
                 EmbeddedResourcePath = $"{GetType().Namespace}.Web_Pages.config.html",
                 EnableInMainMenu = true,
                 DisplayName = "VirtualLib",

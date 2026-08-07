@@ -73,7 +73,21 @@
 
                     <div style="display:flex;align-items:center;gap:0.8em;margin-bottom:0.6em">
                         <label class="emby-checkbox-label" style="display:flex;align-items:center;gap:0.5em;cursor:pointer">
-                            <input type="checkbox" id="cacheEnabled" class="emby-checkbox" />
+                            <!-- No class="emby-checkbox" (round 4, root cause confirmed live in
+                                 QUALIF: emby-checkbox.css sets appearance:none unconditionally on
+                                 that class, but its checkmark ::after rule additionally requires a
+                                 sibling <span class="checkboxLabel"> that this markup never had —
+                                 when that stylesheet happens to already be loaded in the browser
+                                 session (e.g. from another Emby page using a correctly-structured
+                                 is="emby-checkbox"), this input loses native rendering AND never
+                                 gets the replacement checkmark, appearing permanently unchecked
+                                 regardless of the underlying .checked value (confirmed true in
+                                 both cases across rounds 2/3 — the real bug was never data/timing
+                                 /events). Deliberately left as a plain native checkbox instead of
+                                 fixing the markup to match emby-checkbox.css's contract (heavier,
+                                 riskier on this already fragile file) — loses the custom Emby
+                                 visual style in favour of the browser's own reliable rendering. -->
+                            <input type="checkbox" id="cacheEnabled" />
                             <span>Enable local chunk cache for proxied streams</span>
                         </label>
                     </div>
@@ -363,7 +377,8 @@
 
                     <div style="margin-top:0.75em;display:flex;align-items:center;gap:0.8em">
                         <label class="emby-checkbox-label" style="display:flex;align-items:center;gap:0.5em;cursor:pointer">
-                            <input type="checkbox" id="connectorFilterIgnoreForcedSubtitles" class="emby-checkbox" />
+                            <!-- No class="emby-checkbox" — see #cacheEnabled above (round 4). -->
+                            <input type="checkbox" id="connectorFilterIgnoreForcedSubtitles" />
                             <span>Ignore forced subtitles</span>
                         </label>
                     </div>
@@ -377,7 +392,8 @@
 
                 <div style="margin-top:0.75em;display:flex;align-items:center;gap:0.8em">
                     <label class="emby-checkbox-label" style="display:flex;align-items:center;gap:0.5em;cursor:pointer">
-                        <input type="checkbox" id="connectorCacheEnabled" class="emby-checkbox" checked />
+                        <!-- No class="emby-checkbox" — see #cacheEnabled above (round 4). -->
+                        <input type="checkbox" id="connectorCacheEnabled" checked />
                         <span>Enable cache for this connector</span>
                     </label>
                     <span class="fieldDescription" style="margin:0">(requires global cache to be enabled)</span>
