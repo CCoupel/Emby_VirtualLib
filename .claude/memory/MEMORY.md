@@ -6,9 +6,9 @@
 
 ## Version courante
 
-- **Dev** : `v1.10.0.7` (schema X.Y.Z.a for dev branch, HEAD `1f69df5`)
-- **Prod target** : `v1.11.0.0` (milestone, schema X.Y.Z.0 for releases)
-- **Branche** : `main` (26+ commits ahead of `origin/main`, no push this session)
+- **Prod** : `v1.11.0.0` — ✅ **LIVRÉ en PROD (emby)**, release GitHub publiée, milestone FERMÉ
+- **Dev** : `v1.12.0.x` (prochain cycle vers v1.13.0 prod, schema X.Y.Z.a)
+- **Branche** : `main` (commits synced avec `origin/main` post-release)
 - **Build** : OK, 0 erreur (421 warnings, ~420 sont du CS1591 pré-existant — dette technique, pas bloquant)
 
 ---
@@ -62,30 +62,39 @@
 - **Versioning Schema** (issue #24 catalog compliance) : X.Y.Z.a pour dev (suffixe itératif), X.Y.Z.0 pour prod. Emby catalog exige 4 segments; prod stable sur .0.
 - **GitHub Milestone Management** : Anticiper milestone target lors du développement (1.11.0 dès le démarrage de #44, même en dev 1.10.0.x)
 
-## Issues GitHub ouvertes
+## Issues GitHub — Milestone Management
 
-**Milestone v1.11.0** (6 issues, #44 just closed):
-- #12 (Orphan cleanup shared brick) — READY FOR DEV
-- #24 (Catalog version compliance) — ACTIVE (schema implemented, validation pending)
+**Milestone v1.11.0** — ✅ **CLOSED (release livrée v1.11.0.0)**
+- #44: Closed (filtrage additif + compteurs + checkbox fix)
+- Closed at: 2026-08-07T08:25:00Z
+- Status: Complete, production validated
+
+**Milestone v1.13.0** (5 issues, next production cycle):
+- #12 (Orphan cleanup shared brick) — READY FOR DEV (dry-run done, needs full deletion + safety)
+- #24 (Catalog version compliance) — ACTIVE (schema implemented, CI supports 4-part tags since 3217479, issue remains open)
 - #26 (Production logs visible) — PARTIALLY RESOLVED (#44 feat, may need more instrumentation)
-- #45 (root cause identified, fix ready) — READY FOR DEV
-- #46 (cache-busting manual) — READY FOR DEV
+- #45 (NFO providers ILogger<T> DI registration) — **READY FOR DEV** (root cause identified, fix ready in dev-plugin)
+- #46 (Cache-busting configjs.js automatic) — READY FOR DEV (linked to resolved checkbox saga)
 
 **Backlog** (8 autres issues):
 #14, #15 (phase-2/3), #23, #27, #28 (catalog-compliance) — voir `gh issue list` pour le détail à jour.
 
-## Priorités prochaines sessions
+## Priorités cycle v1.13.0 (prochaines sessions)
 
 ### Immédiat (ready-to-start)
-1. **#45** — Root cause déjà identifiée par dev-plugin cette session, fix prêt à lancer
-2. **#46** — Cache-busting manuel, directement lié à la saga checkbox qu'on vient de résoudre (configuration UI refresh strategy)
+1. **#45** (ILogger<T> DI registration for NFO providers) — ⭐ **Root cause identified, fix ready in dev-plugin** — Launch first
+2. **#46** (Cache-busting configjs.js automatic) — Linked to checkbox saga resolution, UI refresh strategy optimization
 
-### Court terme (après #44 promotion en v1.11.0.0)
-3. **#12** — Orphan cleanup (shared brick, dry-run now; needs full deletion impl + safety testing)
-4. **#24** — Catalog version compliance (schema applied, further catalog-side validation pending from Emby/Jellyfin)
-5. **#26** — Production log visibility (partially resolved in #44; may need further instrumentation for specific connectors)
+### Court terme (v1.13.0)
+3. **#12** (Orphan cleanup shared brick) — Needs full deletion implementation + safety testing (dry-run exists)
+4. **#24** (Catalog version compliance) — Schema applied, CI/CD supports 4-part tags; issue remains for catalog-side validation (Emby/Jellyfin teams)
+5. **#26** (Production log visibility) — Partially resolved in #44; may need further instrumentation for specific connectors
 
-### Attention particulière
-- **26+ commits not pushed to `origin/main`** — current session strategy; décision needed : push now, or batch with next release?
-- Warning `CA2017` in `CacheManager.cs:840` (log placeholder mismatch) — low priority, logs only
-- ~420 warnings `CS1591` (missing XML docs) — pre-existing, acceptable as technical debt
+### Notes de suivi
+- v1.11.0.0 production release ✅ completed and validated on `emby`
+- Milestone v1.11.0 ✅ closed (6 issues total including #44)
+- Milestone v1.13.0 ✅ created with 5 issues ready for next cycle
+- GitHub milestones convention: **Y even = dev version, Y odd = prod milestone target**
+  - v1.12.0.x (dev) → v1.13.0 (prod milestone)
+- Warning `CA2017` in `CacheManager.cs:840` (log placeholder) — low priority
+- ~420 warnings `CS1591` (XML docs) — pre-existing technical debt
