@@ -8,10 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Live counter aggregation** (commit 7b923fc) : 3-value counter extended to connector and content-type levels (in addition to existing library-level counters) during sync operations
 
 ### Changed
 
 ### Fixed
+- **Configuration checkbox visibility regression** (commits 1467772 / 2eb924b / 8eefc8e / 6e6412e)
+  - **Bug**: `cacheEnabled`, `connectorFilterIgnoreForcedSubtitles`, and `connectorCacheEnabled` checkboxes rendered invisible in configuration page after rapid deployment cycles
+  - **Root cause identified**: Emby's `emby-checkbox.css` module applies `appearance: none` to elements with `class="emby-checkbox"` but requires a sibling with exact class `checkboxLabel` for rendering the check mark — our HTML markup lacked this sibling, causing invisible checkboxes when the CSS module was loaded in the browser session (non-deterministic trigger dependent on Emby pages visited in session)
+  - **Resolution attempts** (3 unsuccessful):
+    1. Cache-busting `config.html` (invalidated QUALIF) — incorrect hypothesis
+    2. Eager-load `viewshow` module (invalidated QUALIF) — incorrect hypothesis
+    3. Synthetic `dispatchEvent('change')` to trigger CSS (invalidated QUALIF) — CSS issue not event-driven
+  - **Final fix** (commit 6e6412e, confirmed QUALIF): Remove incompatible `class="emby-checkbox"` from all three checkboxes; accept loss of Emby's custom visual styling in exchange for reliable native checkbox rendering
+  - **Trade-off**: Configuration checkboxes now render with browser default styling instead of Emby's custom appearance, but are visually reliable across all browser sessions
 
 ### Security
 
