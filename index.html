@@ -168,6 +168,7 @@
     .pill-teal{border-color:rgba(0,224,204,.3);color:var(--teal)}
     .pill-blue{border-color:rgba(79,138,255,.3);color:var(--blue)}
     .pill-purple{border-color:rgba(168,85,247,.3);color:var(--purple)}
+    .pill-coral{border-color:rgba(255,107,107,.4);color:var(--coral);background:rgba(255,107,107,.08)}
 
     /* ARCHITECTURE DIAGRAM */
     .arch-section{background:var(--bg)}
@@ -215,6 +216,9 @@
     .phase-card:hover{transform:translateY(-5px)}
     .phase-card.active{border-color:var(--gold)}
     .phase-card.active::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--gold),#ffdd85)}
+    .phase-card.done{border-color:var(--teal)}
+    .phase-card.done::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--teal),#7ffaf0)}
+    .ptag-done{background:rgba(0,224,204,.12);color:var(--teal)}
     .phase-ghost{font-family:var(--fh);font-size:5rem;font-weight:800;color:rgba(255,255,255,.03);position:absolute;top:.5rem;right:1rem;line-height:1;letter-spacing:-.04em;pointer-events:none}
     .phase-tag{display:inline-block;padding:.25rem .75rem;border-radius:20px;font-size:.68rem;font-weight:800;letter-spacing:.1em;text-transform:uppercase;margin-bottom:1rem}
     .ptag-active{background:rgba(255,194,75,.12);color:var(--gold)}
@@ -595,6 +599,24 @@
         </p>
         <span class="feat-pill pill-purple"><span class="fr-only">Complétion auto · v1.9.0</span><span class="en-only">Auto-completion · v1.9.0</span></span>
       </div>
+      <div class="feat-card">
+        <span class="feat-emoji">🎚️</span>
+        <div class="feat-title"><span class="fr-only">Filtrage additif par connecteur</span><span class="en-only">Additive per-connector filtering</span></div>
+        <p class="feat-desc">
+          <span class="fr-only">Résolution minimale, langues audio, langues de sous-titres : affinez ce que chaque serveur distant importe, sans jamais supprimer ce qui est déjà synchronisé. Le filtre ajoute des règles, il ne retire rien de force.</span>
+          <span class="en-only">Minimum resolution, audio languages, subtitle languages: refine what each remote server imports, without ever removing what's already synced. The filter adds rules, it never force-removes anything.</span>
+        </p>
+        <span class="feat-pill pill-coral"><span class="fr-only">Nouveau · v1.11.0</span><span class="en-only">New · v1.11.0</span></span>
+      </div>
+      <div class="feat-card">
+        <span class="feat-emoji">📊</span>
+        <div class="feat-title"><span class="fr-only">Progression détaillée par source</span><span class="en-only">Detailed per-source progress</span></div>
+        <p class="feat-desc">
+          <span class="fr-only">En plus de la vue globale, la synchronisation affiche désormais sa progression par connecteur et par type de média (films, séries, livres audio...). Utile pour repérer en un coup d'œil quelle source prend du temps.</span>
+          <span class="en-only">On top of the global view, sync now shows its progress per connector and per media type (movies, series, audiobooks...). Handy for spotting at a glance which source is taking time.</span>
+        </p>
+        <span class="feat-pill pill-coral"><span class="fr-only">Nouveau · v1.11.0</span><span class="en-only">New · v1.11.0</span></span>
+      </div>
     </div>
   </div>
 </section>
@@ -701,7 +723,7 @@
       <div class="compat-card supported">
         <span class="compat-logo">🖥️</span>
         <div class="compat-name">Emby</div>
-        <span class="compat-status status-ok">✓ <span class="fr-only">Supporté — Phase 1</span><span class="en-only">Supported — Phase 1</span></span>
+        <span class="compat-status status-ok">✓ <span class="fr-only">Supporté</span><span class="en-only">Supported</span></span>
         <p class="compat-desc">
           <span class="fr-only">API REST native, pagination gérée, artwork, stream vidéo. Authentification par clé API ou token MediaBrowser.</span>
           <span class="en-only">Native REST API, pagination handled, artwork, video stream. Authentication via API key or MediaBrowser token.</span>
@@ -710,7 +732,7 @@
       <div class="compat-card planned">
         <span class="compat-logo">🐟</span>
         <div class="compat-name">Jellyfin</div>
-        <span class="compat-status status-soon">⏳ Phase 3</span>
+        <span class="compat-status status-soon">⏳ <span class="fr-only">Planifié</span><span class="en-only">Planned</span></span>
         <p class="compat-desc">
           <span class="fr-only">API compatible avec Emby. Le JellyfinConnector sera un dérivé direct d'EmbyConnector avec ajustements mineurs.</span>
           <span class="en-only">Emby-compatible API. JellyfinConnector will be a direct derivative of EmbyConnector with minor adjustments.</span>
@@ -719,7 +741,7 @@
       <div class="compat-card supported">
         <span class="compat-logo">🟠</span>
         <div class="compat-name">Plex</div>
-        <span class="compat-status status-ok">✓ <span class="fr-only">Supporté — Phase 3</span><span class="en-only">Supported — Phase 3</span></span>
+        <span class="compat-status status-ok">✓ <span class="fr-only">Supporté</span><span class="en-only">Supported</span></span>
         <p class="compat-desc">
           <span class="fr-only">API XML, auth directe ou via plex.tv (relay / plex.direct). Support 2FA, token par serveur, timeout relay 120 s.</span>
           <span class="en-only">XML API, direct auth or via plex.tv (relay / plex.direct). 2FA support, per-server token, 120s relay timeout.</span>
@@ -733,12 +755,12 @@
   <div class="container">
     <div class="sec-label">Roadmap</div>
     <h2 class="sec-title reveal">
-      <span class="fr-only">Le plan en <em>3 actes</em></span>
-      <span class="en-only">The <em>3-act</em> plan</span>
+      <span class="fr-only">Ce qui vient d'arriver. <em>Ce qui arrive.</em></span>
+      <span class="en-only">What just landed. <em>What's next.</em></span>
     </h2>
     <p class="sec-desc reveal">
-      <span class="fr-only">Un chemin progressif, du MVP fonctionnel au hub média universel. Issues suivies en direct depuis GitHub.</span>
-      <span class="en-only">A progressive path, from functional MVP to universal media hub. Issues tracked live from GitHub.</span>
+      <span class="fr-only">La dernière release livrée et la prochaine version en préparation, suivies en direct depuis les milestones GitHub.</span>
+      <span class="en-only">The latest shipped release and the next version in progress, tracked live from GitHub milestones.</span>
     </p>
     <div id="roadmap-container" class="roadmap-grid">
       <!-- Dynamically populated by JS -->
@@ -908,7 +930,7 @@
     document.title = lang === 'fr'
       ? 'VirtualLib \u2014 Unifiez vos serveurs m\u00e9dias dans Emby'
       : 'VirtualLib \u2014 Unify your media servers in Emby';
-    renderRoadmap(cachedIssues);
+    renderRoadmap(cachedRoadmap);
     renderChangelog(cachedReleases);
     if(cachedReleases.length > 0) updateReleaseLinks(cachedReleases[0]);
   }
@@ -917,15 +939,8 @@
     btn.addEventListener('click', function(){ setLang(this.getAttribute('data-lang')); });
   });
 
-  /* ── Dynamic Roadmap from GitHub API ── */
-  var cachedIssues = [];
-
-  var PHASES = [
-    { key:'phase-1', labelFr:'Phase 1 \u2014 MVP', labelEn:'Phase 1 \u2014 MVP', titleFr:'Les fondations solides', titleEn:'Solid foundations', status:'active', nowFr:'En cours', nowEn:'In progress', ghostNum:'01', tagClass:'ptag-active' },
-    { key:'phase-2', labelFr:'Phase 2 \u2014 Proxy & Auto', labelEn:'Phase 2 \u2014 Proxy & Auto', titleFr:'La machine tourne seule', titleEn:'The machine runs itself', status:'next', ghostNum:'02', tagClass:'ptag-next' },
-    { key:'phase-3', labelFr:'Phase 3 \u2014 Multi-sources', labelEn:'Phase 3 \u2014 Multi-sources', titleFr:"L'empire multiverse", titleEn:'The multiverse empire', status:'future', ghostNum:'03', tagClass:'ptag-future' },
-    { key:'other', labelFr:'Autres', labelEn:'Others', titleFr:'Hors phases', titleEn:'Out of phases', status:'future', ghostNum:'?', tagClass:'ptag-future' }
-  ];
+  /* ── Dynamic Roadmap from GitHub API (milestone-driven) ── */
+  var cachedRoadmap = { delivered: [], upcoming: [], deliveredMilestone: null, upcomingMilestone: null };
 
   function el(tag, cls) {
     var e = document.createElement(tag);
@@ -933,74 +948,91 @@
     return e;
   }
 
-  function renderRoadmap(issues) {
+  function buildRoadmapCard(opts, lang) {
+    var card = el('div', 'phase-card' + (opts.accent ? ' ' + opts.accent : ''));
+
+    var ghost = el('div', 'phase-ghost');
+    ghost.textContent = opts.ghost;
+    card.appendChild(ghost);
+
+    var tag = el('div', 'phase-tag ' + opts.tagClass);
+    tag.textContent = opts.tagText;
+    card.appendChild(tag);
+
+    var title = el('div', 'phase-title');
+    title.textContent = opts.title;
+    card.appendChild(title);
+
+    if(opts.issues && opts.issues.length > 0) {
+      var list = el('ul', 'phase-list');
+      opts.issues.forEach(function(issue){
+        var li = el('li');
+        var a = el('a');
+        a.href = issue.html_url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = issue.title;
+        li.appendChild(a);
+        var num = el('span', 'issue-num');
+        num.textContent = '#' + issue.number;
+        li.appendChild(num);
+        list.appendChild(li);
+      });
+      card.appendChild(list);
+    } else {
+      var empty = el('p', 'roadmap-empty');
+      empty.textContent = lang === 'fr' ? 'Aucune issue' : 'No issues';
+      card.appendChild(empty);
+    }
+
+    return card;
+  }
+
+  function renderRoadmap(data) {
     var container = document.getElementById('roadmap-container');
     if(!container) return;
     while(container.firstChild) container.removeChild(container.firstChild);
 
     var lang = currentLang;
-    var groups = {};
-    PHASES.forEach(function(p){ groups[p.key] = []; });
 
-    issues.forEach(function(issue){
-      var labels = issue.labels ? issue.labels.map(function(l){ return l.name; }) : [];
-      var assigned = false;
-      PHASES.forEach(function(p){
-        if(p.key !== 'other' && labels.indexOf(p.key) !== -1){ groups[p.key].push(issue); assigned = true; }
-      });
-      if(!assigned) groups['other'].push(issue);
-    });
+    if(data.deliveredMilestone) {
+      container.appendChild(buildRoadmapCard({
+        accent: 'done',
+        tagClass: 'ptag-done',
+        tagText: (lang === 'fr' ? 'LIVRÉ · ' : 'SHIPPED · ') + data.deliveredMilestone.title,
+        title: lang === 'fr' ? 'Dernière release' : 'Latest release',
+        ghost: '✓',
+        issues: data.delivered
+      }, lang));
+    }
 
-    PHASES.forEach(function(phase){
-      var phaseIssues = groups[phase.key];
-      if(phase.key === 'other' && phaseIssues.length === 0) return;
+    if(data.upcomingMilestone) {
+      container.appendChild(buildRoadmapCard({
+        accent: 'active',
+        tagClass: 'ptag-active',
+        tagText: (lang === 'fr' ? 'EN PRÉPARATION · ' : 'IN PROGRESS · ') + data.upcomingMilestone.title,
+        title: lang === 'fr' ? 'Prochaine version' : 'Next version',
+        ghost: '○',
+        issues: data.upcoming
+      }, lang));
+    }
 
-      var card = el('div', 'phase-card' + (phase.status === 'active' ? ' active' : ''));
+    if(!data.deliveredMilestone && !data.upcomingMilestone) {
+      var errDiv = el('div', 'roadmap-error');
+      var errP = el('p');
+      errP.textContent = lang === 'fr' ? 'Roadmap indisponible pour le moment.' : 'Roadmap unavailable right now.';
+      errDiv.appendChild(errP);
+      var errLink = el('a');
+      errLink.href = 'https://github.com/CCoupel/Emby_VirtualLib/milestones';
+      errLink.target = '_blank';
+      errLink.rel = 'noopener';
+      errLink.style.color = 'var(--gold)';
+      errLink.textContent = lang === 'fr' ? 'Voir sur GitHub →' : 'View on GitHub →';
+      errDiv.appendChild(errLink);
+      container.appendChild(errDiv);
+    }
 
-      var ghost = el('div', 'phase-ghost');
-      ghost.textContent = phase.ghostNum;
-      card.appendChild(ghost);
-
-      if(phase.status === 'active') {
-        var nowBadge = el('span', 'phase-now');
-        nowBadge.textContent = lang === 'fr' ? phase.nowFr : phase.nowEn;
-        card.appendChild(nowBadge);
-      }
-
-      var tag = el('div', 'phase-tag ' + phase.tagClass);
-      tag.textContent = lang === 'fr' ? phase.labelFr : phase.labelEn;
-      card.appendChild(tag);
-
-      var title = el('div', 'phase-title');
-      title.textContent = lang === 'fr' ? phase.titleFr : phase.titleEn;
-      card.appendChild(title);
-
-      if(phaseIssues.length > 0) {
-        var list = el('ul', 'phase-list');
-        phaseIssues.forEach(function(issue){
-          var li = el('li');
-          var a = el('a');
-          a.href = issue.html_url;
-          a.target = '_blank';
-          a.rel = 'noopener';
-          a.textContent = issue.title;
-          li.appendChild(a);
-          var num = el('span', 'issue-num');
-          num.textContent = '#' + issue.number;
-          li.appendChild(num);
-          list.appendChild(li);
-        });
-        card.appendChild(list);
-      } else {
-        var empty = el('p', 'roadmap-empty');
-        empty.textContent = lang === 'fr' ? 'Aucune issue ouverte' : 'No open issues';
-        card.appendChild(empty);
-      }
-
-      container.appendChild(card);
-    });
-
-    /* stagger reveal for newly added phase cards */
+    /* stagger reveal for newly added roadmap cards */
     container.querySelectorAll('.phase-card').forEach(function(c, i){
       c.style.opacity = '0';
       c.style.transform = 'translateY(16px)';
@@ -1015,40 +1047,56 @@
     });
   }
 
-  function loadIssues() {
+  function loadRoadmap() {
     var container = document.getElementById('roadmap-container');
     if(container) {
       while(container.firstChild) container.removeChild(container.firstChild);
       var loadingDiv = el('div', 'roadmap-loading');
       var loadingText = el('span');
-      loadingText.textContent = currentLang === 'fr' ? 'Chargement des issues GitHub...' : 'Loading GitHub issues...';
+      loadingText.textContent = currentLang === 'fr' ? 'Chargement de la roadmap GitHub...' : 'Loading GitHub roadmap...';
       loadingDiv.appendChild(loadingText);
       container.appendChild(loadingDiv);
     }
-    fetch('https://api.github.com/repos/CCoupel/Emby_VirtualLib/issues?state=open&per_page=100')
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        cachedIssues = Array.isArray(data) ? data : [];
-        renderRoadmap(cachedIssues);
-      })
-      .catch(function(){
-        if(!container) return;
-        while(container.firstChild) container.removeChild(container.firstChild);
-        var errDiv = el('div', 'roadmap-error');
-        var errP = el('p');
-        errP.textContent = currentLang === 'fr'
-          ? 'Impossible de charger les issues GitHub.'
-          : 'Could not load GitHub issues.';
-        errDiv.appendChild(errP);
-        var errLink = el('a');
-        errLink.href = 'https://github.com/CCoupel/Emby_VirtualLib/issues';
-        errLink.target = '_blank';
-        errLink.rel = 'noopener';
-        errLink.style.color = 'var(--gold)';
-        errLink.textContent = currentLang === 'fr' ? 'Voir sur GitHub \u2192' : 'View on GitHub \u2192';
-        errDiv.appendChild(errLink);
-        container.appendChild(errDiv);
+    var API = 'https://api.github.com/repos/CCoupel/Emby_VirtualLib';
+    function noPr(list) {
+      return (Array.isArray(list) ? list : []).filter(function(i){ return !i.pull_request; });
+    }
+    Promise.all([
+      fetch(API + '/milestones?state=closed&sort=due_on&direction=desc&per_page=1').then(function(r){ return r.json(); }),
+      fetch(API + '/milestones?state=open&sort=due_on&direction=asc&per_page=1').then(function(r){ return r.json(); })
+    ]).then(function(results){
+      var closedMs = Array.isArray(results[0]) && results[0].length > 0 ? results[0][0] : null;
+      var openMs = Array.isArray(results[1]) && results[1].length > 0 ? results[1][0] : null;
+      return Promise.all([
+        closedMs ? fetch(API + '/issues?milestone=' + closedMs.number + '&state=closed&per_page=100').then(function(r){ return r.json(); }) : Promise.resolve([]),
+        openMs ? fetch(API + '/issues?milestone=' + openMs.number + '&state=open&per_page=100').then(function(r){ return r.json(); }) : Promise.resolve([])
+      ]).then(function(issueResults){
+        cachedRoadmap = {
+          delivered: noPr(issueResults[0]),
+          upcoming: noPr(issueResults[1]),
+          deliveredMilestone: closedMs,
+          upcomingMilestone: openMs
+        };
+        renderRoadmap(cachedRoadmap);
       });
+    }).catch(function(){
+      if(!container) return;
+      while(container.firstChild) container.removeChild(container.firstChild);
+      var errDiv = el('div', 'roadmap-error');
+      var errP = el('p');
+      errP.textContent = currentLang === 'fr'
+        ? 'Impossible de charger la roadmap GitHub.'
+        : 'Could not load the GitHub roadmap.';
+      errDiv.appendChild(errP);
+      var errLink = el('a');
+      errLink.href = 'https://github.com/CCoupel/Emby_VirtualLib/milestones';
+      errLink.target = '_blank';
+      errLink.rel = 'noopener';
+      errLink.style.color = 'var(--gold)';
+      errLink.textContent = currentLang === 'fr' ? 'Voir sur GitHub →' : 'View on GitHub →';
+      errDiv.appendChild(errLink);
+      container.appendChild(errDiv);
+    });
   }
 
   /* ── Dynamic Releases from GitHub API ── */
@@ -1353,7 +1401,7 @@
 
   /* Init */
   setLang(currentLang);
-  loadIssues();
+  loadRoadmap();
   loadReleases();
 })();
 </script>
