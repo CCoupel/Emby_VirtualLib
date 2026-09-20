@@ -41,15 +41,36 @@ TEMPLATE_claude/
 # init-project.md) restent trackées : gitignore n'affecte pas les fichiers déjà suivis par git.
 .claude/commands/*.md
 .claude/commands/*.template.md
-.claude/commands/context/
 
 # Agents template générés depuis TEMPLATE_claude/ (*.template.md — jamais édités manuellement)
 # Les *.md dans agents/ (dev-plugin.md, etc.) sont des adaptations projet — trackés dans git
 .claude/agents/*.template.md
-.claude/agents/context/
+
+# Contextes partagés générés depuis TEMPLATE_claude/{commands,agents}/context/ (*.template.md —
+# jamais édités manuellement). Comme pour les agents, les compagnons context/*.md (hors
+# .template.md) sont des adaptations projet — trackés dans git, jamais écrasés par la sync.
+.claude/commands/context/*.template.md
+.claude/agents/context/*.template.md
+
+# Fichiers d'environnement generes depuis TEMPLATE_claude/templates/environments/ (*.template.md
+# — jamais edites manuellement, meme convention que les agents ci-dessus). Les compagnons
+# publish.<env>.md / deploy.<env>.md (hors .template.md) sont des adaptations projet — trackes.
+.claude/agents/environments/*.template.md
+
+# Variables et secrets par environnement — jamais commites (valeurs reelles). Le compagnon
+# <env>.env.example (noms de variables attendus, valeurs vides) reste, lui, tracke.
+.claude/agents/environments/*.env
+!.claude/agents/environments/*.env.example
+
+# Variables et secrets globaux au projet (applicatif + infra, communs a tous les environnements)
+# — jamais commites. Voir .env.example a la racine s'il existe.
+.env
+!.env.example
 
 # Dossier de travail inter-agents (rapports et handoffs temporaires)
 _work/
 
-# Build artifacts (qualif : build/qualif/<version>/)
+# Build artifacts (candidat BUILD : build/candidate_v<X.Y.Z>/<artefact>-<X.Y.Z.a>.<ext> ;
+# promu QUALIF par /publish qualif : build/qualif_v<X.Y.Z>/<artefact>-<X.Y.Z.a>.<ext> — toujours
+# a la racine du repo, meme en monorepo, jamais sous un sous-repertoire backend/frontend)
 build/

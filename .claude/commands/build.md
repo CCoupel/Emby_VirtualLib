@@ -1,106 +1,70 @@
-# Commande /build — Compiler et déployer le plugin
+# Commande /build
+
+Construire une version candidate — agnostique a l'environnement, la seule etape ou du code est
+compile. Voir `agents/deploy.md` Tache BUILD.
 
 ## Usage
-```
-/build [configuration]
-```
 
-Exemples :
 ```
-/build           # Release par défaut + déploiement sur emby2
-/build Debug     # Debug uniquement, sans déploiement
+/build
 ```
 
----
+## Argument recu
 
-## 1. Build
+$ARGUMENTS
 
-Le SDK .NET est installé dans le profil utilisateur (pas dans Program Files).
+## Mots-cles de controle
 
-```bash
-# Build Release → dist/VirtualLib.dll
-"C:/Users/cyril/AppData/Local/Microsoft/dotnet/dotnet.exe" build \
-  "C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/src/VirtualLib" \
-  --configuration Release \
-  --output "C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/dist"
+**Reference :** Voir `context/COMMON.md` section 12
+
+| Mot-cle | Action |
+|---------|--------|
+| `help` | Affiche l'aide et les mots-cles disponibles |
+| `status` | Affiche l'etat du workflow en cours |
+| `plan` | Affiche le plan sans executer |
+| `resume <phase>` | Reprend a une phase |
+| `skip <phase>` | Saute une phase |
+| `jumpto <tache>` | Demarre a une tache precise du plan |
+
+Si `$ARGUMENTS` commence par un mot-cle -> executer l'action correspondante.
+Sinon -> workflow normal.
+
+## Principe
+
+`/build` ne prend pas d'environnement en argument : c'est la seule etape ou l'artefact est
+compile. Le candidat resultant (tague `X.Y.Z.a`) est ensuite rendu disponible tel quel pour
+QUALIF par `/publish qualif` (promotion, zero rebuild), puis, apres validation, republie de
+maniere deterministe pour PROD par `/publish prod` (rebuild via CI depuis la meme source
+figee) — principe BORE, voir `agents/infra.md` section 3.
+
+## Prerequis
+
+- [ ] Tests QA passes
+- [ ] Revue de code approuvee
+
+## Workflow
+
+```
+/build
+    |
+    v
+Verification --> Increment version (a) --> Compilation --> Notification
 ```
 
-Vérifications post-build :
-- `dist/VirtualLib.dll` présent et date récente (`stat dist/VirtualLib.dll | grep Modify`)
-- `0 Erreur(s)` dans la sortie
+## Exemples
 
----
-
-## 2. Déploiement sur emby2 (Kubernetes)
-
-> **Toujours déployer sur `emby2`, jamais sur `emby`** (emby = production).
-> Namespace : `media`. Kubeconfig : `private/kubeconfig.yml`.
-
-### Trouver le nom du pod courant
-```bash
-MSYS_NO_PATHCONV=1 kubectl --kubeconfig C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/private/kubeconfig.yml \
-  -n media get pods
-# → noter le nom du pod emby2-XXXXXXX-XXXXX
+```
+/build    # Verification + compilation de la version candidate courante
 ```
 
-### Copier le DLL dans le pod
-```bash
-MSYS_NO_PATHCONV=1 kubectl --kubeconfig C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/private/kubeconfig.yml \
-  -n media cp dist/VirtualLib.dll <POD_NAME>:/config/plugins/VirtualLib.dll
-```
+## Agent
 
-> **Important** : utiliser un chemin relatif pour la source (`dist/VirtualLib.dll`),
-> pas un chemin absolu Windows (Git Bash convertit les `/c/...` ce qui casse kubectl).
-> `MSYS_NO_PATHCONV=1` est requis pour éviter la conversion du chemin de destination.
+`/build` dispatch direct au teammate `deployer` (en IDLE depuis `/start-session`) :
+`SendMessage({to: "deployer", content: "BUILD"})`
 
-### Redémarrer le déploiement
-```bash
-MSYS_NO_PATHCONV=1 kubectl --kubeconfig C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/private/kubeconfig.yml \
-  -n media rollout restart deployment/emby2
+En orchestration CDP, `/build` n'est jamais invoque seul : la Phase 5 (QUALIF) du CDP
+dispatch au `deployer` un ordre chaine `BUILD` puis `PUBLISH QUALIF` puis `DEPLOY QUALIF`,
+execute en sequence par l'agent avant de repondre. Voir `agents/cdp.md` Phase 5 pour le
+protocole complet.
 
-# Attendre que le nouveau pod soit prêt
-MSYS_NO_PATHCONV=1 kubectl --kubeconfig C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/private/kubeconfig.yml \
-  -n media rollout status deployment/emby2 --timeout=60s
-```
-
-### Vérifier le DLL dans le nouveau pod
-```bash
-MSYS_NO_PATHCONV=1 kubectl --kubeconfig C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/private/kubeconfig.yml \
-  -n media exec <NOUVEAU_POD> -- ls -la /config/plugins/VirtualLib.dll
-```
-
----
-
-## 3. Séquence complète (build + deploy)
-
-```bash
-# 1. Build
-"C:/Users/cyril/AppData/Local/Microsoft/dotnet/dotnet.exe" build \
-  "C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/src/VirtualLib" \
-  --configuration Release \
-  --output "C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/dist"
-
-# 2. Récupérer le nom du pod emby2
-POD=$(kubectl --kubeconfig C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/private/kubeconfig.yml \
-  -n media get pods -l app=emby2 -o jsonpath='{.items[0].metadata.name}')
-
-# 3. Copier le DLL (depuis le répertoire du projet, chemin relatif)
-cd C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib
-MSYS_NO_PATHCONV=1 kubectl --kubeconfig C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/private/kubeconfig.yml \
-  -n media cp dist/VirtualLib.dll $POD:/config/plugins/VirtualLib.dll
-
-# 4. Restart + attendre
-MSYS_NO_PATHCONV=1 kubectl --kubeconfig C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/private/kubeconfig.yml \
-  -n media rollout restart deployment/emby2
-MSYS_NO_PATHCONV=1 kubectl --kubeconfig C:/Users/cyril/Documents/VScode/GITHUB/Emby_VirtualLib/private/kubeconfig.yml \
-  -n media rollout status deployment/emby2 --timeout=60s
-```
-
----
-
-## Notes
-
-- Le SDK .NET 6.0.428 est dans `C:/Users/cyril/AppData/Local/Microsoft/dotnet/`
-- Le runtime dans `C:/Program Files/dotnet/` est **uniquement le runtime**, pas le SDK
-- Le plugin se charge au démarrage d'Emby — un restart est obligatoire après chaque déploiement
-- Après déploiement, relancer une sync depuis l'UI pour régénérer les fichiers .strm
+Spec : `.claude/agents/deploy.md` (voir Tache BUILD)

@@ -12,20 +12,51 @@
     "frontend": null,
     "mobile": null,
     "firmware": null,
-    "plugin": { "platform": "Emby Plugin (C#/.NET 6)" },
+    "plugin": {
+      "platform": "Emby Plugin (C#/.NET 6)"
+    },
     "database": null
   },
   "infrastructure": {
     "cicd": "github-actions",
-    "deploy": "kubernetes"
+    "environments": [
+      {
+        "name": "QUALIF",
+        "order": 1,
+        "publish": {
+          "mode": "promote",
+          "target": "build/qualif_v{X.Y.Z}/"
+        },
+        "deploy": {
+          "mechanism": "kubernetes"
+        }
+      },
+      {
+        "name": "PROD",
+        "order": 2,
+        "publish": {
+          "mode": "rebuild-ci",
+          "trigger": "git-tag",
+          "pipeline": ".github/workflows/release.yml"
+        },
+        "deploy": {
+          "mechanism": "kubernetes"
+        }
+      }
+    ]
   },
   "testing": {
-    "backend": ["xunit", "moq"],
+    "backend": [
+      "xunit",
+      "moq"
+    ],
     "frontend": [],
     "e2e": []
   },
   "security": {
-    "concerns": ["remote-server-credentials"]
+    "concerns": [
+      "remote-server-credentials"
+    ]
   },
   "commands": {
     "build": "dotnet build src/VirtualLib --configuration Release --output dist",
