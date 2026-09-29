@@ -51,7 +51,11 @@
       "moq"
     ],
     "frontend": [],
-    "e2e": []
+    "e2e": [],
+    "regression_at_qa": "gated",
+    "full_regression_at": "qualif",
+    "coverage_min": 70,
+    "lot_max_tests": 50
   },
   "security": {
     "concerns": [
@@ -68,5 +72,15 @@
   "agents": {
     "idle_ttl_minutes": 15,
     "idle_warning_interval_minutes": 5
+  },
+  "template_version": {
+    "tag": "v3.8.0",
+    "commit": "8c49482ee38f9172edbb99bbf7aa4bdc56e5c5bf"
+  },
+  "docs": {
+    "mockup_dir": "docs/mockup"
+  },
+  "marketing": {
+    "site": "auto"
   }
 }
