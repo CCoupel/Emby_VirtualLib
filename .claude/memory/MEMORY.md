@@ -28,6 +28,15 @@
 
 ---
 
+## Session 2026-10-02 (sync template + conformité CI/infra)
+
+- Template synchronisé **v3.8.0 → v3.9.0** (`template_version` dans project-config.json). Commandes projet `add-connector`, `sync`, `test` conservées (ce ne sont PAS des reliquats).
+- `project-config.json` : `version_file` = `.claude/project-config.json` (champ `"version"`, miroir `<Version>` dans `src/VirtualLib/VirtualLib.csproj`, bumpés ensemble par `deployer`), `src_dir` = `src/VirtualLib`. Avant : null → placeholders vides dans les fichiers déployés.
+- **Version PROD = X.Y.Z.0 (4 segments)**, tag `vX.Y.Z.0`. Dérogation au template (qui coupe à 3 segments) dans `.claude/agents/environments/publish.prod.md` (nouveau) et `.claude/agents/deploy.md` (lecture/écriture version via `jq` + sed sur le csproj).
+- `.github/workflows/release.yml` : ajout de `dotnet test tests/VirtualLib.Tests/` avant le build — **jamais exécuté en CI** (se déclenche uniquement sur tag) ; à surveiller à la prochaine release.
+- Commits poussés sur main : `23bfede`, `5620a60`.
+- Restes : un `git stash` ancien (WIP sur f2e7393) ; fichiers non suivis `null`, `tmp/`, `dist/`, `docs/releases/`, 2 captures dans `tests/`.
+
 ## Travail complété cette session (2026-08-04 → 2026-08-07)
 
 ### PR #44 — Additive Media Filtering + Enhancements (26 commits, 115/115 tests PASS)
