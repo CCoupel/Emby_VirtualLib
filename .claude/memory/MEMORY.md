@@ -28,6 +28,19 @@
 
 ---
 
+## Session 2026-10-31 (sync template v3.9.1 → v3.29.1)
+
+- **Registre des agents** créé (`agents.registry[]` + `contexts.registry[]` dans project-config.json) : 14 agents + 13 contextes à v3.29.1. Sync via `/init-project` option d.
+- **dev-plugin** déployé depuis `templates/dev-plugin.md` (`dev-plugin.template.md`) ; `dev-plugin.md` = compagnon (spécificités Emby C#, prime sur les exemples TS/npm du template).
+- **CI** : `scripts/ci.sh` = `commands.ci` (restore, build Release, tests, audit High/Critical) ; `.github/workflows/ci-branch.yml` (push `milestone/**` + `workflow_dispatch`, lecture seule) ; `release.yml` appelle `scripts/ci.sh`. **Jamais exécuté** — lancer « CI (pre-validation) » à la main depuis GitHub Actions pour valider. Livrable `VirtualLib.dll` sans version dans le nom = dérogation assumée (écart C4).
+- `publish.prod.template.md` régénéré (barrière de pré-validation CI avant tag).
+- **Accès environnements** : `access` enregistré (kubeconfig `private/kubeconfig.yml`, namespace `media`, services emby2/emby), statut `skipped` — **Rancher 403 `system:unauthenticated`** : jeton kubeconfig expiré → régénérer depuis Rancher avant tout `/deploy`, puis revalider.
+- Teamleader adressé `"team-lead"` par les teammates (plus `"main"`). `settings.json` : teamleader opus/medium.
+- `context/PROJECT_CONTEXT.md` créé (agents + commands) — pointeur vers CLAUDE.md.
+- **Site marketing** : se met à jour depuis le worktree `MARKETING/` (branche `gh-pages`, gitignoré), créé par l'agent marketing via `git worktree add MARKETING gh-pages`. Le dossier `../Emby_VirtualLib_ghpages` est un worktree cassé (pointe vers un ancien clone `VScode/GITHUB`), contenu obsolète (v1.9.0) — à supprimer (proposé, non fait).
+- Template : refs cassées côté template (`commands/deploy.template.md`, `commands/hotfix.template.md`) à remonter au repo `claude_project_template`.
+- Commits poussés sur main : `1837aec`, `a456cf0`.
+
 ## Session 2026-10-02 (sync template + conformité CI/infra)
 
 - Template synchronisé **v3.8.0 → v3.9.0** (`template_version` dans project-config.json). Commandes projet `add-connector`, `sync`, `test` conservées (ce ne sont PAS des reliquats).
