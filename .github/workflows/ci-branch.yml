@@ -1,0 +1,27 @@
+name: CI (pre-validation)
+
+# Pre-validation sans publication (agents/infra.md §3bis C10) : verdict utilise pour fermer
+# les issues DONE et comme barriere de deploy avant merge/tag (PUBLISH PROD).
+on:
+  push:
+    branches:
+      - 'milestone/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: CI
+        run: bash scripts/ci.sh

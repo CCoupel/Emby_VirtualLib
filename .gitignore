@@ -74,3 +74,7 @@ _work/
 # promu QUALIF par /publish qualif : build/qualif_v<X.Y.Z>/<artefact>-<X.Y.Z.a>.<ext> — toujours
 # a la racine du repo, meme en monorepo, jamais sous un sous-repertoire backend/frontend)
 build/
+.claude/skills/milestone-panel/
+MARKETING/
+.claude/workflow/
+.claude/worktrees/

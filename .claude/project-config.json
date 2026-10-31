@@ -28,7 +28,24 @@
           "target": "build/qualif_v{X.Y.Z}/"
         },
         "deploy": {
-          "mechanism": "kubernetes"
+          "mechanism": "kubernetes",
+          "services": [
+            "emby2"
+          ]
+        },
+        "access": {
+          "method": "kubeconfig",
+          "kubeconfig": "private/kubeconfig.yml",
+          "namespace": "media",
+          "credentials_env": [],
+          "verified": {
+            "status": "skipped",
+            "at": "2026-10-31T14:55:55Z",
+            "checks": [
+              "kube-auth"
+            ],
+            "error": "Rancher 403 — User system:unauthenticated (jeton kubeconfig invalide/expire)"
+          }
         }
       },
       {
@@ -40,7 +57,25 @@
           "pipeline": ".github/workflows/release.yml"
         },
         "deploy": {
-          "mechanism": "kubernetes"
+          "mechanism": "kubernetes",
+          "services": [
+            "emby"
+          ]
+        },
+        "access": {
+          "method": "kubeconfig",
+          "kubeconfig": "private/kubeconfig.yml",
+          "namespace": "media",
+          "credentials_env": [],
+          "verified": {
+            "status": "skipped",
+            "at": "2026-10-31T14:55:55Z",
+            "checks": [
+              "kube-auth",
+              "gh-push"
+            ],
+            "error": "Rancher 403 — User system:unauthenticated ; gh push OK"
+          }
         }
       }
     ]
@@ -67,15 +102,131 @@
     "test": "dotnet test tests/VirtualLib.Tests/",
     "lint": "",
     "audit": "dotnet list src/VirtualLib package --vulnerable",
-    "typecheck": ""
+    "typecheck": "",
+    "ci": "scripts/ci.sh"
   },
   "agents": {
     "idle_ttl_minutes": 15,
-    "idle_warning_interval_minutes": 5
+    "idle_warning_interval_minutes": 5,
+    "registry": [
+      {
+        "name": "cdp",
+        "source": "agents/cdp.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "30da29c70a547aae940c27e00604f5806964ab05498c8ad380a095e353247e25",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "code-reviewer",
+        "source": "agents/code-reviewer.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "6db56bbdc6483602b9284348bb1f2653fa1bc541ef31681697b6bbf98920b5fe",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "deploy",
+        "source": "agents/deploy.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "7c5fa902d62f8895fa7a0c71bebeb179b3f7432c59c43459730eb5dc2adbf6ee",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "dev-plugin",
+        "source": "templates/dev-plugin.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "93e072b9f7ca8c185a1b1eb3e91b41486b89f61d44b2640a0e0c2d8da33791a1",
+        "changed_in": "v3.29.1",
+        "role": "Plugin (Emby Plugin C#/.NET 6)"
+      },
+      {
+        "name": "doc-updater",
+        "source": "agents/doc-updater.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "dd2b57b3cdba9c649295d5bd86bea4539728aadce0416c5bfb40275f223baab8",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "generic",
+        "source": "agents/generic.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "4157f75529762528a54afbfcc50630d772ca8734c8ab693c913bb0d8933f6be7",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "implementation-planner",
+        "source": "agents/implementation-planner.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "aaa506eddb0a237da081ec9735f7ef42e616a5bac27479326c8f75bce3f26261",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "infra",
+        "source": "agents/infra.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "81f8f8de43a2b331e7e1266fce60ac35ef97bbc2f1e62eee6a807d7613f533e7",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "marketing-release",
+        "source": "agents/marketing-release.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "d73e32b7001792a9829f5cafc66175a807a564593425b0f13a66e21ac887be9a",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "pr-reviewer",
+        "source": "agents/pr-reviewer.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "399fb28b4180b86be96dbb6dab0c483c287a2a660c403adc0a357977d2acb24b",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "qa",
+        "source": "agents/qa.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "0e22c6afb97c592cf8b0c561d1978371963a61a51929deb22130fda62cf56c6c",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "security",
+        "source": "agents/security.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "c92fc9d89ba987149dee4e7a7442cae784267ff15e43100bc0e357e21547bc54",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "teamleader",
+        "source": "agents/teamleader.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "98d0f3b9c9a9661dc2d32599a9237fb9eeba83bd35afa286c0ae2b37f0a3b223",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "test-writer",
+        "source": "agents/test-writer.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "5b4b6fc94d68be1f4c6e050c801afdbdac21fe77c7ea87a37a98440cd074f53c",
+        "changed_in": "v3.29.1"
+      }
+    ]
   },
   "template_version": {
-    "tag": "v3.9.1",
-    "commit": "dc3d230f01188ea698f3eab3e7805cbaca9b0260"
+    "tag": "v3.29.1",
+    "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c"
   },
   "docs": {
     "mockup_dir": "docs/mockup"
@@ -84,5 +235,113 @@
     "site": "auto"
   },
   "version_file": ".claude/project-config.json",
-  "src_dir": "src/VirtualLib"
+  "src_dir": "src/VirtualLib",
+  "contexts": {
+    "registry": [
+      {
+        "name": "agents/context/CDP_PHASES_PLAN_DEV",
+        "source": "agents/context/CDP_PHASES_PLAN_DEV.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "0543a2eba88ba41dd1bcca60af44845004f62e07561be061e7b5fb8086eefb69",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "agents/context/CDP_PHASES_RELEASE",
+        "source": "agents/context/CDP_PHASES_RELEASE.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "fde119f9b2a2d2c221d3c7a5a6b3574fa1f0dd51cae952a1f07f7e9db8607a84",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "agents/context/CDP_PHASES_REVIEW_QA",
+        "source": "agents/context/CDP_PHASES_REVIEW_QA.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "8df71ac20f62a7f178067fb59696d84e5b7b2f6d142191bf72be2136f77fc5c2",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "agents/context/COMMON",
+        "source": "agents/context/COMMON.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "134ae92c3aa9d2e60198e0fba344392a815ecb83498737e31e22cd04b1cd3283",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "agents/context/DEV_COMMON",
+        "source": "agents/context/DEV_COMMON.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "75e8dd36eb46587c72caecc59cd8a9761252bc538f6e71a843f0b88fac0c73cd",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "agents/context/GITHUB",
+        "source": "agents/context/GITHUB.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "bcacfc31442c529218412dd23863104995216690f530ada5abf41b282814c872",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "agents/context/TEAMMATES_PROTOCOL",
+        "source": "agents/context/TEAMMATES_PROTOCOL.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "39120cd25cf5d0dd591ae3c76623e62386119f75687b8da2779544a513255d34",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "agents/context/VALIDATION_COMMON",
+        "source": "agents/context/VALIDATION_COMMON.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "ae4938603ae9224a84512a20a8e2832a3522b8e18fa6ea81be0a6336d8bd73ab",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "commands/context/CDP_WORKFLOWS",
+        "source": "commands/context/CDP_WORKFLOWS.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "f36d02d48b61ee0fb6d568f1852c36411c645855aadb6954a06a7ee214e9293a",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "commands/context/COMMON",
+        "source": "commands/context/COMMON.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "4c9c7b669b383a767b14af8e4520fe5072c6118ed149443dab01ed0439aa1e63",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "commands/context/DEVELOPMENT",
+        "source": "commands/context/DEVELOPMENT.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "b74112a1b4bfef6caeee7b34fa79b1eefd6cf4dadbcd49d60d756be4a7ef845d",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "commands/context/GITHUB",
+        "source": "commands/context/GITHUB.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "903f6fea7aacff0dd1bb4334748d3b2f7313bec968b6812fe7a09204beef54f4",
+        "changed_in": "v3.29.1"
+      },
+      {
+        "name": "commands/context/QUALITY",
+        "source": "commands/context/QUALITY.md",
+        "tag": "v3.29.1",
+        "commit": "3347a2e227af2ef8c8849c1076175fc8842c695c",
+        "sha256": "ab47a6e5734069e71de7d50696fa66b90b537781cb45570f0ac749be487de893",
+        "changed_in": "v3.29.1"
+      }
+    ]
+  }
 }

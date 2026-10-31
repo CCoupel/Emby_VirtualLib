@@ -41,8 +41,8 @@ jobs:
         with:
           dotnet-version: '6.0.x'
 
-      - name: Test
-        run: dotnet test tests/VirtualLib.Tests/ --configuration Release
+      - name: CI (build + tests + audit)
+        run: bash scripts/ci.sh
 
       - name: Build
         run: |

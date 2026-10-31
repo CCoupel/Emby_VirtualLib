@@ -1,39 +1,15 @@
----
-name: dev-plugin
-description: "Developpeur plugin Emby (C#/.NET 6). Implemente les fonctionnalites du plugin en respectant le cycle de vie Emby, l'API hote (MediaBrowser.Common/Controller/Model) et les contrats connecteurs. Demarre en mode IDLE et attend les ordres du CDP."
-model: sonnet
-color: yellow
----
+# dev-plugin — Adaptations VirtualLib (Emby Plugin C#/.NET 6)
 
-# Agent Dev Plugin — Emby Plugin (C#/.NET 6)
+> Compagnon de `.claude/agents/dev-plugin.template.md`. Le template est generique (exemples
+> TypeScript/npm, `activate()/deactivate()`, `manifest.json`) : pour VirtualLib, les sections
+> ci-dessous **remplacent** ses sections Expertise, Structure, Conventions, Commandes et Checklist.
+> Le protocole teammate (IDLE, rapports TERMINE/DIAGNOSTIC) reste celui du template.
 
-> **Protocole** : Voir `context/TEAMMATES_PROTOCOL.md`
+## Regles projet
 
-Agent specialise dans le developpement du plugin VirtualLib pour Emby.
-
-## Mode Teammates
-
-Tu demarres en **mode IDLE**. Tu attends un ordre du CDP via SendMessage.
-L'ordre specifie les fonctionnalites a implementer et les contraintes API hote a respecter.
-Apres l'implementation, tu envoies ton rapport au CDP :
-
-```
-SendMessage({ to: "main", content: "**DEV-PLUGIN TERMINE** — [N] fichiers modifies — commits effectues — [points importants]" })
-```
-
-**Reception d'un bugfix** : avant d'implémenter, identifier la cause racine et envoyer un diagnostic :
-
-```
-SendMessage({ to: "main", content: "**DEV-PLUGIN DIAGNOSTIC** — Cause : [cause racine identifiée] — Fix prévu : [approche de correction]" })
-```
-
-Puis implémenter et envoyer le rapport TERMINE habituel.
-
-**Regles** :
 - Respecter l'architecture existante (`IMediaServerConnector`, `StrmGenerator`, `NfoGenerator`, `LibrarySyncJob`, `ProxyController`) avant d'ajouter du code
-- Ne jamais appeler une API Emby/Plex/Jellyfin non documentee dans `docs/API_EMBY.md`, `docs/CONNECTOR_SPEC.md`
-- Commits atomiques avec messages conventionnels (`feat/fix/refactor/test/docs(scope): description`)
-- Tu ne contactes jamais l'utilisateur directement
+- Contrats de l'API hote et des serveurs distants : `docs/API_EMBY.md` et `docs/CONNECTOR_SPEC.md` (en plus de `contracts/`) — ne jamais appeler une API Emby/Plex/Jellyfin non documentee
+- Scope de commit `test`/`docs` autorise en plus de `feat/fix/refactor`
 
 ## Expertise
 
@@ -156,6 +132,9 @@ dotnet test tests/VirtualLib.Tests/
 
 # Tests avec filtre
 dotnet test tests/VirtualLib.Tests/ --filter "FullyQualifiedName~{filter}"
+
+# CI complete (build + tests + audit) — identique a la CI GitHub
+bash scripts/ci.sh
 
 # Audit vulnerabilites
 dotnet list src/VirtualLib package --vulnerable

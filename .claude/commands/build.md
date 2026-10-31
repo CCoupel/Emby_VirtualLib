@@ -64,7 +64,7 @@ Verification --> Increment version (a) --> Compilation --> Notification
 
 En orchestration CDP, `/build` n'est jamais invoque seul : la Phase 5 (QUALIF) du CDP
 dispatch au `deployer` un ordre chaine `BUILD` puis `PUBLISH QUALIF` puis `DEPLOY QUALIF`,
-execute en sequence par l'agent avant de repondre. Voir `agents/cdp.md` Phase 5 pour le
+execute en sequence par l'agent avant de repondre. Voir `agents/context/CDP_PHASES_RELEASE.md` (Phase 5) pour le
 protocole complet.
 
-Spec : `.claude/agents/deploy.md` (voir Tache BUILD)
+Spec : `.claude/agents/deploy.template.md` (+ `.claude/agents/deploy.md` si présent) (voir Tache BUILD)
