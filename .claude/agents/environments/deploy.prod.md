@@ -51,7 +51,7 @@ MSYS_NO_PATHCONV=1 kubectl --kubeconfig "$REPO_ROOT/private/kubeconfig.yml" \
 
 ```
 SendMessage({
-  to: "main",
+  to: "team-lead",
   content: "DEPLOY FAILED
 Environnement : PROD
 Version  : v[X.Y.Z]
